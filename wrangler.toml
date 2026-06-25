@@ -1,0 +1,8 @@
+name = "exam-system"
+main = "worker/index.js"
+compatibility_date = "2025-04-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "exam-db"
+database_id = "8d3aeb60-107e-41df-a235-ae63391afe94" # Set this after creating the D1 database
