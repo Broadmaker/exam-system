@@ -112,6 +112,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, marginLeft: 16 }}>
+                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm">Preview</Link>
                   <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm">Edit</Link>
                   <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm">Results</Link>
                   <button onClick={() => setDeleteTarget(e)} className="btn btn-danger btn-sm"

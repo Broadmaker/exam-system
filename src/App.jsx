@@ -5,6 +5,7 @@ import Leaderboard from './pages/Leaderboard';
 import Dashboard from './pages/admin/Dashboard';
 import CreateExam from './pages/admin/CreateExam';
 import Results from './pages/admin/Results';
+import Preview from './pages/admin/Preview';
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
       <Route path="/admin" element={<Dashboard />} />
       <Route path="/admin/create" element={<CreateExam />} />
       <Route path="/admin/results" element={<Results />} />
+      <Route path="/admin/preview" element={<Preview />} />
     </Routes>
   );
 }
