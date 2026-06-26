@@ -118,4 +118,81 @@ app.get('/api/submissions/:examId', async (c) => {
   return c.json(results);
 });
 
+// ── Shared utility functions (mirrors client-side shuffle for grading) ──
+function seededRandom(seed) {
+  let s = seed;
+  return function () {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+function shuffleWithSeed(arr, seed) {
+  const a = [...arr];
+  const rand = seededRandom(seed);
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+function parseChoices(choices) {
+  return typeof choices === 'string' ? JSON.parse(choices) : choices;
+}
+
+// ── REGRADE ─────────────────────────────────────────
+app.post('/api/regrade/:examId', async (c) => {
+  const db = c.env.DB;
+  const examId = c.req.param('examId');
+
+  // Simple admin check
+  const auth = c.req.header('Authorization');
+  const expected = c.env.VITE_ADMIN_PASSWORD || 'admin123';
+  if (auth !== expected) return c.json({ error: 'Unauthorized' }, 401);
+
+  // Fetch questions
+  const { results: questions } = await db.prepare(
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+  ).bind(examId).all();
+
+  // Fetch all submissions for this exam
+  const { results: submissions } = await db.prepare(
+    `SELECT id, student_name, student_section, seed, answers, total FROM submissions WHERE exam_id = ?`
+  ).bind(examId).all();
+
+  const updated = [];
+  for (const sub of submissions) {
+    const studentSeed = Number(sub.seed);
+    const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
+
+    // Shuffle questions the same way the client does
+    const shuffledQs = shuffleWithSeed(questions, studentSeed);
+
+    let correctCount = 0;
+    shuffledQs.forEach((q, idx) => {
+      const choices = parseChoices(q.choices);
+      const choiceSeed = studentSeed + idx * 7919;
+      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+        ...c, displayKey: String.fromCharCode(65 + ci),
+      }));
+      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
+      const chosen = submittedAnswers[q.id];
+      if (chosen === correctDisplayKey) correctCount++;
+    });
+
+    await db.prepare(
+      `UPDATE submissions SET score = ? WHERE id = ?`
+    ).bind(correctCount, sub.id).run();
+
+    updated.push({
+      name: sub.student_name,
+      section: sub.student_section,
+      old_score: sub.score,
+      new_score: correctCount,
+      total: sub.total,
+    });
+  }
+
+  return c.json({ regraded: updated.length, results: updated });
+});
+
 export default app;
