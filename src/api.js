@@ -27,4 +27,5 @@ export const api = {
   submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body) }),
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
   getSubmissions: (examId) => request('/submissions/' + examId),
+  regrade: (examId, adminPassword) => request('/regrade/' + examId, { method: 'POST', headers: { 'Authorization': adminPassword } }),
 };

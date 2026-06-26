@@ -115,6 +115,7 @@ export default function Dashboard() {
                   <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm">Preview</Link>
                   <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm">Edit</Link>
                   <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm">Results</Link>
+                  <Link to="/admin/regrade" className="btn btn-outline btn-sm" style={{ background: '#e8a020', color: '#fff', border: 'none' }}>Regrade</Link>
                   <button onClick={() => setDeleteTarget(e)} className="btn btn-danger btn-sm"
                     style={{ background: '#e8a020', border: 'none' }}
                     onMouseEnter={e => e.target.style.background = '#d4901a'}

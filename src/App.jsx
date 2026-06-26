@@ -6,6 +6,7 @@ import Dashboard from './pages/admin/Dashboard';
 import CreateExam from './pages/admin/CreateExam';
 import Results from './pages/admin/Results';
 import Preview from './pages/admin/Preview';
+import Regrade from './pages/admin/Regrade';
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
       <Route path="/admin/create" element={<CreateExam />} />
       <Route path="/admin/results" element={<Results />} />
       <Route path="/admin/preview" element={<Preview />} />
+      <Route path="/admin/regrade" element={<Regrade />} />
     </Routes>
   );
 }
