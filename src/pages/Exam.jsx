@@ -430,6 +430,7 @@ export default function Exam() {
             onAnswer={handleAnswer}
             submitted={submitted || reviewMode}
             chosenKey={answers[q.id]}
+            showAnswers={examData?.show_answers !== 0}
           />
         ))}
         <div style={{ textAlign: 'center', marginTop: 48 }}>

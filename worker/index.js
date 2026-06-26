@@ -24,9 +24,9 @@ app.post('/api/exams', async (c) => {
   const body = await c.req.json();
   const id = uuid();
   await db.prepare(
-    `INSERT INTO exams (id, title, description, time_limit, questions_per_set)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10).run();
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1).run();
   return c.json({ id }, 201);
 });
 
@@ -46,9 +46,9 @@ app.put('/api/exams/:id', async (c) => {
   const examId = c.req.param('id');
   const body = await c.req.json();
   await db.prepare(
-    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, updated_at = datetime('now')
+    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, examId).run();
+  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, examId).run();
   return c.json({ success: true });
 });
 
@@ -69,6 +69,15 @@ app.post('/api/exams/:examId/questions', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, examId, body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '', body.sort_order || 0).run();
   return c.json({ id }, 201);
+});
+
+app.put('/api/questions/:id', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  await db.prepare(
+    `UPDATE questions SET part = ?, text = ?, choices = ?, answer = ?, explain = ?, sort_order = ? WHERE id = ?`
+  ).bind(body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '', body.sort_order || 0, c.req.param('id')).run();
+  return c.json({ success: true });
 });
 
 app.delete('/api/questions/:id', async (c) => {

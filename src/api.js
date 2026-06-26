@@ -24,6 +24,7 @@ export const api = {
   deleteExam: (id) => request('/exams/' + id, { method: 'DELETE' }),
   addQuestion: (examId, body) => request('/exams/' + examId + '/questions', { method: 'POST', body: JSON.stringify(body) }),
   deleteQuestion: (id) => request('/questions/' + id, { method: 'DELETE' }),
+  updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body) }),
   submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body) }),
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
   getSubmissions: (examId) => request('/submissions/' + examId),

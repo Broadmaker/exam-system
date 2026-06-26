@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { shuffleWithSeed, renderDatasets, parseChoices } from '../utils';
 
-export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey }) {
+export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers }) {
   const qData = { ...question, choices: parseChoices(question.choices) };
   const choiceSeed = seed + index * 7919;
   const shuffled = shuffleWithSeed(qData.choices, choiceSeed).map((c, ci) => ({
@@ -34,8 +34,8 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {shuffled.map((c) => {
           const selected = chosenKey === c.displayKey;
-          const showCorrect = submitted && c.displayKey === correctKey;
-          const showWrong = submitted && selected && c.displayKey !== correctKey;
+          const showCorrect = submitted && showAnswers && c.displayKey === correctKey;
+          const showWrong = submitted && showAnswers && selected && c.displayKey !== correctKey;
           return (
             <label key={c.displayKey} onClick={() => handleChange(c.displayKey)}
               style={{
@@ -54,7 +54,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           );
         })}
       </div>
-      {submitted && (
+      {submitted && showAnswers && (
         <div style={{
           marginTop: 12, fontSize: 13, padding: '8px 14px', borderRadius: 6,
           background: isCorrect ? '#d4f5e2' : '#ffe0e0',
@@ -63,6 +63,11 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
         }}>
           {isCorrect ? '✓ Correct! ' : chosenKey ? '✗ Incorrect. ' : '✗ Not answered. '}
           {qData.explain || ''}
+        </div>
+      )}
+      {submitted && !showAnswers && (
+        <div style={{ marginTop: 12, fontSize: 12, color: '#5a7090', fontStyle: 'italic' }}>
+          {chosenKey ? 'Answered' : 'Not answered'}
         </div>
       )}
     </div>
