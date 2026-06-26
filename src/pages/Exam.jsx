@@ -125,9 +125,6 @@ export default function Exam() {
     retry();
   }, [pendingSubmit, offline, examId]);
 
-  // Keep ref in sync with latest handleSubmit
-  useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
-
   // Tab switch & split-screen detection
   useEffect(() => {
     if (!started || submitted) return;
@@ -246,6 +243,9 @@ export default function Exam() {
     setSubmitting(false);
     setSubmitted(true);
   }, [submitted, questions, answers, name, section, seed, tabSwitches, totalSeconds, answeredSet, examId]);
+
+  // Keep ref in sync with latest handleSubmit
+  useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
 
   const answeredCount = answeredSet.size;
   const totalQ = questions.length;
