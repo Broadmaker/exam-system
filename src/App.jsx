@@ -7,6 +7,8 @@ import CreateExam from './pages/admin/CreateExam';
 import Results from './pages/admin/Results';
 import Preview from './pages/admin/Preview';
 import Regrade from './pages/admin/Regrade';
+import QuestionBank from './pages/admin/QuestionBank';
+import ActivityLog from './pages/admin/ActivityLog';
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
       <Route path="/admin/results" element={<Results />} />
       <Route path="/admin/preview" element={<Preview />} />
       <Route path="/admin/regrade" element={<Regrade />} />
+      <Route path="/admin/bank" element={<QuestionBank />} />
+      <Route path="/admin/logs" element={<ActivityLog />} />
     </Routes>
   );
 }

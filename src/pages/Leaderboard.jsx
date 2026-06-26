@@ -44,7 +44,7 @@ export default function Leaderboard() {
         <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><ArrowLeft size={14} /> Home</Link>
       </header>
 
-      <main style={{ maxWidth: 800, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 800, margin: '0 auto', padding: '24px 16px' }}>
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
             <button type="button" onClick={() => setOpen(!open)}
@@ -97,7 +97,8 @@ export default function Leaderboard() {
             No scores yet. Be the first to take the exam!
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #c8d8f0', borderRadius: 12, overflow: 'hidden', boxShadow: '0 2px 12px rgba(15,32,68,.06)' }}>
+          <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #c8d8f0' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', minWidth: 500 }}>
             <thead>
               <tr style={{ background: '#0f2044', color: '#fff', fontSize: 10, textTransform: 'uppercase', letterSpacing: '.08em' }}>
                 <th style={{ padding: '12px 16px', textAlign: 'left' }}>#</th>
@@ -132,6 +133,7 @@ export default function Leaderboard() {
               })}
             </tbody>
           </table>
+          </div>
         )}
 
         <div style={{ textAlign: 'center', fontSize: 11, color: '#5a7090', marginTop: 16 }}>

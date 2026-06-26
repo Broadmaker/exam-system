@@ -36,6 +36,25 @@ CREATE TABLE submissions (
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
 );
 
+CREATE TABLE question_bank (
+  id TEXT PRIMARY KEY,
+  part INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  choices TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  explain TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE activity_log (
+  id TEXT PRIMARY KEY,
+  action TEXT NOT NULL,
+  details TEXT DEFAULT '',
+  admin_name TEXT DEFAULT 'admin',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE INDEX idx_questions_exam ON questions(exam_id);
 CREATE INDEX idx_submissions_exam ON submissions(exam_id);
 CREATE UNIQUE INDEX idx_submissions_unique ON submissions(exam_id, student_name, student_section);
+CREATE INDEX idx_activity_log_created ON activity_log(created_at DESC);

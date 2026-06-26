@@ -19,11 +19,10 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
   const isWrong = submitted && chosenKey !== undefined && chosenKey !== correctKey;
 
   return (
-      <div
+      <div className="exam-question-card"
         style={{
           background: isCorrect ? '#f0faf4' : isWrong ? '#fff5f5' : '#fff',
-          border: '1px solid #c8d8f0', borderRadius: 10, padding: '22px 24px',
-          marginBottom: 14, transition: 'box-shadow .2s',
+          border: '1px solid #c8d8f0', borderRadius: 10, marginBottom: 14, transition: 'box-shadow .2s',
           borderLeft: answered ? '3px solid #1a4fad' : isCorrect ? '3px solid #1a7a4a' : isWrong ? '3px solid #c0392b' : '1px solid #c8d8f0',
         }}>
       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: '#5a7090', marginBottom: 8 }}>

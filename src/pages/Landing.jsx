@@ -16,8 +16,8 @@ export default function Landing() {
       minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 24, background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)',
     }}>
-      <div style={{
-        background: '#fff', borderRadius: 18, padding: '48px 40px', maxWidth: 460,
+      <div className="landing-card" style={{
+        background: '#fff', borderRadius: 18, maxWidth: 460,
         width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center',
       }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, color: '#0f2044', marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>

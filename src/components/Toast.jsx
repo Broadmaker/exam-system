@@ -27,7 +27,7 @@ export default function ToastContainer() {
     <div style={{
       position: 'fixed', bottom: 20, right: 20,
       zIndex: 300, display: 'flex', flexDirection: 'column', gap: 10,
-      width: 360, pointerEvents: 'none',
+      width: 360, maxWidth: 'calc(100vw - 32px)', pointerEvents: 'none',
     }}>
       {items.map((t) => (
         <div key={t.id} onClick={() => setItems((prev) => prev.filter((x) => x.id !== t.id))}

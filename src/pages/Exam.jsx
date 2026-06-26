@@ -261,7 +261,7 @@ export default function Exam() {
   if (!started) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 16px', background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
-        <div style={{ background: '#fff', borderRadius: 18, padding: '48px 40px', maxWidth: 480, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
+        <div className="exam-gate-card" style={{ background: '#fff', borderRadius: 18, maxWidth: 480, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '.14em', color: '#1a4fad', textTransform: 'uppercase', marginBottom: 8 }}>
             {examId?.slice(0, 8)}
           </div>
@@ -310,8 +310,8 @@ export default function Exam() {
     const parts = [...new Set(questions.map(q => q.part))].sort();
     const qpp = Math.ceil(results.totalQ / parts.length);
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'rgba(10,20,40,.7)' }}>
-        <div style={{ background: '#fff', borderRadius: 16, padding: '44px 36px', maxWidth: 520, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.3)', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(10,20,40,.7)' }}>
+        <div className="exam-results-card" style={{ background: '#fff', borderRadius: 16, maxWidth: 520, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.3)', maxHeight: '90vh', overflowY: 'auto' }}>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '.12em', color: '#5a7090', textTransform: 'uppercase', marginBottom: 6 }}>{name} · {section}</div>
           <div style={{ fontSize: 68, fontWeight: 600, color: '#0f2044', lineHeight: 1, marginBottom: 4 }}>
             {results.total} <span style={{ fontSize: 28, color: '#5a7090' }}>/ {results.totalQ}</span>
@@ -368,7 +368,7 @@ export default function Exam() {
   if (submitted && !results) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
-        <div style={{ background: '#fff', borderRadius: 16, padding: '48px 40px', maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}>
+        <div className="exam-submitted-card" style={{ background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}>
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><ClipboardList size={48} /></div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044', marginBottom: 10 }}>Already Submitted</h1>
           <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
@@ -397,19 +397,19 @@ export default function Exam() {
         </div>
       )}
       <header style={{
-        background: '#0f2044', color: '#fff', padding: '16px 32px',
+        background: '#0f2044', color: '#fff', padding: '16px 24px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 20, position: 'sticky', top: 0, zIndex: 100,
-        boxShadow: '0 2px 16px rgba(0,0,0,.3)',
+        gap: 16, position: 'sticky', top: 0, zIndex: 100,
+        boxShadow: '0 2px 16px rgba(0,0,0,.3)', flexWrap: 'wrap',
       }}>
-        <div>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '.12em', color: '#e8a020', textTransform: 'uppercase', marginBottom: 2 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '.12em', color: '#e8a020', textTransform: 'uppercase', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
             {examData?.title}
           </div>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{name}</div>
           <div style={{ fontSize: 11, color: '#9ab' }}>{section}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 10, color: '#9ab', marginBottom: 4 }}>{answeredCount} / {totalQ} answered</div>
             <div style={{ background: 'rgba(255,255,255,.15)', borderRadius: 4, height: 5, width: 120, overflow: 'hidden' }}>
@@ -420,7 +420,7 @@ export default function Exam() {
         </div>
       </header>
 
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '36px 24px 80px' }}>
+      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px 80px' }}>
         {questions.map((q, i) => (
           <QuestionCard
             key={q.id}

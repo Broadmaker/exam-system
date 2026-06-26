@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../../api';
-import AuthGate from '../../components/AuthGate';
+import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, ArrowLeft, ChevronDown } from 'lucide-react';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, ChevronDown } from 'lucide-react';
 
 export default function CreateExam() {
-  return <AuthGate><CreateExamInner /></AuthGate>;
+  return <AdminLayout title={useSearchParams()[0].get('id') ? 'Edit Exam' : 'Create Exam'}><CreateExamInner /></AdminLayout>;
 }
 
 const inputStyle = {
@@ -178,12 +178,7 @@ function CreateExamInner() {
         </div>
       )}
 
-      <header className="app-header">
-        <h1>{examId ? 'Edit Exam' : 'Create Exam'}</h1>
-        <Link to="/admin" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><ArrowLeft size={14} /> Dashboard</Link>
-      </header>
-
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
         {/* Exam Details */}
         <div className="card">
           <div style={{
@@ -282,8 +277,8 @@ function CreateExamInner() {
                 })}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
-              <div style={{ flex: 1 }}>
+            <div style={{ display: 'flex', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 180px' }}>
                 <label style={labelStyle}>Correct Answer</label>
                 <div style={{ position: 'relative' }}>
                   <select value={qAnswer} onChange={e => setQAnswer(e.target.value)}
@@ -308,7 +303,7 @@ function CreateExamInner() {
                   </div>
                 </div>
               </div>
-              <div style={{ flex: 1 }}>
+              <div style={{ flex: '1 1 180px' }}>
                 <label style={labelStyle}>Explanation <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
                 <input value={qExplain} onChange={e => setQExplain(e.target.value)}
                   placeholder="Shown after submission" style={inputStyle} />
@@ -318,6 +313,22 @@ function CreateExamInner() {
               style={{ opacity: adding ? .7 : 1 }}>
               {adding ? 'Adding...' : <><Plus size={16} /> Add Question</>}
             </button>
+          </div>
+        )}
+
+        {/* Bulk Import & Bank Import */}
+        {examId && (
+          <div className="card" style={{ marginTop: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #c8d8f0' }}>
+              <HelpCircle size={20} />
+              <h2 style={{ fontSize: 16, color: '#0f2044' }}>Import Questions</h2>
+            </div>
+
+            {/* Bulk Import */}
+            <BulkImportSection examId={examId} onImported={() => { api.getExam(examId).then(d => setQuestions(d.questions || [])); showToast('Questions imported!'); }} showToast={showToast} />
+
+            {/* From Bank */}
+            <BankImportSection examId={examId} onImported={() => { api.getExam(examId).then(d => setQuestions(d.questions || [])); showToast('Questions imported from bank!'); }} showToast={showToast} />
           </div>
         )}
 
@@ -479,9 +490,126 @@ function CreateExamInner() {
           </div>
         )}
       </main>
-      <div style={{ textAlign: 'center', fontSize: 11, color: '#5a7090', padding: '20px 24px' }}>
-        Exam System v1.0 &nbsp;·&nbsp; © {new Date().getFullYear()} M.K Sanig. All rights reserved.
       </div>
+  );
+}
+
+function BulkImportSection({ examId, onImported, showToast }) {
+  const [open, setOpen] = useState(false);
+  const [json, setJson] = useState('');
+  const [importing, setImporting] = useState(false);
+
+  const doImport = async () => {
+    let questions;
+    try { questions = JSON.parse(json); } catch { return showToast('Invalid JSON'); }
+    if (!Array.isArray(questions) || !questions.length) return showToast('Provide an array of questions');
+    setImporting(true);
+    try {
+      await api.bulkImportQuestions(examId, questions, 0);
+      setJson(''); setOpen(false);
+      onImported();
+    } catch (e) { showToast(e.message); }
+    setImporting(false);
+  };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <button onClick={() => setOpen(!open)} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Plus size={14} /> {open ? 'Close Bulk Import' : 'Bulk Import JSON'}
+      </button>
+      {open && (
+        <div style={{ marginTop: 12 }}>
+          <p style={{ fontSize: 12, color: '#5a7090', marginBottom: 8 }}>
+            Paste a JSON array of questions. Each object: {`{ "text": "...", "choices": [{"key":"A","text":"..."},...], "answer": "A", "part": 1, "explain": "..." }`}
+          </p>
+          <textarea value={json} onChange={e => setJson(e.target.value)}
+            placeholder='[{"text":"What is 2+2?","choices":[{"key":"A","text":"3"},{"key":"B","text":"4"},{"key":"C","text":"5"}],"answer":"B","part":1}]'
+            style={{ width: '100%', minHeight: 120, border: '1.5px solid #c8d8f0', borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", resize: 'vertical', outline: 'none' }} />
+          <button onClick={doImport} disabled={importing || !json.trim()} className="btn btn-sm" style={{ marginTop: 8, opacity: importing ? .7 : 1 }}>
+            {importing ? 'Importing...' : 'Import ' + (() => { try { const q = JSON.parse(json); return Array.isArray(q) ? q.length + ' question(s)' : ''; } catch { return ''; } })()}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BankImportSection({ examId, onImported, showToast }) {
+  const [open, setOpen] = useState(false);
+  const [bank, setBank] = useState([]);
+  const [selected, setSelected] = useState(new Set());
+  const [importing, setImporting] = useState(false);
+
+  const loadBank = async () => {
+    try {
+      const data = await api.listBank();
+      setBank(data);
+      setOpen(true);
+      setSelected(new Set());
+    } catch (e) { showToast(e.message); }
+  };
+
+  const toggle = (id) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+
+  const doImport = async () => {
+    const toImport = bank.filter(q => selected.has(q.id));
+    if (!toImport.length) return showToast('Select at least one question');
+    setImporting(true);
+    try {
+      const formatted = toImport.map(q => ({
+        part: q.part, text: q.text,
+        choices: typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices,
+        answer: q.answer, explain: q.explain || '',
+      }));
+      await api.bulkImportQuestions(examId, formatted, 0);
+      setOpen(false);
+      onImported();
+    } catch (e) { showToast(e.message); }
+    setImporting(false);
+  };
+
+  return (
+    <div>
+      <button onClick={loadBank} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Plus size={14} /> Import from Question Bank
+      </button>
+      {open && (
+        <div style={{ marginTop: 12, border: '1px solid #c8d8f0', borderRadius: 10, padding: 16, background: '#f5f8ff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#0f2044' }}>Select questions to import</span>
+            <button onClick={() => setOpen(false)} className="btn btn-sm btn-outline">Cancel</button>
+          </div>
+          {!bank.length ? (
+            <p style={{ fontSize: 13, color: '#5a7090' }}>Bank is empty.</p>
+          ) : (
+            <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {bank.map(q => (
+                <label key={q.id} onClick={() => toggle(q.id)} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                  border: `1px solid ${selected.has(q.id) ? '#1a4fad' : '#c8d8f0'}`,
+                  borderRadius: 6, cursor: 'pointer', fontSize: 13,
+                  background: selected.has(q.id) ? '#ddeeff' : '#fff',
+                }}>
+                  <input type="checkbox" checked={selected.has(q.id)} onChange={() => {}} style={{ accentColor: '#1a4fad' }} />
+                  <span style={{ fontSize: 10, background: '#0f2044', color: '#fff', padding: '1px 6px', borderRadius: 3, fontWeight: 600, whiteSpace: 'nowrap' }}>Part {q.part}</span>
+                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.text}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {selected.size > 0 && (
+            <button onClick={doImport} disabled={importing} className="btn btn-sm" style={{ marginTop: 12, opacity: importing ? .7 : 1 }}>
+              {importing ? 'Importing...' : `Import ${selected.size} question${selected.size > 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api';
-import AuthGate from '../../components/AuthGate';
+import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { Plus, ClipboardList, Trash2, Clock, BarChart3 } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil } from 'lucide-react';
 
 export default function Dashboard() {
   const [exams, setExams] = useState([]);
@@ -23,7 +23,7 @@ export default function Dashboard() {
   };
 
   return (
-    <AuthGate>
+    <AdminLayout title="Dashboard">
       {toast && (
         <div style={{
           position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
@@ -36,34 +36,19 @@ export default function Dashboard() {
         </div>
       )}
 
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <h1>Exam Admin</h1>
-        </div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <Link to="/" style={{ color: '#e8a020', fontSize: 14, textDecoration: 'none' }}>Student Portal</Link>
-          <span style={{ color: 'rgba(255,255,255,.2)' }}>|</span>
-          <button onClick={() => { sessionStorage.removeItem('admin_auth'); window.location.reload(); }}
-            style={{
-              background: 'rgba(255,255,255,.1)', border: '1px solid rgba(255,255,255,.25)',
-              color: '#fff', borderRadius: 6, padding: '6px 14px', fontSize: 12, cursor: 'pointer', transition: 'background .2s',
-            }}
-            onMouseEnter={e => e.target.style.background = 'rgba(255,255,255,.2)'}
-            onMouseLeave={e => e.target.style.background = 'rgba(255,255,255,.1)'}>
-            Logout
-          </button>
-        </div>
-      </header>
 
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 24px' }}>
+
+      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 16px' }}>
         <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12,
         }}>
           <div>
             <h2 style={{ fontSize: 20, color: '#0f2044' }}>All Exams</h2>
             <p style={{ fontSize: 13, color: '#5a7090', marginTop: 4 }}>{exams.length} exam{exams.length !== 1 ? 's' : ''} total</p>
           </div>
-          <Link to="/admin/create" className="btn" style={{ padding: '12px 24px', display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={16} /> New Exam</Link>
+          <Link to="/admin/create" className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px' }}>
+            <Plus size={16} /> New Exam
+          </Link>
         </div>
 
         {!exams.length ? (
@@ -79,7 +64,7 @@ export default function Dashboard() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {exams.map(e => (
-              <div key={e.id} className="card" style={{
+              <div key={e.id} className="card dashboard-exam-card" style={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 transition: 'box-shadow .2s, transform .15s',
               }}
@@ -111,16 +96,15 @@ export default function Dashboard() {
                     </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 8, marginLeft: 16 }}>
-                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm">Preview</Link>
-                  <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm">Edit</Link>
-                  <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm">Results</Link>
-                  <Link to="/admin/regrade" className="btn btn-outline btn-sm" style={{ background: '#e8a020', color: '#fff', border: 'none' }}>Regrade</Link>
-                  <button onClick={() => setDeleteTarget(e)} className="btn btn-danger btn-sm"
-                    style={{ background: '#e8a020', border: 'none' }}
-                    onMouseEnter={e => e.target.style.background = '#d4901a'}
-                    onMouseLeave={e => e.target.style.background = '#e8a020'}>
-                    Delete
+                <div style={{ display: 'flex', gap: 4, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm" title="Preview"><Eye size={14} /></Link>
+                  <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm" title="Edit"><Pencil size={14} /></Link>
+                  <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm" title="Scores"><BarChart3 size={14} /></Link>
+                  <button onClick={() => setDeleteTarget(e)} className="btn btn-sm"
+                    style={{ background: '#c0392b', color: '#fff', border: 'none' }}
+                    onMouseEnter={el => el.target.style.background = '#e74c3c'}
+                    onMouseLeave={el => el.target.style.background = '#c0392b'}>
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
@@ -170,9 +154,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div style={{ textAlign: 'center', fontSize: 11, color: '#5a7090', padding: '20px 24px' }}>
-        Exam System v1.0 &nbsp;·&nbsp; © {new Date().getFullYear()} M.K Sanig. All rights reserved.
-      </div>
-    </AuthGate>
+    </AdminLayout>
   );
 }

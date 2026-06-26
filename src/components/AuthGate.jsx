@@ -30,8 +30,8 @@ export default function AuthGate({ children }) {
         minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)', padding: 24,
       }}>
-        <div style={{
-          background: '#fff', borderRadius: 18, padding: '48px 40px', maxWidth: 400,
+        <div className="auth-card" style={{
+          background: '#fff', borderRadius: 18, maxWidth: 400,
           width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)', textAlign: 'center',
         }}>
           <div style={{

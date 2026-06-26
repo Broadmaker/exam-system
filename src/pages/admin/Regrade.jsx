@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../../api';
-import AuthGate from '../../components/AuthGate';
+import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { RotateCcw, CheckCircle, AlertTriangle, ArrowLeft, Loader } from 'lucide-react';
+import { RotateCcw, CheckCircle, AlertTriangle, Loader } from 'lucide-react';
 
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
 
@@ -31,17 +30,8 @@ export default function Regrade() {
   };
 
   return (
-    <AuthGate>
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <h1>Regrade Submissions</h1>
-        </div>
-        <Link to="/admin" style={{ color: '#e8a020', fontSize: 14, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <ArrowLeft size={14} /> Back to Dashboard
-        </Link>
-      </header>
-
-      <main style={{ maxWidth: 700, margin: '0 auto', padding: '32px 24px' }}>
+    <AdminLayout title="Regrade Submissions">
+      <main style={{ maxWidth: 700, margin: '0 auto', padding: '24px 16px' }}>
         <div className="card" style={{ padding: 28 }}>
           <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 20, lineHeight: 1.6 }}>
             Recalculates scores for all past submissions using the fixed grading logic.
@@ -113,6 +103,6 @@ export default function Regrade() {
           </div>
         )}
       </main>
-    </AuthGate>
+    </AdminLayout>
   );
 }

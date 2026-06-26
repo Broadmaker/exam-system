@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
-import AuthGate from '../../components/AuthGate';
+import AdminLayout from '../../components/AdminLayout';
 import { parseChoices } from '../../utils';
 import '../../styles.css';
-import { FileText, ArrowLeft } from 'lucide-react';
+import { FileText } from 'lucide-react';
 
 export default function Preview() {
-  return <AuthGate><PreviewInner /></AuthGate>;
+  return <AdminLayout title="Preview Exam"><PreviewInner /></AdminLayout>;
 }
 
 function PreviewInner() {
@@ -24,6 +24,7 @@ function PreviewInner() {
     }).catch(() => setLoading(false));
   }, [examId]);
 
+  if (!examId) return <div style={{ textAlign: 'center', padding: 60, color: '#5a7090' }}>Select an exam from the Dashboard to preview.</div>;
   if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#5a7090' }}>Loading exam...</div>;
   if (!exam) return <div style={{ textAlign: 'center', padding: 60, color: '#c0392b' }}>Exam not found</div>;
 
@@ -31,17 +32,7 @@ function PreviewInner() {
 
   return (
     <div>
-      <header className="app-header">
-        <div>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}><FileText size={20} /> {exam.title}</h1>
-          <p style={{ fontSize: 13, color: '#9ab', marginTop: 4 }}>
-            {exam.questions?.length || 0} questions · {exam.time_limit} minutes · Preview only
-          </p>
-        </div>
-        <Link to="/admin" style={{ display: 'flex', alignItems: 'center', gap: 4 }}><ArrowLeft size={14} /> Dashboard</Link>
-      </header>
-
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '32px 24px' }}>
+      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
         {exam.description && (
           <div style={{ background: '#f5f8ff', border: '1px solid #c8d8f0', borderRadius: 10, padding: '16px 20px', marginBottom: 24, fontSize: 13, color: '#5a7090' }}>
             {exam.description}
@@ -115,9 +106,6 @@ function PreviewInner() {
         )}
       </main>
 
-      <div style={{ textAlign: 'center', fontSize: 11, color: '#5a7090', padding: '20px 24px' }}>
-        Exam System v1.0 &nbsp;·&nbsp; © {new Date().getFullYear()} M.K Sanig. All rights reserved.
-      </div>
     </div>
   );
 }
