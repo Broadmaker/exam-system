@@ -70,8 +70,8 @@ export default function Leaderboard() {
                 {exams.length === 0 ? (
                   <div style={{ padding: '14px 16px', color: '#9ab', fontSize: 13, textAlign: 'center' }}>No exams available</div>
                 ) : (
-                  exams.map(e => (
-                    <div key={e.id} onClick={() => { setExamId(e.id); setOpen(false); }}
+                    exams.map(e => (
+                      <div key={e.id} onMouseDown={() => { setExamId(e.id); setOpen(false); }}
                       style={{
                         padding: '11px 16px', cursor: 'pointer', fontSize: 14,
                         background: e.id === examId ? '#ddeeff' : 'transparent',
