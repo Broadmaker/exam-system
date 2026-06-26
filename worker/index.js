@@ -156,7 +156,7 @@ app.post('/api/regrade/:examId', async (c) => {
 
   // Fetch all submissions for this exam
   const { results: submissions } = await db.prepare(
-    `SELECT id, student_name, student_section, seed, answers, total FROM submissions WHERE exam_id = ?`
+    `SELECT id, student_name, student_section, seed, answers, score, total FROM submissions WHERE exam_id = ?`
   ).bind(examId).all();
 
   const updated = [];
