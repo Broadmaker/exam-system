@@ -40,6 +40,7 @@ export default function Exam() {
 
   const cooldownRef = useRef(false);
   const startTimeRef = useRef(null);
+  const handleSubmitRef = useRef(null);
 
   useEffect(() => {
     if (!examId) { setLoading(false); setError('No exam ID provided'); return; }
@@ -122,6 +123,9 @@ export default function Exam() {
     retry();
   }, [pendingSubmit, offline, examId]);
 
+  // Keep ref in sync with latest handleSubmit
+  useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
+
   // Tab switch detection
   useEffect(() => {
     if (!started || submitted) return;
@@ -133,7 +137,7 @@ export default function Exam() {
         const next = prev + 1;
         if (next >= 3) {
           toast('3rd Violation — Exam Auto-Submitted', 'You switched away too many times.');
-          setTimeout(() => handleSubmit(), 1500);
+          setTimeout(() => handleSubmitRef.current(), 1500);
         } else {
           toast('You ' + source + '!', 'Violation #' + next + ' of 3 — Next will auto-submit.');
         }
