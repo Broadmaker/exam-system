@@ -5,6 +5,8 @@ import AuthGate from '../../components/AuthGate';
 import '../../styles.css';
 import { RotateCcw, CheckCircle, AlertTriangle, ArrowLeft, Loader } from 'lucide-react';
 
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
+
 export default function Regrade() {
   const [exams, setExams] = useState([]);
   const [selectedId, setSelectedId] = useState('');
@@ -20,7 +22,7 @@ export default function Regrade() {
     setResult(null);
     setError('');
     try {
-      const data = await api.regrade(selectedId, 'wmsu_123');
+      const data = await api.regrade(selectedId, ADMIN_PASSWORD);
       setResult(data);
     } catch (e) {
       setError(e.message);
