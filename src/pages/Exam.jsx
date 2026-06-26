@@ -208,7 +208,9 @@ export default function Exam() {
       }
     });
 
-    const timeTaken = Math.floor((Date.now() - startTimeRef.current) / 1000);
+    const timeTaken = startTimeRef.current
+      ? Math.floor((Date.now() - startTimeRef.current) / 1000)
+      : examData.time_limit * 60 - totalSeconds;
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({

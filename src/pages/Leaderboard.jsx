@@ -48,7 +48,7 @@ export default function Leaderboard() {
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
           <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
             <button type="button" onClick={() => setOpen(!open)}
-              onBlur={() => setTimeout(() => setOpen(false), 150)}
+              onBlur={e => { setTimeout(() => setOpen(false), 150); e.currentTarget.style.borderColor = '#d0ddf0'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(15,32,68,.06)'; }}
               style={{
                 width: '100%', padding: '11px 40px 11px 16px', borderRadius: 10, fontSize: 14,
                 fontFamily: 'inherit', border: '2px solid #d0ddf0', background: '#f5f8ff',
@@ -57,8 +57,7 @@ export default function Leaderboard() {
                 transition: 'border-color .2s, box-shadow .2s',
                 boxShadow: '0 1px 4px rgba(15,32,68,.06)',
               }}
-              onFocus={e => { e.currentTarget.style.borderColor = '#1a4fad'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(26,79,173,.12)'; }}
-              onBlur={e => { e.currentTarget.style.borderColor = '#d0ddf0'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(15,32,68,.06)'; }}>
+              onFocus={e => { e.currentTarget.style.borderColor = '#1a4fad'; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(26,79,173,.12)'; }}>
               <span>{examId ? (examTitle || 'Loading...') : '— Select an exam —'}</span>
               <ChevronDown size={18} style={{ transition: 'transform .2s', transform: open ? 'rotate(180deg)' : 'none' }} />
             </button>

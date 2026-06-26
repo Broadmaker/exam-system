@@ -5,6 +5,11 @@ export default function Timer({ initialSeconds, onExpire, onTick }) {
   const [className, setClassName] = useState('');
   const intervalRef = useRef(null);
   const secondsRef = useRef(initialSeconds);
+  const onExpireRef = useRef(onExpire);
+  const onTickRef = useRef(onTick);
+
+  useEffect(() => { onExpireRef.current = onExpire; }, [onExpire]);
+  useEffect(() => { onTickRef.current = onTick; }, [onTick]);
 
   useEffect(() => {
     secondsRef.current = initialSeconds;
@@ -20,10 +25,10 @@ export default function Timer({ initialSeconds, onExpire, onTick }) {
           : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
       );
       setClassName(s <= 300 ? 'danger' : s <= 900 ? 'warn' : '');
-      if (onTick) onTick(s);
+      if (onTickRef.current) onTickRef.current(s);
       if (s <= 0) {
         clearInterval(intervalRef.current);
-        if (onExpire) onExpire();
+        if (onExpireRef.current) onExpireRef.current();
       }
     }, 1000);
 
