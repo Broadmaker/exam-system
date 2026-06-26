@@ -39,6 +39,8 @@ export default function Exam() {
   const [pendingSubmit, setPendingSubmit] = useState(null);
 
   const cooldownRef = useRef(false);
+  const resizeCooldownRef = useRef(false);
+  const resizeTimerRef = useRef(null);
   const startTimeRef = useRef(null);
   const handleSubmitRef = useRef(null);
 
@@ -126,7 +128,7 @@ export default function Exam() {
   // Keep ref in sync with latest handleSubmit
   useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
 
-  // Tab switch detection
+  // Tab switch & split-screen detection
   useEffect(() => {
     if (!started || submitted) return;
     const trigger = (source) => {
@@ -146,11 +148,22 @@ export default function Exam() {
     };
     const onVis = () => { if (document.hidden) trigger('left the exam tab'); };
     const onBlur = () => trigger('switched away from the exam window');
+    const onResize = () => {
+      if (resizeCooldownRef.current) return;
+      const ratio = window.outerWidth / window.screen.availWidth;
+      if (window.screen.availWidth >= 1024 && ratio < 0.55) {
+        resizeCooldownRef.current = true;
+        setTimeout(() => { resizeCooldownRef.current = false; }, 5000);
+        trigger('resized the window (possible split-screen)');
+      }
+    };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('resize', onResize);
     return () => {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('resize', onResize);
     };
   }, [started, submitted]);
 
