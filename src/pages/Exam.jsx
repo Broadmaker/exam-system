@@ -193,11 +193,15 @@ export default function Exam() {
     let total = 0;
     const partScores = {};
     const qs = questions;
-    qs.forEach(q => {
-      const qData = parseChoices(q.choices);
-      const correctKey = qData.find(c => c.key === q.answer)?.key;
+    qs.forEach((q, idx) => {
+      const choices = parseChoices(q.choices);
+      const choiceSeed = Number(seed) + idx * 7919;
+      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+        ...c, displayKey: String.fromCharCode(65 + ci),
+      }));
+      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
       const chosen = answers[q.id];
-      const isCorrect = chosen === correctKey || chosen === q.answer;
+      const isCorrect = chosen === correctDisplayKey;
       if (isCorrect) {
         total++;
         partScores[q.part] = (partScores[q.part] || 0) + 1;
