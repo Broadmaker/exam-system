@@ -81,19 +81,21 @@ app.post('/api/exams/:examId/questions', async (c) => {
   const examId = c.req.param('examId');
   const body = await c.req.json();
   const id = uuid();
+  const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `INSERT INTO questions (id, exam_id, part, text, choices, answer, explain, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, examId, body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '', body.sort_order || 0).run();
+    `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, examId, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0).run();
   return c.json({ id }, 201);
 });
 
 app.put('/api/questions/:id', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
+  const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `UPDATE questions SET part = ?, text = ?, choices = ?, answer = ?, explain = ?, sort_order = ? WHERE id = ?`
-  ).bind(body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '', body.sort_order || 0, c.req.param('id')).run();
+    `UPDATE questions SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, sort_order = ? WHERE id = ?`
+  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0, c.req.param('id')).run();
   return c.json({ success: true });
 });
 
@@ -113,10 +115,11 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     const id = uuid();
+    const qType = q.type || 'multiple_choice';
     await db.prepare(
-      `INSERT INTO questions (id, exam_id, part, text, choices, answer, explain, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, examId, q.part || 1, q.text, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i).run();
+      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, examId, q.part || 1, q.text, qType, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i).run();
     added.push(id);
   }
   await log(db, 'bulk_import', 'Imported ' + added.length + ' questions into exam ' + examId);
@@ -137,10 +140,11 @@ app.post('/api/bank', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
   const id = uuid();
+  const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `INSERT INTO question_bank (id, part, text, choices, answer, explain)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '').run();
+    `INSERT INTO question_bank (id, part, text, type, choices, answer, explain)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '').run();
   await log(db, 'bank_added', 'Added question to bank (part ' + body.part + ')');
   return c.json({ id }, 201);
 });
@@ -149,9 +153,10 @@ app.put('/api/bank/:id', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
+  const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `UPDATE question_bank SET part = ?, text = ?, choices = ?, answer = ?, explain = ? WHERE id = ?`
-  ).bind(body.part, body.text, JSON.stringify(body.choices), body.answer, body.explain || '', c.req.param('id')).run();
+    `UPDATE question_bank SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ? WHERE id = ?`
+  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', c.req.param('id')).run();
   await log(db, 'bank_updated', 'Updated bank question ' + c.req.param('id'));
   return c.json({ success: true });
 });
@@ -232,8 +237,30 @@ app.get('/api/analytics/:examId', async (c) => {
   const totalStudents = submissions.length;
 
   const analytics = questions.map((q, qIdx) => {
+    const qType = q.type || 'multiple_choice';
+
+    if (qType === 'fill_blank') {
+      let correctCount = 0;
+      submissions.forEach(sub => {
+        const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
+        const studentAnswer = (submittedAnswers[q.id] || '').trim().toLowerCase();
+        const correctAnswer = (q.answer || '').trim().toLowerCase();
+        if (studentAnswer === correctAnswer) correctCount++;
+      });
+      return {
+        questionId: q.id,
+        text: q.text,
+        part: q.part,
+        type: qType,
+        sortOrder: q.sort_order,
+        total: totalStudents,
+        correct: correctCount,
+        answer: q.answer,
+      };
+    }
+
     const choices = parseChoices(q.choices);
-    const choiceMap = {}; // actual key -> { text, count, correct }
+    const choiceMap = {};
     choices.forEach(c => {
       choiceMap[c.key] = { text: c.text, count: 0, correct: c.key === q.answer };
     });
@@ -258,6 +285,7 @@ app.get('/api/analytics/:examId', async (c) => {
       questionId: q.id,
       text: q.text,
       part: q.part,
+      type: qType,
       sortOrder: q.sort_order,
       total: totalStudents,
       correct: correctCount,
@@ -316,6 +344,13 @@ app.post('/api/regrade/:examId', async (c) => {
 
     let correctCount = 0;
     shuffledQs.forEach((q, idx) => {
+      const qType = q.type || 'multiple_choice';
+      if (qType === 'fill_blank') {
+        const studentAnswer = (submittedAnswers[q.id] || '').trim().toLowerCase();
+        const correctAnswer = (q.answer || '').trim().toLowerCase();
+        if (studentAnswer === correctAnswer) correctCount++;
+        return;
+      }
       const choices = parseChoices(q.choices);
       const choiceSeed = studentSeed + idx * 7919;
       const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({

@@ -134,32 +134,38 @@ function ResultsInner() {
                   </div>
                   <div style={{ fontSize: 13, lineHeight: 1.5, marginBottom: 10, color: '#1a2a3a' }}
                     dangerouslySetInnerHTML={{ __html: q.text }} />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {q.choices.map(c => {
-                      const pct = q.total ? Math.round((c.count / q.total) * 100) : 0;
-                      return (
-                        <div key={c.key} style={{
-                          display: 'flex', alignItems: 'center', gap: 6,
-                          padding: '6px 10px', borderRadius: 6, fontSize: 12,
-                          background: c.correct ? '#d4f5e2' : '#fff',
-                          border: `1.5px solid ${c.correct ? '#1a7a4a' : '#c8d8f0'}`,
-                          color: c.correct ? '#1a7a4a' : '#1a2a3a',
-                          fontWeight: c.correct ? 600 : 400,
-                        }}>
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 11, minWidth: 14 }}>
-                            {c.key})
-                          </span>
-                          <span>{c.text}</span>
-                          <span style={{
-                            marginLeft: 4, background: c.correct ? '#1a7a4a' : '#eef2f7', color: c.correct ? '#fff' : '#5a7090',
-                            borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 600,
+                  {q.type === 'fill_blank' ? (
+                    <div style={{ fontSize: 12, color: '#5a7090' }}>
+                      Correct answer: <strong>{q.answer}</strong>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {(q.choices || []).map(c => {
+                        const pct = q.total ? Math.round((c.count / q.total) * 100) : 0;
+                        return (
+                          <div key={c.key} style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            padding: '6px 10px', borderRadius: 6, fontSize: 12,
+                            background: c.correct ? '#d4f5e2' : '#fff',
+                            border: `1.5px solid ${c.correct ? '#1a7a4a' : '#c8d8f0'}`,
+                            color: c.correct ? '#1a7a4a' : '#1a2a3a',
+                            fontWeight: c.correct ? 600 : 400,
                           }}>
-                            {c.count} ({pct}%)
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 11, minWidth: 14 }}>
+                              {c.key})
+                            </span>
+                            <span>{c.text}</span>
+                            <span style={{
+                              marginLeft: 4, background: c.correct ? '#1a7a4a' : '#eef2f7', color: c.correct ? '#fff' : '#5a7090',
+                              borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 600,
+                            }}>
+                              {c.count} ({pct}%)
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

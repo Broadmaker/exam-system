@@ -61,6 +61,7 @@ function PreviewInner() {
                 .filter(q => q.part === part)
                 .sort((a, b) => a.sort_order - b.sort_order)
                 .map((q, i) => {
+                  const qType = q.type || 'multiple_choice';
                   const choices = parseChoices(q.choices);
                   return (
                     <div key={q.id} style={{
@@ -72,24 +73,34 @@ function PreviewInner() {
                       </div>
                       <div style={{ fontSize: 14.5, lineHeight: 1.6, marginBottom: 14 }}
                         dangerouslySetInnerHTML={{ __html: q.text }} />
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {choices.map(c => (
-                          <div key={c.key} style={{
-                            display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                            border: `1.5px solid ${c.key === q.answer ? '#1a7a4a' : '#c8d8f0'}`,
-                            borderRadius: 6, fontSize: 14,
-                            background: c.key === q.answer ? '#d4f5e2' : '#f8faff',
-                            color: c.key === q.answer ? '#1a7a4a' : '#1a2a3a',
-                            fontWeight: c.key === q.answer ? 600 : 400,
-                          }}>
-                            <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, minWidth: 18 }}>
-                              {c.key})
-                            </span>
-                            <span>{c.text}</span>
-                            {c.key === q.answer && <span style={{ marginLeft: 'auto', fontSize: 12 }}>✓</span>}
-                          </div>
-                        ))}
-                      </div>
+                      {qType === 'fill_blank' ? (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
+                          border: '1.5px dashed #1a4fad', borderRadius: 6, fontSize: 14,
+                          background: '#f8faff', color: '#1a4fad',
+                        }}>
+                          Answer: <strong>{q.answer}</strong>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {choices.map(c => (
+                            <div key={c.key} style={{
+                              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+                              border: `1.5px solid ${c.key === q.answer ? '#1a7a4a' : '#c8d8f0'}`,
+                              borderRadius: 6, fontSize: 14,
+                              background: c.key === q.answer ? '#d4f5e2' : '#f8faff',
+                              color: c.key === q.answer ? '#1a7a4a' : '#1a2a3a',
+                              fontWeight: c.key === q.answer ? 600 : 400,
+                            }}>
+                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, minWidth: 18 }}>
+                                {c.key})
+                              </span>
+                              <span>{c.text}</span>
+                              {c.key === q.answer && <span style={{ marginLeft: 'auto', fontSize: 12 }}>✓</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {q.explain && (
                         <div style={{
                           marginTop: 12, fontSize: 12, color: '#1a4fad', lineHeight: 1.5,

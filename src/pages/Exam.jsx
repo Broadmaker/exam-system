@@ -204,14 +204,22 @@ export default function Exam() {
     const partScores = {};
     const qs = questions;
     qs.forEach((q, idx) => {
-      const choices = parseChoices(q.choices);
-      const choiceSeed = Number(seed) + idx * 7919;
-      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-        ...c, displayKey: String.fromCharCode(65 + ci),
-      }));
-      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
-      const chosen = answers[q.id];
-      const isCorrect = chosen === correctDisplayKey;
+      const qType = q.type || 'multiple_choice';
+      let isCorrect = false;
+      if (qType === 'fill_blank') {
+        const studentAnswer = (answers[q.id] || '').trim().toLowerCase();
+        const correctAnswer = (q.answer || '').trim().toLowerCase();
+        isCorrect = studentAnswer === correctAnswer;
+      } else {
+        const choices = parseChoices(q.choices);
+        const choiceSeed = Number(seed) + idx * 7919;
+        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+          ...c, displayKey: String.fromCharCode(65 + ci),
+        }));
+        const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
+        const chosen = answers[q.id];
+        isCorrect = chosen === correctDisplayKey;
+      }
       if (isCorrect) {
         total++;
         partScores[q.part] = (partScores[q.part] || 0) + 1;
