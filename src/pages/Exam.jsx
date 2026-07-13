@@ -164,6 +164,52 @@ export default function Exam() {
     };
   }, [started, submitted]);
 
+  // Disable right-click, copy/paste shortcuts, devtools during exam
+  useEffect(() => {
+    if (!started || submitted) return;
+    document.body.classList.add('exam-active');
+
+    const onContextMenu = (e) => { e.preventDefault(); };
+    const onKeyDown = (e) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      const key = e.key.toLowerCase();
+      if (ctrl && ['c', 'v', 'x', 'a', 'u', 's', 'p'].includes(key)) {
+        e.preventDefault();
+      }
+      if (e.key === 'F12' || (ctrl && e.shiftKey && ['i', 'j'].includes(key))) {
+        e.preventDefault();
+      }
+    };
+    const onCopy = (e) => e.preventDefault();
+    const onCut = (e) => e.preventDefault();
+    const onPaste = (e) => e.preventDefault();
+    const onSelectStart = (e) => {
+      if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+      }
+    };
+    const onDragStart = (e) => e.preventDefault();
+
+    document.addEventListener('contextmenu', onContextMenu);
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    document.addEventListener('paste', onPaste);
+    document.addEventListener('selectstart', onSelectStart, true);
+    document.addEventListener('dragstart', onDragStart);
+
+    return () => {
+      document.body.classList.remove('exam-active');
+      document.removeEventListener('contextmenu', onContextMenu);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+      document.removeEventListener('paste', onPaste);
+      document.removeEventListener('selectstart', onSelectStart, true);
+      document.removeEventListener('dragstart', onDragStart);
+    };
+  }, [started, submitted]);
+
   const startExam = () => {
     if (!name.trim() || !section.trim() || !date.trim()) {
       setGateError('Please fill in all fields.');

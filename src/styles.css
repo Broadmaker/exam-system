@@ -56,6 +56,21 @@ header.app-header a { color: var(--accent); font-size: 13px; }
   .card { padding: 20px 24px; }
 }
 
+/* ── Exam anti-cheat: disable selection and copy ── */
+body.exam-active {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+body.exam-active input,
+body.exam-active textarea {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
 /* ── Page cards (mobile-first padding) ── */
 
 .landing-card,
