@@ -43,6 +43,21 @@ export default function Exam() {
   const resizeTimerRef = useRef(null);
   const startTimeRef = useRef(null);
   const handleSubmitRef = useRef(null);
+  const fsWasActiveRef = useRef(false);
+  const fsSupportedRef = useRef(typeof document !== 'undefined' && !!document.fullscreenEnabled);
+  const [fsBlocked, setFsBlocked] = useState(false);
+
+  const enterFullscreen = useCallback(() => {
+    if (!fsSupportedRef.current) return;
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) {
+      try {
+        const p = req.call(el);
+        if (p && p.catch) p.catch(() => {});
+      } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     if (!examId) { setLoading(false); setError('No exam ID provided'); return; }
@@ -145,6 +160,15 @@ export default function Exam() {
     };
     const onVis = () => { if (document.hidden) trigger('left the exam tab'); };
     const onBlur = () => trigger('switched away from the exam window');
+    const onFSChange = () => {
+      if (document.fullscreenElement) {
+        fsWasActiveRef.current = true;
+        setFsBlocked(false);
+      } else if (fsSupportedRef.current && fsWasActiveRef.current) {
+        setFsBlocked(true);
+        trigger('exited fullscreen mode');
+      }
+    };
     const onResize = () => {
       if (resizeCooldownRef.current) return;
       const ratio = window.outerWidth / window.screen.availWidth;
@@ -157,10 +181,12 @@ export default function Exam() {
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('blur', onBlur);
     window.addEventListener('resize', onResize);
+    document.addEventListener('fullscreenchange', onFSChange);
     return () => {
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('blur', onBlur);
       window.removeEventListener('resize', onResize);
+      document.removeEventListener('fullscreenchange', onFSChange);
     };
   }, [started, submitted]);
 
@@ -222,6 +248,7 @@ export default function Exam() {
     setQuestions(shuffleWithSeed(qs, s));
     startTimeRef.current = Date.now();
     setStarted(true);
+    enterFullscreen();
     localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, submitted: false }));
   };
 
@@ -327,6 +354,7 @@ export default function Exam() {
             <strong style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: '#1a4fad', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase' }}><ClipboardList size={14} /> Exam Rules</strong>
             Answer all items. Questions are randomized per student.<br />
             You may not go back once the exam is submitted.<br />
+            <Ban size={14} /> The exam is locked to fullscreen. Exiting fullscreen counts as a violation.<br />
             <Ban size={14} /> Leaving this tab 3 times will auto-submit your exam.
           </div>
           {offline && (
@@ -445,6 +473,22 @@ export default function Exam() {
   return (
     <div>
       <ToastContainer />
+      {fsBlocked && !submitting && !submitted && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.93)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ban size={40} color="#c0392b" /></div>
+            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 10 }}>Fullscreen Required</h3>
+            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+              You exited fullscreen mode, which is not allowed during the exam.<br />
+              Return to fullscreen to continue.
+            </p>
+            <button onClick={enterFullscreen}
+              style={{ width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+              Return to Fullscreen
+            </button>
+          </div>
+        </div>
+      )}
       {offline && (
         <div style={{ background: '#e8a020', color: '#fff', padding: '8px 16px', textAlign: 'center', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <WifiOff size={14} /> You are offline — answers are saved locally. Connect to submit.
