@@ -4,7 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { shuffleWithSeed, parseChoices, matchesAnswer } from '../../utils';
 import '../../styles.css';
-import { Search, RefreshCw, Eye, CheckCircle, XCircle, User, Download } from 'lucide-react';
+import { Search, RefreshCw, Eye, CheckCircle, XCircle, User, Download, ChevronDown } from 'lucide-react';
 
 export default function Answers() {
   return <AdminLayout title="Student Answers"><AnswersInner /></AdminLayout>;
@@ -12,42 +12,57 @@ export default function Answers() {
 
 // Rebuild each submission's per-question answer info, restoring the exact
 // shuffled question order / per-student choice order used at grading time.
+// `sub.reviews` (from the API) holds manual admin verdicts that win over the
+// engine's auto-correct.
 function buildCells(questions, sub) {
   const stored = typeof sub.answers === 'string' ? JSON.parse(sub.answers || '{}') : (sub.answers || {});
+  const reviews = sub.reviews || {};
   const seed = Number(sub.seed);
   const shuffledQs = shuffleWithSeed(questions, seed);
   const seeds = {};
   shuffledQs.forEach((q, idx) => { seeds[q.id] = seed + idx * 7919; });
 
   return questions.map(q => {
+    const verdict = reviews[q.id];
     const isBlank = (q.type || 'multiple_choice') === 'fill_blank';
     const raw = (stored[q.id] || '');
 
+    let autoCorrect;
+    let cell;
     if (isBlank) {
       const text = raw.trim();
-      return {
+      autoCorrect = matchesAnswer(text, q.answer);
+      cell = {
         type: 'fill_blank',
         chosen: text || null,
-        correct: matchesAnswer(text, q.answer),
         answerKey: q.answer,
         answerText: q.answer,
         choiceText: '',
       };
+    } else {
+      const choices = parseChoices(q.choices);
+      const shuffled = shuffleWithSeed(choices, seeds[q.id]).map((c, ci) => ({
+        ...c, displayKey: String.fromCharCode(65 + ci),
+      }));
+      const picked = shuffled.find(c => c.displayKey === raw);
+      const correctChoice = choices.find(c => c.key === q.answer) || {};
+      autoCorrect = !!picked && picked.key === q.answer;
+      cell = {
+        type: 'multiple_choice',
+        chosen: raw || null,
+        answerKey: q.answer,
+        choiceText: picked ? picked.text : '',
+        answerText: correctChoice.text || '',
+      };
     }
 
-    const choices = parseChoices(q.choices);
-    const shuffled = shuffleWithSeed(choices, seeds[q.id]).map((c, ci) => ({
-      ...c, displayKey: String.fromCharCode(65 + ci),
-    }));
-    const picked = shuffled.find(c => c.displayKey === raw);
-    const correctChoice = choices.find(c => c.key === q.answer) || {};
+    const reviewed = verdict === 'correct' || verdict === 'incorrect';
     return {
-      type: 'multiple_choice',
-      chosen: raw || null,
-      correct: !!picked && picked.key === q.answer,
-      answerKey: q.answer,
-      choiceText: picked ? picked.text : '',
-      answerText: correctChoice.text || '',
+      ...cell,
+      correct: reviewed ? verdict === 'correct' : autoCorrect,
+      autoCorrect,
+      reviewed,
+      verdict,
     };
   });
 }
@@ -69,13 +84,15 @@ function plainText(html) {
 }
 
 function AnswersInner() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const examId = params.get('id');
   const [exam, setExam] = useState(null);
   const [subs, setSubs] = useState([]);
+  const [examList, setExamList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [openSub, setOpenSub] = useState(null);
+  const [saving, setSaving] = useState(null);
 
   const load = async () => {
     if (!examId) return;
@@ -89,6 +106,7 @@ function AnswersInner() {
     setLoading(false);
   };
   useEffect(() => { load(); }, [examId]);
+  useEffect(() => { api.listExams().then(setExamList).catch(() => {}); }, []);
 
   const qs = exam?.questions || [];
   const rows = subs.map(sub => ({ sub, cells: buildCells(qs, sub) }));
@@ -96,6 +114,22 @@ function AnswersInner() {
     .filter(r => r.sub.student_name.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => b.sub.score - a.sub.score);
   const open = openSub ? rows.find(r => r.sub.id === openSub) : null;
+
+  const handleReview = async (subId, questionId, verdict) => {
+    setSaving(subId + '|' + questionId);
+    try {
+      const res = await api.reviewAnswer(subId, { question_id: questionId, verdict });
+      setSubs(prev => prev.map(s => {
+        if (s.id !== subId) return s;
+        const reviews = { ...(s.reviews || {}) };
+        if (verdict === 'correct' || verdict === 'incorrect') reviews[questionId] = verdict;
+        else delete reviews[questionId];
+        return { ...s, reviews, score: res.score };
+      }));
+    } finally {
+      setSaving(null);
+    }
+  };
 
   const exportCSV = () => {
     const header = ['Student', 'Section', 'Score', 'Total'];
@@ -112,7 +146,44 @@ function AnswersInner() {
     a.click(); URL.revokeObjectURL(url);
   };
 
-  if (!examId) return <div style={{ textAlign: 'center', padding: 60, fontSize: 14, color: '#5a7090' }}>Select an exam from the Dashboard to review answers.</div>;
+  if (!examId) {
+    return (
+      <div style={{ maxWidth: 640, margin: '0 auto', padding: '48px 20px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}><Eye size={40} color="#1a4fad" /></div>
+          <h2 style={{ fontSize: 20, color: '#0f2044', marginBottom: 6 }}>Review student answers</h2>
+          <p style={{ fontSize: 13, color: '#5a7090' }}>
+            Select an exam to see how each student answered every question, and manually accept or reject individual answers.
+          </p>
+        </div>
+        {!examList.length ? (
+          <p style={{ textAlign: 'center', color: '#9ab', fontSize: 13 }}>No exams yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {examList.map(ex => (
+              <button key={ex.id} onClick={() => setParams({ id: ex.id })}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  background: '#fff', border: '1.5px solid #c8d8f0', borderRadius: 12, padding: '16px 20px',
+                  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', transition: 'border-color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a4fad'; e.currentTarget.style.background = '#f4f9ff'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = '#c8d8f0'; e.currentTarget.style.background = '#fff'; }}
+              >
+                <div>
+                  <div style={{ fontWeight: 600, color: '#0f2044', fontSize: 14 }}>{ex.title}</div>
+                  <div style={{ fontSize: 12, color: '#9ab', marginTop: 3 }}>
+                    {ex.question_count} question{ex.question_count !== 1 ? 's' : ''} · {ex.submission_count} submission{ex.submission_count !== 1 ? 's' : ''}
+                  </div>
+                </div>
+                <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: '#1a4fad' }}>Review →</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
   if (loading) return <div style={{ textAlign: 'center', padding: 60, fontSize: 14, color: '#5a7090' }}>Loading answers...</div>;
 
   return (
@@ -128,6 +199,16 @@ function AnswersInner() {
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <select
+              value=""
+              onChange={e => { if (e.target.value) setParams({ id: e.target.value }); }}
+              style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: 'inherit', background: '#fff', color: '#0f2044', cursor: 'pointer' }}
+            >
+              <option value="" disabled>Switch exam…</option>
+              {examList.map(ex => (
+                <option key={ex.id} value={ex.id}>{ex.title}</option>
+              ))}
+            </select>
             <button onClick={load} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <RefreshCw size={13} /> Refresh
             </button>
@@ -198,6 +279,7 @@ function AnswersInner() {
                               background: col.bg, color: col.color, borderRadius: 6,
                               padding: '4px 8px', fontSize: 11, minHeight: 26,
                               fontWeight: cell.correct ? 600 : 400,
+                              outline: cell.reviewed ? (cell.correct ? '1.5px solid #1a9a5a' : '1.5px solid #d97070') : 'none',
                             }}>
                               {cell.type === 'fill_blank' ? (
                                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{cell.chosen || '—'}</span>
@@ -217,7 +299,7 @@ function AnswersInner() {
               </tbody>
             </table>
             <div style={{ padding: '10px 16px', fontSize: 11, color: '#9ab', borderTop: '1px solid #eef2f7', background: '#f8faff' }}>
-              Green = correct · Red = wrong · Gray = unanswered. Click a row for the student's full individual answer.
+              Green = correct · Red = wrong · Gray = unanswered. Highlighted outline = manually reviewed. Click a row for the student's full answer and manual review controls.
             </div>
           </div>
         )}
@@ -226,7 +308,7 @@ function AnswersInner() {
       {/* Individual student drill-down */}
       {open && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 16, maxWidth: 760, width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.35)', position: 'relative' }}>
+          <div style={{ background: '#fff', borderRadius: 16, maxWidth: 780, width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.35)', position: 'relative' }}>
             <div style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 2, padding: '24px 28px 16px', borderBottom: '1px solid #c8d8f0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                 <div>
@@ -250,6 +332,7 @@ function AnswersInner() {
               {qs.map((q, i) => {
                 const cell = open.cells[i];
                 const statusColor = cell.correct ? '#1a7a4a' : cell.chosen === null ? '#9ab' : '#c0392b';
+                const isSaving = saving === open.sub.id + '|' + q.id;
                 return (
                   <div key={q.id} style={{ border: '1px solid #c8d8f0', borderRadius: 10, padding: '14px 16px', background: cell.correct ? '#f0faf4' : '#fff' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
@@ -262,6 +345,11 @@ function AnswersInner() {
                           : cell.chosen === null
                             ? <><XCircle size={14} /> Unanswered</>
                             : <><XCircle size={14} /> Wrong</>}
+                        {cell.reviewed && (
+                          <span style={{ fontSize: 10, background: '#ffe9a8', color: '#7a5c00', padding: '1px 6px', borderRadius: 4, marginLeft: 4, fontWeight: 700 }}>
+                            MANUAL
+                          </span>
+                        )}
                       </span>
                     </div>
                     <div style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 10, color: '#1a2a3a' }} dangerouslySetInnerHTML={{ __html: q.text }} />
@@ -276,6 +364,44 @@ function AnswersInner() {
                           {cell.type === 'fill_blank' ? (cell.answerText || q.answer || '—') : `${cell.answerKey}${cell.answerText ? ' · ' + cell.answerText : ''}`}
                         </strong>
                       </div>
+                    </div>
+
+                    {/* Manual review controls */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, borderTop: '1px solid #eef2f7', paddingTop: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: '#5a7090' }}>Manual review:</span>
+                      <button
+                        disabled={isSaving}
+                        onClick={() => handleReview(open.sub.id, q.id, 'correct')}
+                        style={{
+                          border: '1.5px solid ' + (cell.verdict === 'correct' ? '#1a7a4a' : '#c8d8f0'),
+                          background: cell.verdict === 'correct' ? '#d4f5e2' : '#fff',
+                          color: cell.verdict === 'correct' ? '#1a7a4a' : '#1a4fad',
+                          borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: isSaving ? 'wait' : 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        ✓ Accept as correct
+                      </button>
+                      <button
+                        disabled={isSaving}
+                        onClick={() => handleReview(open.sub.id, q.id, 'incorrect')}
+                        style={{
+                          padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                          border: '1px solid ' + (cell.verdict === 'incorrect' ? '#c0392b' : '#c8d8f0'),
+                          background: cell.verdict === 'incorrect' ? '#ffe0e0' : '#fff',
+                          color: cell.verdict === 'incorrect' ? '#c0392b' : '#5a7090', borderRadius: 6,
+                        }}
+                      >
+                        ✕ Mark wrong
+                      </button>
+                      {cell.reviewed && (
+                        <button
+                          disabled={isSaving}
+                          onClick={() => handleReview(open.sub.id, q.id, null)}
+                          style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #c8d8f0', background: '#fff', color: '#5a7090', borderRadius: 6 }}
+                        >
+                          ↺ Revert to auto
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

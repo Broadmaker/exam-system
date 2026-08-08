@@ -57,7 +57,17 @@ CREATE TABLE activity_log (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE answer_reviews (
+  submission_id TEXT NOT NULL,
+  question_id TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (submission_id, question_id),
+  FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE
+);
+
 CREATE INDEX idx_questions_exam ON questions(exam_id);
 CREATE INDEX idx_submissions_exam ON submissions(exam_id);
 CREATE UNIQUE INDEX idx_submissions_unique ON submissions(exam_id, student_name, student_section);
 CREATE INDEX idx_activity_log_created ON activity_log(created_at DESC);
+CREATE INDEX idx_answer_reviews_submission ON answer_reviews(submission_id);

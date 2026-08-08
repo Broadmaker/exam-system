@@ -32,6 +32,7 @@ export const api = {
   submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body) }),
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
   getSubmissions: (examId) => request('/submissions/' + examId),
+  reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   regrade: (examId) => request('/regrade/' + examId, { method: 'POST', headers: { 'Authorization': adminPass() } }),
   // Question Bank
   listBank: () => request('/bank'),

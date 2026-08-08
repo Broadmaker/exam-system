@@ -225,7 +225,18 @@ app.get('/api/submissions/:examId', async (c) => {
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC`
   ).bind(c.req.param('examId')).all();
-  return c.json(results);
+
+  const { results: reviewRows } = await db.prepare(
+    `SELECT submission_id, question_id, verdict FROM answer_reviews ar
+     INNER JOIN submissions s ON s.id = ar.submission_id WHERE s.exam_id = ?`
+  ).bind(c.req.param('examId')).all();
+  const reviewsBySub = {};
+  reviewRows.forEach(r => {
+    reviewsBySub[r.submission_id] = reviewsBySub[r.submission_id] || {};
+    reviewsBySub[r.submission_id][r.question_id] = r.verdict;
+  });
+
+  return c.json(results.map(sub => ({ ...sub, reviews: reviewsBySub[sub.id] || {} })));
 });
 
 // ── ANALYTICS ───────────────────────────────────────
@@ -578,6 +589,86 @@ function matchesAnswer(studentAnswer, correctAnswer) {
   return sortFactors(s) === sortFactors(c);
 }
 
+// Compute a submission's per-question correctness using the exact shuffle the
+// student saw. `overrides` maps question_id -> 'correct' | 'incorrect' (manual
+// admin review) and wins over the engine's auto verdict.
+function computeScore(questions, sub, overrides = {}) {
+  const studentSeed = Number(sub.seed);
+  const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
+  const shuffledQs = shuffleWithSeed(questions, studentSeed);
+  const perQuestion = [];
+  let correctCount = 0;
+
+  shuffledQs.forEach((q, idx) => {
+    const qType = q.type || 'multiple_choice';
+    let autoCorrect = false;
+    if (qType === 'fill_blank') {
+      const studentAnswer = submittedAnswers[q.id] || '';
+      autoCorrect = matchesAnswer(studentAnswer, q.answer);
+    } else {
+      const choices = parseChoices(q.choices);
+      const choiceSeed = studentSeed + idx * 7919;
+      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+        ...c, displayKey: String.fromCharCode(65 + ci),
+      }));
+      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
+      const chosen = submittedAnswers[q.id];
+      autoCorrect = chosen === correctDisplayKey;
+    }
+
+    const verdict = overrides[q.id];
+    const correct = verdict === 'correct' ? true : verdict === 'incorrect' ? false : autoCorrect;
+    if (correct) correctCount++;
+    perQuestion.push({ question_id: q.id, autoCorrect, correct, verdict: verdict || null });
+  });
+
+  return { correctCount, perQuestion };
+}
+
+// ── REVIEW (manual grade) ───────────────────────────
+app.post('/api/submissions/:id/review', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const subId = c.req.param('id');
+  const body = await c.req.json();
+  const { question_id, verdict } = body;
+  if (verdict !== 'correct' && verdict !== 'incorrect' && verdict !== null && verdict !== undefined && verdict !== '') {
+    return c.json({ error: 'verdict must be correct, incorrect, or null' }, 400);
+  }
+
+  const sub = await db.prepare(`SELECT * FROM submissions WHERE id = ?`).bind(subId).first();
+  if (!sub) return c.json({ error: 'Submission not found' }, 404);
+
+  const { results: questions } = await db.prepare(
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+  ).bind(sub.exam_id).all();
+
+  if (verdict === 'correct' || verdict === 'incorrect') {
+    await db.prepare(
+      `INSERT INTO answer_reviews (submission_id, question_id, verdict)
+       VALUES (?, ?, ?)
+       ON CONFLICT(submission_id, question_id)
+       DO UPDATE SET verdict = excluded.verdict, updated_at = datetime('now')`
+    ).bind(subId, question_id, verdict).run();
+  } else if (verdict === null || verdict === '' || verdict === undefined) {
+    await db.prepare(
+      `DELETE FROM answer_reviews WHERE submission_id = ? AND question_id = ?`
+    ).bind(subId, question_id).run();
+  }
+
+  const { results: reviewRows } = await db.prepare(
+    `SELECT question_id, verdict FROM answer_reviews WHERE submission_id = ?`
+  ).bind(subId).all();
+  const overrides = {};
+  reviewRows.forEach(r => { overrides[r.question_id] = r.verdict; });
+
+  const { correctCount } = computeScore(questions, sub, overrides);
+  await db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, subId).run();
+  await log(db, 'submission_reviewed', `Manual review on ${sub.student_name}: Q ${question_id} → ${verdict || 'auto'}`);
+
+  return c.json({ id: subId, score: correctCount, total: sub.total, question_id, verdict: verdict || null });
+});
+
 // ── REGRADE ─────────────────────────────────────────
 app.post('/api/regrade/:examId', async (c) => {
   const db = c.env.DB;
@@ -595,29 +686,19 @@ app.post('/api/regrade/:examId', async (c) => {
     `SELECT id, student_name, student_section, seed, answers, score, total FROM submissions WHERE exam_id = ?`
   ).bind(examId).all();
 
+  const { results: reviewRows } = await db.prepare(
+    `SELECT submission_id, question_id, verdict FROM answer_reviews ar
+     INNER JOIN submissions s ON s.id = ar.submission_id WHERE s.exam_id = ?`
+  ).bind(examId).all();
+  const overridesBySub = {};
+  reviewRows.forEach(r => {
+    overridesBySub[r.submission_id] = overridesBySub[r.submission_id] || {};
+    overridesBySub[r.submission_id][r.question_id] = r.verdict;
+  });
+
   const updated = [];
   for (const sub of submissions) {
-    const studentSeed = Number(sub.seed);
-    const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
-    const shuffledQs = shuffleWithSeed(questions, studentSeed);
-
-    let correctCount = 0;
-    shuffledQs.forEach((q, idx) => {
-      const qType = q.type || 'multiple_choice';
-      if (qType === 'fill_blank') {
-        const studentAnswer = submittedAnswers[q.id] || '';
-        if (matchesAnswer(studentAnswer, q.answer)) correctCount++;
-        return;
-      }
-      const choices = parseChoices(q.choices);
-      const choiceSeed = studentSeed + idx * 7919;
-      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-        ...c, displayKey: String.fromCharCode(65 + ci),
-      }));
-      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
-      const chosen = submittedAnswers[q.id];
-      if (chosen === correctDisplayKey) correctCount++;
-    });
+    const { correctCount } = computeScore(questions, sub, overridesBySub[sub.id] || {});
 
     await db.prepare(
       `UPDATE submissions SET score = ? WHERE id = ?`
