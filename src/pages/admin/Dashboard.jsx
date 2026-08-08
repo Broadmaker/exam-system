@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock } from 'lucide-react';
 
 export default function Dashboard() {
   const [exams, setExams] = useState([]);
@@ -83,6 +83,9 @@ export default function Dashboard() {
                   <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#5a7090', flexWrap: 'wrap' }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {e.time_limit} min</span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><BarChart3 size={12} /> {e.submission_count || 0} submission{(e.submission_count || 0) !== 1 ? 's' : ''}</span>
+                    {e.deadline && (
+                      <DeadlineBadge deadline={e.deadline} />
+                    )}
                   </div>
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9ab', fontFamily: "'IBM Plex Mono', monospace" }}>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{e.id}</span>
@@ -156,4 +159,27 @@ export default function Dashboard() {
 
     </AdminLayout>
   );
+}
+
+function DeadlineBadge({ deadline }) {
+  const expired = new Date(deadline).getTime() <= Date.now();
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+      background: expired ? '#ffe0e0' : '#d4f5e2',
+      color: expired ? '#c0392b' : '#1a7a4a',
+      border: `1px solid ${expired ? '#c0392b' : '#1a7a4a'}`,
+    }}>
+      <Lock size={11} /> {expired ? 'Expired ' : 'Open until '}{fmtDeadline(deadline)}
+    </span>
+  );
+}
+
+function fmtDeadline(deadline) {
+  try {
+    const d = new Date(deadline);
+    if (isNaN(d.getTime())) return String(deadline).slice(0, 16).replace('T', ' ');
+    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  } catch { return String(deadline); }
 }

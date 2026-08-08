@@ -19,6 +19,19 @@ const labelStyle = {
   display: 'block', fontSize: 12, fontWeight: 600, color: '#0f2044', marginBottom: 4,
 };
 
+function toLocalInput(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function toIso(localInput) {
+  if (!localInput) return '';
+  const d = new Date(localInput);
+  return isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
 function CreateExamInner() {
   const [params] = useSearchParams();
   const examId = params.get('id');
@@ -27,6 +40,7 @@ function CreateExamInner() {
   const [desc, setDesc] = useState('');
   const [timeLimit, setTimeLimit] = useState(60);
   const [showAnswers, setShowAnswers] = useState(true);
+  const [deadline, setDeadline] = useState('');
   const [questions, setQuestions] = useState([]);
 
   const [qPart, setQPart] = useState(1);
@@ -64,6 +78,7 @@ function CreateExamInner() {
       setDesc(data.description || '');
       setTimeLimit(data.time_limit);
       setShowAnswers(data.show_answers !== 0);
+      setDeadline(data.deadline ? toLocalInput(data.deadline) : '');
       setQuestions(data.questions || []);
     });
   }, [examId]);
@@ -73,7 +88,7 @@ function CreateExamInner() {
   const saveExam = async () => {
     if (!title.trim()) return showToast('Title is required');
     setSaving(true);
-    const body = { title: title.trim(), description: desc.trim(), time_limit: timeLimit, show_answers: showAnswers };
+    const body = { title: title.trim(), description: desc.trim(), time_limit: timeLimit, show_answers: showAnswers, deadline: toIso(deadline) };
     try {
       if (examId) {
         await api.updateExam(examId, body);
@@ -234,6 +249,17 @@ function CreateExamInner() {
             <label style={labelStyle}>Time Limit (minutes)</label>
             <input type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))}
               style={{ ...inputStyle, width: 200 }} min={1} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>Deadline <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
+            <input type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)}
+              style={{ ...inputStyle, maxWidth: 280 }} />
+            {deadline && (
+              <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
+                Students will no longer be able to access or submit this exam after this time.
+                <button onClick={() => setDeadline('')} className="btn btn-sm btn-outline" style={{ marginLeft: 8, padding: '2px 10px', fontSize: 11 }}>Remove</button>
+              </div>
+            )}
           </div>
           <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
             <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>

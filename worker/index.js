@@ -36,9 +36,9 @@ app.post('/api/exams', async (c) => {
   const body = await c.req.json();
   const id = uuid();
   await db.prepare(
-    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1).run();
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '').run();
   await log(db, 'exam_created', 'Created exam: ' + body.title);
   return c.json({ id }, 201);
 });
@@ -60,9 +60,9 @@ app.put('/api/exams/:id', async (c) => {
   const body = await c.req.json();
   const old = await db.prepare(`SELECT title FROM exams WHERE id = ?`).bind(examId).first();
   await db.prepare(
-    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, updated_at = datetime('now')
+    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, examId).run();
+  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', examId).run();
   await log(db, 'exam_updated', 'Updated: ' + (old?.title || examId));
   return c.json({ success: true });
 });
@@ -183,6 +183,15 @@ app.post('/api/submit', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
   const { exam_id, student_name, student_section, seed, answers, score, total, tab_switches, time_taken } = body;
+
+  const exam = await db.prepare(`SELECT deadline FROM exams WHERE id = ?`).bind(exam_id).first();
+  if (exam?.deadline) {
+    const deadlineMs = new Date(exam.deadline).getTime();
+    const startedAt = Number(body.started_at);
+    if (Date.now() > deadlineMs && (!startedAt || startedAt > deadlineMs)) {
+      return c.json({ error: 'This exam has already ended.' }, 403);
+    }
+  }
 
   const existing = await db.prepare(
     `SELECT id FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`

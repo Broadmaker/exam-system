@@ -5,6 +5,7 @@ CREATE TABLE exams (
   time_limit INTEGER NOT NULL DEFAULT 60,
   questions_per_set INTEGER NOT NULL DEFAULT 10,
   show_answers INTEGER NOT NULL DEFAULT 1,
+  deadline TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

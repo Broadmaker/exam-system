@@ -100,6 +100,7 @@ export default function Exam() {
         if (saved.answered) setAnsweredSet(new Set(saved.answered));
         if (saved.tabSwitches) setTabSwitches(saved.tabSwitches);
         if (saved.totalSeconds) setTotalSeconds(saved.totalSeconds);
+        if (saved.startedAt) startTimeRef.current = saved.startedAt;
         if (saved.submitted) {
           setSubmitted(true);
           setStarted(true);
@@ -237,6 +238,10 @@ export default function Exam() {
   }, [started, submitted]);
 
   const startExam = () => {
+    if (examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) {
+      setGateError('This exam has already ended. The deadline has passed.');
+      return;
+    }
     if (!name.trim() || !section.trim() || !date.trim()) {
       setGateError('Please fill in all fields.');
       return;
@@ -249,7 +254,7 @@ export default function Exam() {
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, submitted: false }));
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false }));
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -263,7 +268,7 @@ export default function Exam() {
     if (started && !submitted) {
       localStorage.setItem('exam_state_' + examId, JSON.stringify({
         name, section: section, answers, answered: Array.from(answeredSet),
-        tabSwitches, totalSeconds: s, submitted: false,
+        tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false,
       }));
     }
   }, [started, submitted, name, section, answers, answeredSet, tabSwitches, examId]);
@@ -306,20 +311,24 @@ export default function Exam() {
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({
       name, section: '', answers, answered: Array.from(answeredSet),
-      tabSwitches, totalSeconds, submitted: true,
+      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true,
     }));
 
     const payload = {
       exam_id: examId, student_name: name, student_section: section,
       seed: String(seed), answers, score: total, total: qs.length,
-      tab_switches: tabSwitches, time_taken: timeTaken,
+      tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0,
     };
 
     try {
       await api.submitScore(payload);
     } catch (e) {
-      localStorage.setItem('pending_submission_' + examId, JSON.stringify(payload));
-      setPendingSubmit(payload);
+      if (e.message && e.message.toLowerCase().includes('ended')) {
+        toast('Exam ended', 'The exam deadline has passed, so your score could not be recorded.');
+      } else {
+        localStorage.setItem('pending_submission_' + examId, JSON.stringify(payload));
+        setPendingSubmit(payload);
+      }
     }
     setSubmitting(false);
     setSubmitted(true);
@@ -336,6 +345,36 @@ export default function Exam() {
   }
   if (error) {
     return <div style={{ textAlign: 'center', padding: 60, fontSize: 18, color: '#c0392b' }}>Error: {error}</div>;
+  }
+
+  // ── Deadline Check ──
+  let resumedInProgress = false;
+  try {
+    const saved = JSON.parse(localStorage.getItem('exam_state_' + examId));
+    if (saved && !saved.submitted && saved.startedAt) {
+      const dlMs = examData?.deadline ? new Date(examData.deadline).getTime() : Infinity;
+      if (saved.startedAt < dlMs) resumedInProgress = true;
+    }
+  } catch {}
+  const expired = !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) && !resumedInProgress;
+  if (expired) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
+        <div style={{ background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)', padding: 40 }}>
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><Ban size={48} /></div>
+          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044', marginBottom: 10 }}>Exam Ended</h1>
+          <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 8, lineHeight: 1.6 }}>
+            {examData?.title}
+          </p>
+          <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+            The deadline for this exam has passed.<br />It is no longer available for students.
+          </p>
+          <button onClick={() => window.location.href = '/'} className="btn" style={{ padding: '14px 40px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <ArrowLeft size={14} /> Back to Home
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // ── Gate Screen ──
