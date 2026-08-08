@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import AuthGate from './AuthGate';
-import { LayoutDashboard, FileText, BookOpen, RotateCcw, Clock, LogOut, Menu, X, ChevronLeft } from 'lucide-react';
+import { LayoutDashboard, FileText, BookOpen, RotateCcw, Clock, LogOut, Menu, X, ChevronLeft, Eye } from 'lucide-react';
 
 const nav = [
   { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/admin/bank', label: 'Question Bank', icon: BookOpen },
+  { to: '/admin/answers', label: 'Student Answers', icon: Eye },
   { to: '/admin/regrade', label: 'Regrade', icon: RotateCcw },
   { to: '/admin/logs', label: 'Activity Log', icon: Clock },
 ];

@@ -5,6 +5,7 @@ import Leaderboard from './pages/Leaderboard';
 import Dashboard from './pages/admin/Dashboard';
 import CreateExam from './pages/admin/CreateExam';
 import Results from './pages/admin/Results';
+import Answers from './pages/admin/Answers';
 import Preview from './pages/admin/Preview';
 import Regrade from './pages/admin/Regrade';
 import QuestionBank from './pages/admin/QuestionBank';
@@ -19,6 +20,7 @@ export default function App() {
       <Route path="/admin" element={<Dashboard />} />
       <Route path="/admin/create" element={<CreateExam />} />
       <Route path="/admin/results" element={<Results />} />
+      <Route path="/admin/answers" element={<Answers />} />
       <Route path="/admin/preview" element={<Preview />} />
       <Route path="/admin/regrade" element={<Regrade />} />
       <Route path="/admin/bank" element={<QuestionBank />} />

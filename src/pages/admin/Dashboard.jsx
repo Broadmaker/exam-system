@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock, FileText } from 'lucide-react';
 
 export default function Dashboard() {
   const [exams, setExams] = useState([]);
@@ -100,7 +100,8 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 4, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm" title="Preview"><Eye size={14} /></Link>
+                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm" title="Preview"><FileText size={14} /></Link>
+                  <Link to={"/admin/answers?id=" + e.id} className="btn btn-outline btn-sm" title="View student answers"><Eye size={14} /></Link>
                   <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm" title="Edit"><Pencil size={14} /></Link>
                   <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm" title="Scores"><BarChart3 size={14} /></Link>
                   <button onClick={() => setDeleteTarget(e)} className="btn btn-sm"
