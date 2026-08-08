@@ -335,7 +335,7 @@ function CreateExamInner() {
                 <input value={qBlankAnswer} onChange={e => setQBlankAnswer(e.target.value)}
                   placeholder="e.g. 42" style={inputStyle} />
                 <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-                  Matching is case-insensitive. Leading/trailing spaces are ignored.
+                  Matching is flexible: case-insensitive, ignores all spacing, and accepts equivalent math. Examples: "x = 2" ≈ "2"; "1/2" ≈ "0.5" ≈ "50%"; "(x-1)(x+2)" ≈ "(x+2)(x-1)" ≈ "x² + x - 2".
                 </div>
               </div>
             ) : (

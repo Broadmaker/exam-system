@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import { hashStr, shuffleWithSeed, parseChoices } from '../utils';
+import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer } from '../utils';
 import ToastContainer, { toast } from '../components/Toast';
 import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
@@ -285,9 +285,7 @@ export default function Exam() {
       const qType = q.type || 'multiple_choice';
       let isCorrect = false;
       if (qType === 'fill_blank') {
-        const studentAnswer = (answers[q.id] || '').trim().toLowerCase();
-        const correctAnswer = (q.answer || '').trim().toLowerCase();
-        isCorrect = studentAnswer === correctAnswer;
+        isCorrect = matchesAnswer(answers[q.id], q.answer);
       } else {
         const choices = parseChoices(q.choices);
         const choiceSeed = Number(seed) + idx * 7919;
