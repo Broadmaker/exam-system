@@ -1,15 +1,47 @@
 import { useState } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import AuthGate from './AuthGate';
-import { LayoutDashboard, FileText, BookOpen, RotateCcw, Clock, LogOut, Menu, X, ChevronLeft, Eye } from 'lucide-react';
+import { LayoutDashboard, FileText, BookOpen, RotateCcw, Clock, LogOut, Menu, X, ChevronLeft, Eye, Radio, Users } from 'lucide-react';
 
-const nav = [
-  { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/admin/bank', label: 'Question Bank', icon: BookOpen },
-  { to: '/admin/answers', label: 'Student Answers', icon: Eye },
-  { to: '/admin/regrade', label: 'Regrade', icon: RotateCcw },
-  { to: '/admin/logs', label: 'Activity Log', icon: Clock },
+const navGroups = [
+  {
+    label: 'Overview',
+    items: [
+      { to: '/admin', label: 'Dashboard', icon: LayoutDashboard, end: true },
+    ],
+  },
+  {
+    label: 'Classes & Students',
+    items: [
+      { to: '/admin/classes', label: 'Classes', icon: Users },
+    ],
+  },
+  {
+    label: 'Exams',
+    items: [
+      { to: '/admin/bank', label: 'Question Bank', icon: BookOpen },
+      { to: '/admin/answers', label: 'Student Answers', icon: Eye },
+      { to: '/admin/regrade', label: 'Regrade', icon: RotateCcw },
+    ],
+  },
+  {
+    label: 'Monitoring',
+    items: [
+      { to: '/admin/proctor', label: 'Live Proctoring', icon: Radio },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { to: '/admin/logs', label: 'Activity Log', icon: Clock },
+    ],
+  },
 ];
+
+const groupLabelStyle = {
+  padding: '14px 14px 4px', fontSize: 10, fontWeight: 700, color: '#5a7090',
+  letterSpacing: '.08em', textTransform: 'uppercase',
+};
 
 export default function AdminLayout({ children, title }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -24,6 +56,20 @@ export default function AdminLayout({ children, title }) {
   });
 
   const closeMobile = () => setSidebarOpen(false);
+
+  const renderNav = () => navGroups.map(group => (
+    <div key={group.label}>
+      <div style={groupLabelStyle}>{group.label}</div>
+      {group.items.map(item => (
+        <NavLink key={item.to} to={item.to} end={item.end}
+          onClick={closeMobile}
+          style={({ isActive }) => linkStyle(isActive)}>
+          <item.icon size={16} />
+          {item.label}
+        </NavLink>
+      ))}
+    </div>
+  ));
 
   return (
     <AuthGate>
@@ -54,14 +100,7 @@ export default function AdminLayout({ children, title }) {
           </div>
 
           <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {nav.map(item => (
-              <NavLink key={item.to} to={item.to} end={item.end}
-                onClick={closeMobile}
-                style={({ isActive }) => linkStyle(isActive)}>
-                <item.icon size={16} />
-                {item.label}
-              </NavLink>
-            ))}
+            {renderNav()}
           </nav>
 
           <div style={{ padding: '12px 10px', borderTop: '1px solid rgba(255,255,255,.08)' }}>
@@ -93,13 +132,7 @@ export default function AdminLayout({ children, title }) {
           </div>
 
           <nav style={{ flex: 1, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {nav.map(item => (
-              <NavLink key={item.to} to={item.to} end={item.end}
-                style={({ isActive }) => linkStyle(isActive)}>
-                <item.icon size={16} />
-                {item.label}
-              </NavLink>
-            ))}
+            {renderNav()}
           </nav>
 
           <div style={{ padding: '12px 10px', borderTop: '1px solid rgba(255,255,255,.08)' }}>

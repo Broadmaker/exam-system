@@ -6,6 +6,9 @@ CREATE TABLE exams (
   questions_per_set INTEGER NOT NULL DEFAULT 10,
   show_answers INTEGER NOT NULL DEFAULT 1,
   deadline TEXT DEFAULT '',
+  access_code TEXT DEFAULT '',
+  roster TEXT DEFAULT '[]',
+  class_id TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -28,6 +31,7 @@ CREATE TABLE submissions (
   exam_id TEXT NOT NULL,
   student_name TEXT NOT NULL,
   student_section TEXT NOT NULL,
+  student_id TEXT DEFAULT '',
   seed TEXT NOT NULL,
   answers TEXT NOT NULL,
   score INTEGER NOT NULL DEFAULT 0,
@@ -66,8 +70,98 @@ CREATE TABLE answer_reviews (
   FOREIGN KEY (submission_id) REFERENCES submissions(id) ON DELETE CASCADE
 );
 
+CREATE TABLE exam_sessions (
+  id TEXT PRIMARY KEY,
+  exam_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT NOT NULL,
+  student_section TEXT NOT NULL,
+  device_id TEXT DEFAULT '',
+  tab_switches INTEGER NOT NULL DEFAULT 0,
+  started_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen TEXT NOT NULL DEFAULT (datetime('now')),
+  active INTEGER NOT NULL DEFAULT 1,
+  kicked INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+);
+
+CREATE TABLE attendance (
+  id TEXT PRIMARY KEY,
+  exam_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT NOT NULL,
+  student_section TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'checked_in',
+  checked_in TEXT NOT NULL DEFAULT (datetime('now')),
+  started_at TEXT DEFAULT '',
+  submitted_at TEXT DEFAULT '',
+  FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+);
+
+CREATE TABLE attendance_sessions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  date TEXT NOT NULL DEFAULT (date('now')),
+  access_code TEXT DEFAULT '',
+  roster TEXT DEFAULT '[]',
+  class_id TEXT DEFAULT '',
+  expires_at TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE checkins (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT NOT NULL,
+  student_section TEXT NOT NULL,
+  checked_in TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (session_id) REFERENCES attendance_sessions(id) ON DELETE CASCADE
+);
+
+CREATE TABLE classes (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  subject TEXT DEFAULT '',
+  section TEXT DEFAULT '',
+  instructor TEXT DEFAULT '',
+  access_code TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE enrollments (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT NOT NULL,
+  student_section TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+  UNIQUE (class_id, student_id)
+);
+
+CREATE TABLE class_attendance (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'present',
+  source TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
+  UNIQUE (class_id, date, student_id)
+);
+
 CREATE INDEX idx_questions_exam ON questions(exam_id);
 CREATE INDEX idx_submissions_exam ON submissions(exam_id);
 CREATE UNIQUE INDEX idx_submissions_unique ON submissions(exam_id, student_name, student_section);
 CREATE INDEX idx_activity_log_created ON activity_log(created_at DESC);
 CREATE INDEX idx_answer_reviews_submission ON answer_reviews(submission_id);
+CREATE INDEX idx_sessions_exam ON exam_sessions(exam_id);
+CREATE INDEX idx_sessions_active ON exam_sessions(exam_id, active);
+CREATE INDEX idx_attendance_exam ON attendance(exam_id);
+CREATE INDEX idx_checkins_session ON checkins(session_id);
+CREATE INDEX idx_enrollments_class ON enrollments(class_id);
+CREATE INDEX idx_class_attendance_class ON class_attendance(class_id, date);
+CREATE INDEX idx_exams_class ON exams(class_id);

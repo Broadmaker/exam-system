@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FileText, Trophy, Lock } from 'lucide-react';
+import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus } from 'lucide-react';
+import InstallPrompt from '../components/InstallPrompt';
 
 export default function Landing() {
   const [code, setCode] = useState('');
@@ -28,7 +29,7 @@ export default function Landing() {
 
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#0f2044', marginBottom: 6, textAlign: 'left' }}>
-            Enter Exam ID
+            Enter Exam ID <span style={{ fontWeight: 400, color: '#5a7090' }}>(or Class Code to enroll)</span>
           </label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={code} onChange={e => setCode(e.target.value)}
@@ -50,11 +51,27 @@ export default function Landing() {
         <hr style={{ border: 'none', borderTop: '1px solid #c8d8f0', margin: '24px 0' }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <InstallPrompt />
+          <Link to="/checkin" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600,
+            background: '#1a7a4a', color: '#fff',
+          }}><CalendarCheck size={18} /> Check In (Attendance)</Link>
+          <Link to="/enroll" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600,
+            background: '#1a7a4a', color: '#fff', border: '2px solid #2b9a62',
+          }}><UserPlus size={18} /> Enroll in a Class</Link>
           <Link to="/leaderboard" style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600,
             background: '#0f2044', color: '#fff',
           }}><Trophy size={18} /> Live Scoreboard</Link>
+          <Link to="/records" style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+            padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600,
+            background: '#f5f8ff', color: '#0f2044', border: '1.5px solid #c8d8f0',
+          }}><GraduationCap size={18} /> Student Records</Link>
           <Link to="/admin" style={{
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
             padding: 16, borderRadius: 12, fontSize: 16, fontWeight: 600,

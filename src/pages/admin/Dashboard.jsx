@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import '../../styles.css';
-import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock, FileText } from 'lucide-react';
+import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Users } from 'lucide-react';
 
 export default function Dashboard() {
   const [exams, setExams] = useState([]);
@@ -46,6 +46,9 @@ export default function Dashboard() {
             <h2 style={{ fontSize: 20, color: '#0f2044' }}>All Exams</h2>
             <p style={{ fontSize: 13, color: '#5a7090', marginTop: 4 }}>{exams.length} exam{exams.length !== 1 ? 's' : ''} total</p>
           </div>
+          <Link to="/admin/classes" className="btn btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px' }}>
+            <Users size={16} /> Classes
+          </Link>
           <Link to="/admin/create" className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px' }}>
             <Plus size={16} /> New Exam
           </Link>
@@ -102,6 +105,7 @@ export default function Dashboard() {
                 <div style={{ display: 'flex', gap: 4, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
                   <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm" title="Preview"><FileText size={14} /></Link>
                   <Link to={"/admin/answers?id=" + e.id} className="btn btn-outline btn-sm" title="View student answers"><Eye size={14} /></Link>
+                  <Link to={"/admin/proctor?id=" + e.id} className="btn btn-outline btn-sm" title="Live proctoring"><Radio size={14} /></Link>
                   <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm" title="Edit"><Pencil size={14} /></Link>
                   <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm" title="Scores"><BarChart3 size={14} /></Link>
                   <button onClick={() => setDeleteTarget(e)} className="btn btn-sm"

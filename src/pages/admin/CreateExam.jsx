@@ -41,6 +41,10 @@ function CreateExamInner() {
   const [timeLimit, setTimeLimit] = useState(60);
   const [showAnswers, setShowAnswers] = useState(true);
   const [deadline, setDeadline] = useState('');
+  const [accessCode, setAccessCode] = useState('');
+  const [roster, setRoster] = useState('');
+  const [classId, setClassId] = useState(params.get('class') || '');
+  const [classes, setClasses] = useState([]);
   const [questions, setQuestions] = useState([]);
 
   const [qPart, setQPart] = useState(1);
@@ -72,6 +76,18 @@ function CreateExamInner() {
   const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
+    api.listClasses().then(setClasses).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!classId) return;
+    api.getClass(classId).then(d => {
+      const rosterText = (d.enrollments || []).map(e => [e.student_id, e.student_name, e.student_section].filter(Boolean).join(', ')).join('\n');
+      if (rosterText) setRoster(rosterText);
+    }).catch(() => {});
+  }, [classId]);
+
+  useEffect(() => {
     if (!examId) return;
     api.getExam(examId).then(data => {
       setTitle(data.title);
@@ -79,6 +95,9 @@ function CreateExamInner() {
       setTimeLimit(data.time_limit);
       setShowAnswers(data.show_answers !== 0);
       setDeadline(data.deadline ? toLocalInput(data.deadline) : '');
+      setAccessCode(data.access_code || '');
+      setClassId(data.class_id || '');
+      setRoster((data.roster || []).map(r => [r.id || r.student_id || '', r.name || r.student_name || '', r.section || r.student_section || ''].filter(Boolean).join(', ')).join('\n'));
       setQuestions(data.questions || []);
     });
   }, [examId]);
@@ -87,8 +106,16 @@ function CreateExamInner() {
 
   const saveExam = async () => {
     if (!title.trim()) return showToast('Title is required');
+    const parsedRoster = roster.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
+      const parts = line.split(',').map(p => p.trim());
+      return { id: parts[0] || '', name: parts[1] || '', section: parts[2] || '' };
+    });
     setSaving(true);
-    const body = { title: title.trim(), description: desc.trim(), time_limit: timeLimit, show_answers: showAnswers, deadline: toIso(deadline) };
+    const body = {
+      title: title.trim(), description: desc.trim(), time_limit: timeLimit, show_answers: showAnswers,
+      deadline: toIso(deadline), access_code: accessCode.trim().toUpperCase(), roster: parsedRoster,
+      class_id: classId,
+    };
     try {
       if (examId) {
         await api.updateExam(examId, body);
@@ -260,6 +287,38 @@ function CreateExamInner() {
                 <button onClick={() => setDeadline('')} className="btn btn-sm btn-outline" style={{ marginLeft: 8, padding: '2px 10px', fontSize: 11 }}>Remove</button>
               </div>
             )}
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>Class <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional — links exam to a class for records &amp; auto-attendance)</span></label>
+            <select value={classId} onChange={e => setClassId(e.target.value)}
+              style={{ ...inputStyle, maxWidth: 360, cursor: 'pointer' }}>
+              <option value="">— No class —</option>
+              {classes.map(k => (
+                <option key={k.id} value={k.id}>{k.name}{k.section ? ' · ' + k.section : ''}</option>
+              ))}
+            </select>
+            {classId && (
+              <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
+                The roster below was filled from this class's enrollments. Student submissions will automatically mark them <strong>present</strong> for the class on that day.
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>Access Code <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional, for live check-in)</span></label>
+            <input value={accessCode} onChange={e => setAccessCode(e.target.value)}
+              placeholder="e.g. MIDTERM25" style={{ ...inputStyle, maxWidth: 240, textTransform: 'uppercase', fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '.08em' }} />
+            <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
+              Students must enter this code (displayed by the proctor / via QR) before they can start. Leave blank to allow anyone with the exam link.
+            </div>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>Class Roster <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional, for attendance &amp; absentee reports)</span></label>
+            <textarea value={roster} onChange={e => setRoster(e.target.value)}
+              placeholder={'One student per line:  Student ID, Full Name, Section\nExample:\n2019-12345, Dela Cruz, Juan A., BSCS 2-A\n2019-23456, Santos, Maria B., BSCS 2-A'}
+              style={{ ...inputStyle, resize: 'vertical', minHeight: 110, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }} />
+            <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
+              Students in the roster who never start the exam will appear as <strong>absent</strong> in the Attendance report.
+            </div>
           </div>
           <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
             <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>

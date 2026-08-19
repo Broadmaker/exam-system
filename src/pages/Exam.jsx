@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer } from '../utils';
 import ToastContainer, { toast } from '../components/Toast';
@@ -10,6 +10,7 @@ import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, 
 
 export default function Exam() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const examId = params.get('id');
 
   const [examData, setExamData] = useState(null);
@@ -20,6 +21,8 @@ export default function Exam() {
   const [name, setName] = useState('');
   const [section, setSection] = useState('');
   const [date, setDate] = useState('');
+  const [studentId, setStudentId] = useState('');
+  const [accessCode, setAccessCode] = useState('');
   const [gateError, setGateError] = useState('');
 
   // Exam state
@@ -46,6 +49,15 @@ export default function Exam() {
   const fsWasActiveRef = useRef(false);
   const fsSupportedRef = useRef(typeof document !== 'undefined' && !!document.fullscreenEnabled);
   const [fsBlocked, setFsBlocked] = useState(false);
+  const [sessionId, setSessionId] = useState(() => localStorage.getItem('exam_session_' + examId) || '');
+  const sessionIdRef = useRef(sessionId);
+  const [kicked, setKicked] = useState(false);
+  const kickedRef = useRef(false);
+  const deviceId = useMemo(() => {
+    let d = localStorage.getItem('device_id');
+    if (!d) { d = 'dev-' + Math.random().toString(36).slice(2, 14); localStorage.setItem('device_id', d); }
+    return d;
+  }, []);
 
   const enterFullscreen = useCallback(() => {
     if (!fsSupportedRef.current) return;
@@ -67,7 +79,17 @@ export default function Exam() {
       setTotalSeconds(data.time_limit * 60);
       setLoading(false);
       localStorage.setItem('cached_exam_' + examId, JSON.stringify(data));
-    }).catch(() => {
+    }).catch((e) => {
+      // If the code isn't an exam, it might be a class code → send the student to enrollment.
+      if (e.status === 404) {
+        api.lookupClassCode(examId).then(() => {
+          navigate('/enroll?code=' + encodeURIComponent(examId));
+        }).catch(() => {
+          setError('Exam not found. Double-check the ID, or ask your instructor.');
+          setLoading(false);
+        });
+        return;
+      }
       const cached = localStorage.getItem('cached_exam_' + examId);
       if (cached) {
         try {
@@ -95,6 +117,8 @@ export default function Exam() {
       if (saved && saved.name) {
         setName(saved.name);
         setSection(saved.section || '');
+        if (saved.studentId) setStudentId(saved.studentId);
+        if (saved.sessionId) { sessionIdRef.current = saved.sessionId; setSessionId(saved.sessionId); }
         // Don't restore date from saved state since it's a new day
         if (saved.answers) setAnswers(saved.answers);
         if (saved.answered) setAnsweredSet(new Set(saved.answered));
@@ -140,6 +164,26 @@ export default function Exam() {
     };
     retry();
   }, [pendingSubmit, offline, examId]);
+
+  // Heartbeat: keeps the live session alive and detects admin kicks.
+  useEffect(() => {
+    if (!started || submitted || !sessionIdRef.current || !examId) return;
+    const beat = async () => {
+      if (kickedRef.current || document.hidden) return;
+      try {
+        const res = await api.heartbeat(examId, { session_id: sessionIdRef.current, tab_switches: tabSwitches });
+        if (res.kicked && !kickedRef.current) {
+          kickedRef.current = true;
+          setKicked(true);
+          toast('Session ended by proctor', 'The exam was closed by the administrator. Your answers were submitted.');
+          setTimeout(() => handleSubmitRef.current(), 800);
+        }
+      } catch {}
+    };
+    beat();
+    const t = setInterval(beat, 15000);
+    return () => clearInterval(t);
+  }, [started, submitted, examId, tabSwitches, offline]);
 
   // Tab switch & split-screen detection
   useEffect(() => {
@@ -237,13 +281,28 @@ export default function Exam() {
     };
   }, [started, submitted]);
 
-  const startExam = () => {
+  const startExam = async () => {
     if (examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) {
       setGateError('This exam has already ended. The deadline has passed.');
       return;
     }
-    if (!name.trim() || !section.trim() || !date.trim()) {
-      setGateError('Please fill in all fields.');
+    if (!name.trim() || !section.trim() || !date.trim() || !studentId.trim()) {
+      setGateError('Please fill in all fields, including your Student ID.');
+      return;
+    }
+    try {
+      const res = await api.startSession(examId, {
+        student_id: studentId.trim().toUpperCase(),
+        student_name: name.trim(),
+        student_section: section.trim(),
+        access_code: accessCode.trim(),
+        device_id: deviceId,
+      });
+      sessionIdRef.current = res.session_id;
+      setSessionId(res.session_id);
+      localStorage.setItem('exam_session_' + examId, res.session_id);
+    } catch (e) {
+      setGateError(e.message || 'Could not start the exam session.');
       return;
     }
     setGateError('');
@@ -254,7 +313,7 @@ export default function Exam() {
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false }));
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false }));
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -267,11 +326,11 @@ export default function Exam() {
     // Debounced save
     if (started && !submitted) {
       localStorage.setItem('exam_state_' + examId, JSON.stringify({
-        name, section: section, answers, answered: Array.from(answeredSet),
+        name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: Array.from(answeredSet),
         tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false,
       }));
     }
-  }, [started, submitted, name, section, answers, answeredSet, tabSwitches, examId]);
+  }, [started, submitted, name, section, studentId, answers, answeredSet, tabSwitches, examId]);
 
   const handleSubmit = useCallback(async () => {
     if (submitted) return;
@@ -308,18 +367,21 @@ export default function Exam() {
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section: '', answers, answered: Array.from(answeredSet),
+      name, section: '', studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: Array.from(answeredSet),
       tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true,
     }));
 
     const payload = {
-      exam_id: examId, student_name: name, student_section: section,
+      exam_id: examId, student_name: name, student_section: section, student_id: studentId.trim().toUpperCase(),
       seed: String(seed), answers, score: total, total: qs.length,
       tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0,
     };
 
     try {
       await api.submitScore(payload);
+      if (sessionIdRef.current) api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
+      sessionIdRef.current = '';
+      localStorage.removeItem('exam_session_' + examId);
     } catch (e) {
       if (e.message && e.message.toLowerCase().includes('ended')) {
         toast('Exam ended', 'The exam deadline has passed, so your score could not be recorded.');
@@ -401,9 +463,10 @@ export default function Exam() {
           )}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 28 }}>
             {[
-              { label: 'Full Name (Last Name, First Name, M.I.)', val: name, set: setName, placeholder: 'e.g. Dela Cruz, Juan A.' },
-              { label: 'Section', val: section, set: setSection, placeholder: 'e.g. BSCS 2-A' },
-              { label: 'Date', val: date, set: setDate, placeholder: 'e.g. June 25, 2025' },
+              { label: 'Student ID Number', val: studentId, set: setStudentId, placeholder: 'e.g. 2019-12345', type: 'text' },
+              { label: 'Full Name (Last Name, First Name, M.I.)', val: name, set: setName, placeholder: 'e.g. Dela Cruz, Juan A.', type: 'text' },
+              { label: 'Section', val: section, set: setSection, placeholder: 'e.g. BSCS 2-A', type: 'text' },
+              { label: 'Date', val: date, set: setDate, placeholder: 'e.g. June 25, 2025', type: 'text' },
             ].map(f => (
               <label key={f.label} style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {f.label}
@@ -412,6 +475,14 @@ export default function Exam() {
                   style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none' }} />
               </label>
             ))}
+            {examData?.has_access_code && (
+              <label style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                Access Code
+                <input value={accessCode} onChange={e => setAccessCode(e.target.value)}
+                  placeholder="Ask your proctor for the code" autoComplete="off"
+                  style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none', letterSpacing: '.1em', textTransform: 'uppercase' }} />
+              </label>
+            )}
           </div>
           {gateError && <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={12} /> {gateError}</div>}
           <button onClick={startExam}
@@ -510,6 +581,25 @@ export default function Exam() {
   return (
     <div>
       <ToastContainer />
+      {kicked && !submitted && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.94)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ban size={40} color="#c0392b" /></div>
+            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 10 }}>Session Closed by Proctor</h3>
+            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+              An administrator ended your exam session.<br />
+              Your answers up to this point have been recorded.
+            </p>
+            {submitting && <p style={{ fontSize: 12, color: '#1a4fad', marginBottom: 16 }}>Submitting your answers…</p>}
+            {!submitting && (
+              <button onClick={() => window.location.href = '/'}
+                style={{ width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+                Back to Home
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {fsBlocked && !submitting && !submitted && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.93)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
           <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>

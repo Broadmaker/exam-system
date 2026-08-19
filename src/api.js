@@ -12,7 +12,11 @@ async function request(path, options = {}) {
   } catch {
     throw new Error(text.includes('<!DOCTYPE') ? 'API server is not running. Start the Worker with `npx wrangler dev`.' : text.slice(0, 200));
   }
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) {
+    const e = new Error(data.error || 'Request failed');
+    e.status = res.status;
+    throw e;
+  }
   return data;
 }
 
@@ -42,4 +46,39 @@ export const api = {
   getAnalytics: (examId) => request('/analytics/' + examId),
   // Activity Log
   getLogs: () => request('/logs'),
+  // Sessions (single-session lock, heartbeat, proctoring)
+  startSession: (examId, body) => request('/exams/' + examId + '/session/start', { method: 'POST', body: JSON.stringify(body) }),
+  heartbeat: (examId, body) => request('/exams/' + examId + '/session/heartbeat', { method: 'POST', body: JSON.stringify(body) }),
+  endSession: (examId, body) => request('/exams/' + examId + '/session/end', { method: 'POST', body: JSON.stringify(body) }),
+  getProctor: (examId) => request('/proctor/' + examId, { headers: { 'Authorization': adminPass() } }),
+  kickStudent: (examId, sessionId) => request('/proctor/' + examId + '/kick', { method: 'POST', body: JSON.stringify({ session_id: sessionId }), headers: { 'Authorization': adminPass() } }),
+  // Attendance
+  getAttendance: (examId) => request('/exams/' + examId + '/attendance', { headers: { 'Authorization': adminPass() } }),
+  // Standalone attendance sessions
+  listAttendanceSessions: () => request('/attendance-sessions', { headers: { 'Authorization': adminPass() } }),
+  createAttendanceSession: (body) => request('/attendance-sessions', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  updateAttendanceSession: (id, body) => request('/attendance-sessions/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteAttendanceSession: (id) => request('/attendance-sessions/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  getAttendanceSession: (id) => request('/attendance-sessions/' + id),
+  lookupAttendanceSession: (code) => request('/attendance-sessions/lookup', { method: 'POST', body: JSON.stringify({ code }) }),
+  checkin: (id, body) => request('/attendance-sessions/' + id + '/checkin', { method: 'POST', body: JSON.stringify(body) }),
+  getAttendanceSessionReport: (id) => request('/attendance-sessions/' + id + '/report', { headers: { 'Authorization': adminPass() } }),
+  // Classes & enrollments
+  listClasses: () => request('/classes', { headers: { 'Authorization': adminPass() } }),
+  createClass: (body) => request('/classes', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  updateClass: (id, body) => request('/classes/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteClass: (id) => request('/classes/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  getClass: (id) => request('/classes/' + id, { headers: { 'Authorization': adminPass() } }),
+  enrollStudents: (classId, students) => request('/classes/' + classId + '/enroll', { method: 'POST', body: JSON.stringify({ students }), headers: { 'Authorization': adminPass() } }),
+  removeStudent: (classId, studentId) => request('/classes/' + classId + '/enroll/' + encodeURIComponent(studentId), { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  listStudents: () => request('/students', { headers: { 'Authorization': adminPass() } }),
+  // Class attendance
+  getClassAttendance: (classId, date) => request('/classes/' + classId + '/attendance?date=' + encodeURIComponent(date), { headers: { 'Authorization': adminPass() } }),
+  saveClassAttendance: (classId, date, records) => request('/classes/' + classId + '/attendance', { method: 'POST', body: JSON.stringify({ date, records }), headers: { 'Authorization': adminPass() } }),
+  getClassAttendanceHistory: (classId) => request('/classes/' + classId + '/attendance/history', { headers: { 'Authorization': adminPass() } }),
+  // Student records portal
+  getStudentRecords: (studentId) => request('/student/' + encodeURIComponent(studentId)),
+  // Class self-enrollment (student-facing)
+  lookupClassCode: (code) => request('/classes/code/' + encodeURIComponent(code)),
+  enrollByCode: (body) => request('/classes/enroll', { method: 'POST', body: JSON.stringify(body) }),
 };
