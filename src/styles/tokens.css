@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+/* ── Theme variables ──
+   Adminator-inspired 2026 palette. Every semantic token is a runtime
+   CSS variable so `[data-theme="dark"]` can swap the whole system. */
+
+:root,
+:root[data-theme="light"] {
+  --surface: #ffffff;
+  --canvas: #f0f4f8;
+  --border: #e4e8ef;
+  --border-strong: #cbd5e1;
+
+  --text: #1e293b;
+  --muted: #64748b;
+  --faint: #94a3b8;
+
+  --navy-950: #081226;
+  --navy-900: #0b1b3a;
+  --navy-800: #1e293b;
+  --navy-700: #2563eb;
+  --navy-600: #3b82f6;
+  --navy-100: #eff6ff;
+  --navy-50: #f1f5f9;
+
+  --accent: #e8a020;
+
+  --success: #10b981;
+  --success-bg: #ecfdf5;
+  --warning: #f59e0b;
+  --warning-bg: #fffbeb;
+  --danger: #ef4444;
+  --danger-bg: #fef2f2;
+  --info: #0ea5e9;
+  --info-bg: #f0f9ff;
+  --purple: #8b5cf6;
+  --purple-bg: #f5f3ff;
+
+  --sh-card: 0 1px 3px 0 rgba(15, 23, 42, 0.06), 0 1px 2px -1px rgba(15, 23, 42, 0.04);
+  --sh-modal: 0 24px 64px rgba(15, 23, 42, 0.28);
+  --sh-pop: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+:root[data-theme="dark"] {
+  --surface: #141b2d;
+  --canvas: #0b1120;
+  --border: #222c42;
+  --border-strong: #334155;
+
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --faint: #64748b;
+
+  --navy-950: #050a18;
+  --navy-900: #0b1120;
+  --navy-800: #f1f5f9;
+  --navy-700: #60a5fa;
+  --navy-600: #93c5fd;
+  --navy-100: #0f2847;
+  --navy-50: #1a2237;
+
+  --accent: #fbbf24;
+
+  --success: #34d399;
+  --success-bg: #0f2a20;
+  --warning: #fbbf24;
+  --warning-bg: #2b1f08;
+  --danger: #f87171;
+  --danger-bg: #2b1414;
+  --info: #38bdf8;
+  --info-bg: #0d2232;
+  --purple: #a78bfa;
+  --purple-bg: #1e1a2c;
+
+  --sh-card: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.25);
+  --sh-modal: 0 24px 64px rgba(0, 0, 0, 0.55);
+  --sh-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+@theme {
+  /* ── Brand palette ── */
+  --color-navy-950: var(--navy-950);
+  --color-navy-900: var(--navy-900);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --color-navy-600: var(--navy-600);
+  --color-navy-100: var(--navy-100);
+  --color-navy-50: var(--navy-50);
+  --color-accent: var(--accent);
+
+  /* ── Surfaces ── */
+  --color-surface: var(--surface);
+  --color-canvas: var(--canvas);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+
+  /* ── Text ── */
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+
+  /* ── Status ── */
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-purple: var(--purple);
+  --color-purple-bg: var(--purple-bg);
+
+  /* ── Typography ── */
+  --font-sans: 'Inter', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  /* ── Radius ── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  /* ── Shadows ── */
+  --shadow-card: var(--sh-card);
+  --shadow-modal: var(--sh-modal);
+  --shadow-pop: var(--sh-pop);
+}

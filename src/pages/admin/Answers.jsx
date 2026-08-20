@@ -3,17 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { shuffleWithSeed, parseChoices, matchesAnswer } from '../../utils';
-import '../../styles.css';
-import { Search, RefreshCw, Eye, CheckCircle, XCircle, User, Download, ChevronDown } from 'lucide-react';
+import { PageHeader, Card, Button, Badge, Select, EmptyState, Spinner, Modal, useToast } from '../../components/ui';
+import { Search, RefreshCw, Eye, CheckCircle, XCircle, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users } from 'lucide-react';
 
 export default function Answers() {
   return <AdminLayout title="Student Answers"><AnswersInner /></AdminLayout>;
 }
 
-// Rebuild each submission's per-question answer info, restoring the exact
-// shuffled question order / per-student choice order used at grading time.
-// `sub.reviews` (from the API) holds manual admin verdicts that win over the
-// engine's auto-correct.
 function buildCells(questions, sub) {
   const stored = typeof sub.answers === 'string' ? JSON.parse(sub.answers || '{}') : (sub.answers || {});
   const reviews = sub.reviews || {};
@@ -71,12 +67,6 @@ function cellText(cell) {
   if (cell.type === 'fill_blank') return (cell.chosen || '—');
   if (cell.chosen) return `${cell.chosen} ${cell.choiceText || ''}`.trim();
   return '—';
-}
-
-function cellColor(cell) {
-  if (cell.correct) return { bg: '#d4f5e2', color: '#1a7a4a' };
-  if (cell.chosen === null) return { bg: '#eef2f7', color: '#9ab' };
-  return { bg: '#ffe0e0', color: '#c0392b' };
 }
 
 function plainText(html) {
@@ -148,110 +138,108 @@ function AnswersInner() {
 
   if (!examId) {
     return (
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '48px 20px' }}>
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}><Eye size={40} color="#1a4fad" /></div>
-          <h2 style={{ fontSize: 20, color: '#0f2044', marginBottom: 6 }}>Review student answers</h2>
-          <p style={{ fontSize: 13, color: '#5a7090' }}>
-            Select an exam to see how each student answered every question, and manually accept or reject individual answers.
-          </p>
-        </div>
+      <main className="max-w-[640px] mx-auto px-5 py-12">
+        <PageHeader
+          eyebrow="Exam Review"
+          title="Review student answers"
+          subtitle="Select an exam to see how each student answered, and manually accept or reject individual answers."
+          icon={Eye}
+        />
         {!examList.length ? (
-          <p style={{ textAlign: 'center', color: '#9ab', fontSize: 13 }}>No exams yet.</p>
+          <EmptyState icon={FolderOpen} title="No exams yet" compact />
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="flex flex-col gap-2.5">
             {examList.map(ex => (
               <button key={ex.id} onClick={() => setParams({ id: ex.id })}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
-                  background: '#fff', border: '1.5px solid #c8d8f0', borderRadius: 12, padding: '16px 20px',
-                  cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit', transition: 'border-color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = '#1a4fad'; e.currentTarget.style.background = '#f4f9ff'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = '#c8d8f0'; e.currentTarget.style.background = '#fff'; }}
-              >
-                <div>
-                  <div style={{ fontWeight: 600, color: '#0f2044', fontSize: 14 }}>{ex.title}</div>
-                  <div style={{ fontSize: 12, color: '#9ab', marginTop: 3 }}>
+                className="flex items-center gap-3 text-left font-sans bg-surface border border-border rounded-[10px] px-4 py-3.5 cursor-pointer transition-all hover:border-navy-700 hover:bg-navy-50 hover:shadow-card">
+                <span className="w-9 h-9 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Eye size={16} /></span>
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-navy-800 text-[14px] truncate">{ex.title}</span>
+                  <span className="block text-[12px] text-muted mt-0.5">
                     {ex.question_count} question{ex.question_count !== 1 ? 's' : ''} · {ex.submission_count} submission{ex.submission_count !== 1 ? 's' : ''}
-                  </div>
-                </div>
-                <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, color: '#1a4fad' }}>Review →</span>
+                  </span>
+                </span>
+                <ArrowRight size={16} className="shrink-0 text-faint" />
               </button>
             ))}
           </div>
         )}
-      </div>
+      </main>
     );
   }
-  if (loading) return <div style={{ textAlign: 'center', padding: 60, fontSize: 14, color: '#5a7090' }}>Loading answers...</div>;
+  if (loading) return <main className="max-w-[1200px] mx-auto px-4 py-6"><Spinner label="Loading answers..." /></main>;
 
   return (
-    <div>
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 16px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-          <div>
-            <h2 style={{ fontSize: 20, color: '#0f2044' }}>{exam?.title}</h2>
-            <p style={{ fontSize: 13, color: '#5a7090', marginTop: 6 }}>
-              Review how each student answered, Google Forms-style.
-              {' '}{subs.length} submission{subs.length !== 1 ? 's' : ''} ·{' '}
-              {qs.length} question{qs.length !== 1 ? 's' : ''}.
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <select
+    <main className="max-w-[1200px] mx-auto px-4 py-6">
+      <PageHeader
+        eyebrow="Exam Review"
+        title={exam?.title || 'Student Answers'}
+        subtitle={`Review how each student answered, Google Forms-style. ${subs.length} submission${subs.length !== 1 ? 's' : ''} · ${qs.length} question${qs.length !== 1 ? 's' : ''}.`}
+        icon={Eye}
+        actions={
+          <>
+            <Select
               value=""
               onChange={e => { if (e.target.value) setParams({ id: e.target.value }); }}
-              style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, fontFamily: 'inherit', background: '#fff', color: '#0f2044', cursor: 'pointer' }}
+              className="!w-48 !m-0"
             >
               <option value="" disabled>Switch exam…</option>
-              {examList.map(ex => (
-                <option key={ex.id} value={ex.id}>{ex.title}</option>
-              ))}
-            </select>
-            <button onClick={load} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-              <RefreshCw size={13} /> Refresh
-            </button>
-            {subs.length > 0 && (
-              <button onClick={exportCSV} className="btn btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                <Download size={13} /> Export answers
-              </button>
-            )}
+              {examList.map(ex => <option key={ex.id} value={ex.id}>{ex.title}</option>)}
+            </Select>
+            <Button variant="outline" size="sm" icon={RefreshCw} onClick={load}>Refresh</Button>
+            {subs.length > 0 && <Button size="sm" icon={Download} onClick={exportCSV}>Export answers</Button>}
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
+        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+          <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Users size={15} /></span>
+          <div>
+            <div className="text-[11px] text-muted font-medium">Submissions</div>
+            <div className="text-[16px] font-bold text-navy-800 leading-tight">{subs.length}</div>
           </div>
         </div>
-
-        <div style={{ position: 'relative', marginBottom: 16, maxWidth: 380 }}>
-          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', display: 'flex', color: '#9ab' }}>
-            <Search size={14} />
-          </span>
-          <input value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search by student name..."
-            style={{
-              width: '100%', border: '1.5px solid #c8d8f0', borderRadius: 8,
-              padding: '10px 14px 10px 36px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-            }} />
+        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+          <span className="w-8 h-8 rounded-lg bg-purple-bg text-purple flex items-center justify-center shrink-0"><BarChart3 size={15} /></span>
+          <div>
+            <div className="text-[11px] text-muted font-medium">Average score</div>
+            <div className="text-[16px] font-bold text-navy-800 leading-tight">
+              {subs.length ? Math.round(subs.reduce((a, s) => a + (s.total ? s.score / s.total : 0), 0) / subs.length * 100) : 0}%
+            </div>
+          </div>
         </div>
+        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3 col-span-2 sm:col-span-1">
+          <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><CheckCircle size={15} /></span>
+          <div>
+            <div className="text-[11px] text-muted font-medium">Passed (≥ 60%)</div>
+            <div className="text-[16px] font-bold text-navy-800 leading-tight">
+              {subs.filter(s => s.total && s.score / s.total >= 0.6).length}
+            </div>
+          </div>
+        </div>
+      </div>
 
-        {!subs.length ? (
-          <div style={{ textAlign: 'center', color: '#5a7090', padding: '80px 20px', background: '#fff', borderRadius: 12, border: '2px dashed #c8d8f0' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><Eye size={48} /></div>
-            <p style={{ fontSize: 16, fontWeight: 600, color: '#0f2044', marginBottom: 4 }}>No submissions yet</p>
-            <p style={{ fontSize: 13 }}>Students' individual answers will appear here once they take the exam.</p>
-          </div>
-        ) : !filtered.length ? (
-          <div style={{ textAlign: 'center', color: '#5a7090', padding: '60px 20px', background: '#fff', borderRadius: 12, border: '1px solid #c8d8f0' }}>
-            No results match "<strong>{search}</strong>"
-          </div>
-        ) : (
-          <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #c8d8f0', background: '#fff' }}>
-            <table style={{ borderCollapse: 'collapse', fontSize: 12, minWidth: 'max-content' }}>
+      <div className="relative mb-4 max-w-[380px]">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by student name..." className="input !pl-9" />
+      </div>
+
+      {!subs.length ? (
+        <EmptyState icon={Eye} title="No submissions yet" body="Students' individual answers will appear here once they take the exam." />
+      ) : !filtered.length ? (
+        <EmptyState icon={Search} title="No matches" body={`No results match "${search}"`} compact />
+      ) : (
+        <>
+          <div className="table-wrap">
+            <table className="table min-w-max" style={{ borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ background: '#0f2044', color: '#fff' }}>
-                  <th style={{ padding: '12px 16px', textAlign: 'left', position: 'sticky', left: 0, background: '#0f2044', zIndex: 2, minWidth: 180 }}>Student</th>
+                <tr>
+                  <th style={{ position: 'sticky', left: 0, background: 'var(--color-navy-50)', zIndex: 2, minWidth: 180, borderRight: '1px solid var(--color-border)' }}>Student</th>
                   {qs.map((q, qi) => (
-                    <th key={q.id} title={plainText(q.text)} style={{ padding: '10px 10px', textAlign: 'center', fontSize: 11, fontWeight: 600 }}>
+                    <th key={q.id} title={plainText(q.text)} style={{ textAlign: 'center', fontSize: 11, minWidth: 92 }}>
                       <div>Q{qi + 1}</div>
-                      <div style={{ fontSize: 10, color: '#9ab', marginTop: 2 }}>
+                      <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2, fontWeight: 400 }}>
                         {q.type === 'fill_blank' ? 'fill' : 'ans: ' + q.answer}
                       </div>
                     </th>
@@ -259,157 +247,124 @@ function AnswersInner() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(r => {
-                  const rowIdx = filtered.indexOf(r);
-                  return (
-                    <tr key={r.sub.id} onClick={() => setOpenSub(r.sub.id)}
-                      style={{ borderTop: '1px solid #eef2f7', cursor: 'pointer', background: rowIdx % 2 === 0 ? '#fff' : '#f8faff' }}
-                      onMouseEnter={e => e.currentTarget.style.background = '#ddeeff'}
-                      onMouseLeave={e => e.currentTarget.style.background = rowIdx % 2 === 0 ? '#fff' : '#f8faff'}>
-                      <td style={{ padding: '10px 16px', position: 'sticky', left: 0, zIndex: 1, minWidth: 180, background: rowIdx % 2 === 0 ? '#fff' : '#f8faff' }}>
-                        <div style={{ fontWeight: 600, color: '#0f2044' }}>{r.sub.student_name}</div>
-                        <div style={{ fontSize: 11, color: '#9ab', marginTop: 2 }}>{r.sub.student_section} · {r.sub.score}/{r.sub.total}</div>
-                      </td>
-                      {r.cells.map((cell, ci) => {
-                        const col = cellColor(cell);
-                        return (
-                          <td key={ci} title={cellText(cell)} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 92, maxWidth: 170, verticalAlign: 'top' }}>
-                            <div style={{
-                              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-                              background: col.bg, color: col.color, borderRadius: 6,
-                              padding: '4px 8px', fontSize: 11, minHeight: 26,
-                              fontWeight: cell.correct ? 600 : 400,
-                              outline: cell.reviewed ? (cell.correct ? '1.5px solid #1a9a5a' : '1.5px solid #d97070') : 'none',
-                            }}>
-                              {cell.type === 'fill_blank' ? (
-                                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>{cell.chosen || '—'}</span>
-                              ) : (
-                                <>
-                                  <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 700, fontSize: 11 }}>{cell.chosen || '—'}</span>
-                                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130, fontSize: 11 }}>{cell.choiceText}</span>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
+                {filtered.map((r, rowIdx) => (
+                  <tr key={r.sub.id} onClick={() => setOpenSub(r.sub.id)} className="cursor-pointer">
+                    <td style={{ position: 'sticky', left: 0, zIndex: 1, minWidth: 180, background: rowIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-navy-50)', borderRight: '1px solid var(--color-border)' }}>
+                      <div className="font-semibold text-navy-800">{r.sub.student_name}</div>
+                      <div className="text-[11px] text-faint mt-0.5">{r.sub.student_section} · {r.sub.score}/{r.sub.total}</div>
+                    </td>
+                    {r.cells.map((cell, ci) => {
+                      const col = cell.correct ? 'bg-success-bg text-success'
+                        : cell.chosen === null ? 'bg-navy-50 text-faint'
+                        : 'bg-danger-bg text-danger';
+                      return (
+                        <td key={ci} title={cellText(cell)} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 92, maxWidth: 170, verticalAlign: 'top' }}>
+                          <div className={`flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] min-h-[26px] font-mono ${col}`}
+                            style={{ outline: cell.reviewed ? (cell.correct ? '1.5px solid var(--color-success)' : '1.5px solid var(--color-danger)') : 'none' }}>
+                            {cell.type === 'fill_blank' ? (
+                              <span className="truncate max-w-[140px]">{cell.chosen || '—'}</span>
+                            ) : (
+                              <>
+                                <span className="font-bold text-[11px]">{cell.chosen || '—'}</span>
+                                <span className="truncate max-w-[130px] text-[11px]">{cell.choiceText}</span>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
               </tbody>
             </table>
-            <div style={{ padding: '10px 16px', fontSize: 11, color: '#9ab', borderTop: '1px solid #eef2f7', background: '#f8faff' }}>
-              Green = correct · Red = wrong · Gray = unanswered. Highlighted outline = manually reviewed. Click a row for the student's full answer and manual review controls.
+            <div className="flex items-center gap-2 px-4 py-2.5 text-[11px] text-muted border-t border-border bg-canvas">
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-success-bg border border-success inline-block" /> Correct</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-danger-bg border border-danger inline-block" /> Wrong</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-navy-50 border border-border inline-block" /> Unanswered</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-surface border border-border inline-block" /> Manual review outline</span>
+              <span className="ml-auto hidden sm:inline">Click a row for full details and review controls.</span>
             </div>
           </div>
-        )}
-      </main>
+        </>
+      )}
 
-      {/* Individual student drill-down */}
-      {open && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.6)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div style={{ background: '#fff', borderRadius: 16, maxWidth: 780, width: '100%', maxHeight: '92vh', overflowY: 'auto', boxShadow: '0 24px 64px rgba(0,0,0,.35)', position: 'relative' }}>
-            <div style={{ position: 'sticky', top: 0, background: '#fff', zIndex: 2, padding: '24px 28px 16px', borderBottom: '1px solid #c8d8f0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <User size={16} color="#1a4fad" />
-                    <h3 style={{ fontSize: 18, color: '#0f2044' }}>{open.sub.student_name}</h3>
-                  </div>
-                  <div style={{ fontSize: 12, color: '#5a7090' }}>
-                    {open.sub.student_section} · {open.sub.score}/{open.sub.total} · submitted {new Date(open.sub.submitted_at + 'Z').toLocaleString('en-PH')}
-                    {open.sub.tab_switches > 0 && ` · ${open.sub.tab_switches} tab switch${open.sub.tab_switches !== 1 ? 'es' : ''}`}
-                  </div>
-                </div>
-                <button onClick={() => setOpenSub(null)}
-                  style={{ background: 'none', border: '1.5px solid #c8d8f0', borderRadius: 8, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: '#0f2044', flexShrink: 0 }}>
-                  ✕ Close
-                </button>
-              </div>
+      {/* Drill-down modal */}
+      <Modal open={!!open} onClose={() => setOpenSub(null)} size="lg"
+        title={open?.sub?.student_name}
+        icon={User}>
+        {open && (
+          <div className="flex flex-col gap-3.5">
+            <div className="flex items-center gap-2 text-[12px] text-muted flex-wrap">
+              <span className="inline-flex items-center gap-1.5 bg-canvas/70 border border-border rounded-md px-2.5 py-1">
+                <Users size={12} className="text-navy-700" /> {open.sub.student_section || 'No section'}
+              </span>
+              <span className="inline-flex items-center gap-1.5 bg-canvas/70 border border-border rounded-md px-2.5 py-1">
+                <Badge tone={open.sub.total && open.sub.score / open.sub.total >= 0.6 ? 'success' : 'neutral'}>{open.sub.score}/{open.sub.total}</Badge>
+              </span>
+              <span className="inline-flex items-center gap-1.5 bg-canvas/70 border border-border rounded-md px-2.5 py-1">
+                <CheckCircle size={12} className="text-success" /> submitted {new Date(open.sub.submitted_at + 'Z').toLocaleString('en-PH')}
+              </span>
+              {open.sub.tab_switches > 0 && (
+                <span className="inline-flex items-center gap-1.5 bg-warning-bg border border-warning/40 text-warning rounded-md px-2.5 py-1">
+                  <XCircle size={12} /> {open.sub.tab_switches} tab switch{open.sub.tab_switches !== 1 ? 'es' : ''}
+                </span>
+              )}
             </div>
-
-            <div style={{ padding: '20px 28px 30px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {qs.map((q, i) => {
-                const cell = open.cells[i];
-                const statusColor = cell.correct ? '#1a7a4a' : cell.chosen === null ? '#9ab' : '#c0392b';
-                const isSaving = saving === open.sub.id + '|' + q.id;
-                return (
-                  <div key={q.id} style={{ border: '1px solid #c8d8f0', borderRadius: 10, padding: '14px 16px', background: cell.correct ? '#f0faf4' : '#fff' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-                      <span style={{ fontSize: 10, background: '#0f2044', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 700 }}>
-                        Q{i + 1} · Part {q.part}
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 600, color: statusColor }}>
-                        {cell.correct
-                          ? <><CheckCircle size={14} /> Correct</>
-                          : cell.chosen === null
-                            ? <><XCircle size={14} /> Unanswered</>
-                            : <><XCircle size={14} /> Wrong</>}
-                        {cell.reviewed && (
-                          <span style={{ fontSize: 10, background: '#ffe9a8', color: '#7a5c00', padding: '1px 6px', borderRadius: 4, marginLeft: 4, fontWeight: 700 }}>
-                            MANUAL
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13.5, lineHeight: 1.6, marginBottom: 10, color: '#1a2a3a' }} dangerouslySetInnerHTML={{ __html: q.text }} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 13, borderTop: '1px solid #eef2f7', paddingTop: 10 }}>
-                      <div style={{ color: '#5a7090' }}>
-                        Student's answer:{' '}
-                        <strong style={{ color: statusColor }}>{cellText(cell)}</strong>
-                      </div>
-                      <div style={{ color: '#5a7090' }}>
+            {qs.map((q, i) => {
+              const cell = open.cells[i];
+              const statusColor = cell.correct ? 'text-success' : cell.chosen === null ? 'text-faint' : 'text-danger';
+              const isSaving = saving === open.sub.id + '|' + q.id;
+              return (
+                <Card key={q.id} className={`!p-0 !mb-0 overflow-hidden ${cell.correct ? '!border-success/40' : ''}`}>
+                  <div className={`flex justify-between items-center gap-2 px-4 py-2.5 border-b border-border ${cell.correct ? 'bg-success-bg/40' : cell.chosen === null ? 'bg-canvas/60' : 'bg-danger-bg/25'}`}>
+                    <Badge tone="info">Q{i + 1} · Part {q.part}</Badge>
+                    <span className={`flex items-center gap-1 text-[12px] font-semibold ${statusColor}`}>
+                      {cell.correct
+                        ? <><CheckCircle size={14} /> Correct</>
+                        : cell.chosen === null
+                          ? <><XCircle size={14} /> Unanswered</>
+                          : <><XCircle size={14} /> Wrong</>}
+                      {cell.reviewed && <Badge tone="warning" className="!ml-1">MANUAL</Badge>}
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <div className="text-[13.5px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: q.text }} />
+                    <div className="flex flex-col gap-1 text-[13px] border-t border-border pt-2.5">
+                      <div className="text-muted">Student's answer: <strong className={statusColor}>{cellText(cell)}</strong></div>
+                      <div className="text-muted">
                         Correct answer:{' '}
-                        <strong style={{ color: '#1a4fad' }}>
+                        <strong className="text-navy-700">
                           {cell.type === 'fill_blank' ? (cell.answerText || q.answer || '—') : `${cell.answerKey}${cell.answerText ? ' · ' + cell.answerText : ''}`}
                         </strong>
                       </div>
                     </div>
-
-                    {/* Manual review controls */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, borderTop: '1px solid #eef2f7', paddingTop: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#5a7090' }}>Manual review:</span>
-                      <button
-                        disabled={isSaving}
-                        onClick={() => handleReview(open.sub.id, q.id, 'correct')}
-                        style={{
-                          border: '1.5px solid ' + (cell.verdict === 'correct' ? '#1a7a4a' : '#c8d8f0'),
-                          background: cell.verdict === 'correct' ? '#d4f5e2' : '#fff',
-                          color: cell.verdict === 'correct' ? '#1a7a4a' : '#1a4fad',
-                          borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: isSaving ? 'wait' : 'pointer', fontFamily: 'inherit',
-                        }}
-                      >
-                        ✓ Accept as correct
-                      </button>
-                      <button
-                        disabled={isSaving}
-                        onClick={() => handleReview(open.sub.id, q.id, 'incorrect')}
-                        style={{
-                          padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                          border: '1px solid ' + (cell.verdict === 'incorrect' ? '#c0392b' : '#c8d8f0'),
-                          background: cell.verdict === 'incorrect' ? '#ffe0e0' : '#fff',
-                          color: cell.verdict === 'incorrect' ? '#c0392b' : '#5a7090', borderRadius: 6,
-                        }}
-                      >
-                        ✕ Mark wrong
-                      </button>
+                    <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-border flex-wrap">
+                      <span className="text-[12px] font-semibold text-muted">Manual review:</span>
+                      <Button size="sm" variant={cell.verdict === 'correct' ? 'success' : 'outline'} disabled={isSaving}
+                        onClick={() => handleReview(open.sub.id, q.id, 'correct')} icon={CheckCircle}>
+                        Accept as correct
+                      </Button>
+                      <Button size="sm" variant={cell.verdict === 'incorrect' ? 'danger' : 'outline'} disabled={isSaving}
+                        onClick={() => handleReview(open.sub.id, q.id, 'incorrect')} icon={XCircle}>
+                        Mark wrong
+                      </Button>
                       {cell.reviewed && (
-                        <button
-                          disabled={isSaving}
-                          onClick={() => handleReview(open.sub.id, q.id, null)}
-                          style={{ padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', border: '1px solid #c8d8f0', background: '#fff', color: '#5a7090', borderRadius: 6 }}
-                        >
-                          ↺ Revert to auto
-                        </button>
+                        <Button size="sm" variant="ghost" disabled={isSaving}
+                          onClick={() => handleReview(open.sub.id, q.id, null)}>
+                          Revert to auto
+                        </Button>
                       )}
                     </div>
                   </div>
-                );
-              })}
+                </Card>
+              );
+            })}
+            <div className="flex justify-end">
+              <Button variant="outline" icon={ArrowLeft} onClick={() => setOpenSub(null)}>Close</Button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </Modal>
+    </main>
   );
 }

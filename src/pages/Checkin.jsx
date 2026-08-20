@@ -1,21 +1,18 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import '../styles.css';
-import { CalendarCheck, CheckCircle, AlertTriangle, UserCheck, ArrowLeft } from 'lucide-react';
+import { Button, Input } from '../components/ui';
+import PublicLayout from '../components/PublicLayout';
+import { CalendarCheck, CheckCircle, AlertTriangle, UserCheck, KeyRound, QrCode, Zap } from 'lucide-react';
 
 export default function Checkin() {
   const [params] = useSearchParams();
   const urlSessionId = params.get('id') || '';
 
-  // Code lookup state (no ?id= provided)
   const [codeEntry, setCodeEntry] = useState('');
-
-  // Session state
   const [sessionId, setSessionId] = useState(urlSessionId);
   const [session, setSession] = useState(null);
 
-  // Form state
   const [studentId, setStudentId] = useState('');
   const [name, setName] = useState('');
   const [section, setSection] = useState('');
@@ -23,7 +20,7 @@ export default function Checkin() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState(null); // { title, checked_in, already }
+  const [done, setDone] = useState(null);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -62,105 +59,109 @@ export default function Checkin() {
     setLoading(false);
   };
 
-  const renderInput = (label, val, set, placeholder, mono = false) => (
-    <label style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {label}
-      <input value={val} onChange={e => set(e.target.value)} placeholder={placeholder} autoComplete="off"
-        style={{
-          border: '1.5px solid #c8d8f0', borderRadius: 8,
-          fontFamily: mono ? "'IBM Plex Mono', sans-serif" : "'IBM Plex Sans', sans-serif",
-          fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none',
-        }} />
-    </label>
-  );
+  const sessionExpired = session?.expires_at && new Date(session.expires_at).getTime() <= Date.now();
 
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '32px 16px', background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)',
-    }}>
-      <div style={{ background: '#fff', borderRadius: 18, maxWidth: 460, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
-        <div style={{ padding: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <CalendarCheck size={22} color="#1a4fad" />
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044' }}>Attendance Check-in</h1>
-          </div>
-          <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.5 }}>
-            {session ? session.title : (done ? done.title : 'Scan your instructor\'s QR code or enter the attendance code.' )}
-            {session && session.date && <span style={{ display: 'block', marginTop: 2, fontSize: 12 }}>{session.date}</span>}
-            {session?.expires_at && (
-              <span style={{ display: 'inline-block', marginTop: 8, fontSize: 12, fontWeight: 600,
-                padding: '3px 10px', borderRadius: 5,
-                background: new Date(session.expires_at).getTime() <= Date.now() ? '#fdecea' : '#fff3d4',
-                color: new Date(session.expires_at).getTime() <= Date.now() ? '#c0392b' : '#b8860b' }}>
-                {new Date(session.expires_at).getTime() <= Date.now() ? 'This session has expired.' : 'Open until ' + new Date(session.expires_at).toLocaleString()}
-              </span>
-            )}
-          </p>
-
-          {error && (
-            <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
-              <AlertTriangle size={12} /> {error}
-            </div>
-          )}
-
-          {done ? (
-            <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-                <span style={{
-                  width: 64, height: 64, borderRadius: '50%',
-                  background: done.already ? '#fff3d4' : '#d4f5e2',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: done.already ? '#e8a020' : '#1a7a4a',
-                }}>
-                  <CheckCircle size={32} />
-                </span>
-              </div>
-              <h2 style={{ fontSize: 20, fontWeight: 700, color: '#0f2044', marginBottom: 6 }}>
-                {done.already ? 'Already Checked In' : 'You\'re Checked In!'}
-              </h2>
-              <p style={{ fontSize: 13, color: '#5a7090', lineHeight: 1.6, marginBottom: 4 }}>
-                {done.already
-                  ? 'Your attendance was already recorded for this session.'
-                  : 'Your attendance has been recorded. See your instructor for confirmation.'}
-              </p>
-              {done.checked_in && (
-                <div style={{ fontSize: 12, color: '#1a4fad', fontFamily: "'IBM Plex Mono', monospace", marginBottom: 20 }}>
-                  {done.checked_in.replace('T', ' ').slice(0, 16)}
+    <PublicLayout>
+      <div className="flex-1 flex items-stretch justify-center"
+        style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+        <div className="max-w-[1000px] mx-auto w-full px-4 py-10 grid lg:grid-cols-[1fr_460px] gap-8 items-center">
+          {/* Info panel */}
+          <div className="text-white hidden lg:block">
+            <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center mb-5"><CalendarCheck size={24} className="text-accent" /></span>
+            <h1 className="text-[34px] font-bold leading-tight mb-4">
+              Attendance<br />Check-in
+            </h1>
+            <p className="text-white/70 text-[15px] leading-relaxed mb-8 max-w-[380px]">
+              Check in to your class session with the code or QR from your instructor. It takes less than a minute.
+            </p>
+            <div className="flex flex-col gap-2.5 max-w-[380px]">
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><QrCode size={16} /></span>
+                <div>
+                  <div className="text-[13px] font-semibold">Scan or type a code</div>
+                  <div className="text-[11px] text-white/50">No app needed — works in any browser.</div>
                 </div>
-              )}
-              <Link to="/" className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '12px 32px' }}>
-                <ArrowLeft size={14} /> Back to Home
-              </Link>
+              </div>
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                <span className="w-8 h-8 rounded-lg bg-warning-bg text-warning flex items-center justify-center shrink-0"><Zap size={16} /></span>
+                <div>
+                  <div className="text-[13px] font-semibold">Instant confirmation</div>
+                  <div className="text-[11px] text-white/50">You'll know immediately if you're checked in.</div>
+                </div>
+              </div>
             </div>
-          ) : !session ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {renderInput('Attendance Code', codeEntry, setCodeEntry, 'e.g. BSCS2-AUG19', true)}
-              <button onClick={lookup} style={{
-                width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10,
-                fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 15, fontWeight: 600, padding: 15, cursor: 'pointer',
-              }}>Continue →</button>
-              <Link to="/" style={{ fontSize: 13, color: '#5a7090', textAlign: 'center', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                <ArrowLeft size={12} /> Back to Home
-              </Link>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {renderInput('Student ID Number', studentId, setStudentId, 'e.g. 2019-12345', true)}
-              {renderInput('Full Name (Last Name, First Name, M.I.)', name, setName, 'e.g. Dela Cruz, Juan A.')}
-              {renderInput('Section', section, setSection, 'e.g. BSCS 2-A')}
-              {session.has_access_code && renderInput('Access Code', accessCode, setAccessCode, 'Ask your instructor for the code', true)}
-              <button onClick={submit} disabled={loading}
-                style={{
-                  width: '100%', background: loading ? '#5a7090' : '#0f2044', color: '#fff', border: 'none', borderRadius: 10,
-                  fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 15, fontWeight: 600, padding: 15, cursor: loading ? 'not-allowed' : 'pointer',
-                }}>
-                {loading ? 'Checking in…' : <><UserCheck size={16} style={{ verticalAlign: '-2px', marginRight: 6 }} /> Check In</>}
-              </button>
-            </div>
-          )}
+          </div>
+
+          {/* Form card */}
+          <div className="bg-surface rounded-[18px] w-full shadow-modal">
+            <div className="p-6 sm:p-8">
+              <div className="flex items-center gap-2.5 mb-1.5">
+                <span className="w-10 h-10 rounded-lg bg-navy-900 text-white flex items-center justify-center"><CalendarCheck size={20} /></span>
+                <h1 className="text-[22px] font-bold text-navy-800">Attendance Check-in</h1>
+              </div>
+              <p className="text-[13px] text-muted mb-6 leading-relaxed">
+                {session ? session.title : (done ? done.title : "Scan your instructor's QR code or enter the attendance code.")}
+                {session && session.date && <span className="block mt-1 text-[12px]">{session.date}</span>}
+                {session?.expires_at && (
+                  <span className={`inline-block mt-2 text-[12px] font-semibold px-2.5 py-1 rounded ${sessionExpired ? 'bg-danger-bg text-danger' : 'bg-warning-bg text-warning'}`}>
+                    {sessionExpired ? 'This session has expired.' : 'Open until ' + new Date(session.expires_at).toLocaleString()}
+                  </span>
+                )}
+              </p>
+
+            {error && (
+              <div className="text-[12px] text-danger mb-3.5 flex items-center gap-1.5 bg-danger-bg rounded-md px-3 py-2">
+                <AlertTriangle size={12} /> {error}
+              </div>
+            )}
+
+            {done ? (
+              <div className="text-center py-3">
+                <div className="flex justify-center mb-3.5">
+                  <span className={`w-16 h-16 rounded-full flex items-center justify-center ${done.already ? 'bg-warning-bg text-warning' : 'bg-success-bg text-success'}`}>
+                    <CheckCircle size={32} />
+                  </span>
+                </div>
+                <h2 className="text-[20px] font-bold text-navy-800 mb-1.5">
+                  {done.already ? "Already Checked In" : "You're Checked In!"}
+                </h2>
+                <p className="text-[13px] text-muted leading-relaxed mb-1">
+                  {done.already
+                    ? 'Your attendance was already recorded for this session.'
+                    : 'Your attendance has been recorded. See your instructor for confirmation.'}
+                </p>
+                {done.checked_in && (
+                  <div className="text-[12px] text-navy-700 font-mono mb-5">{done.checked_in.replace('T', ' ').slice(0, 16)}</div>
+                )}
+              </div>
+            ) : !session ? (
+              <div className="flex flex-col gap-3">
+                <Input label="Attendance Code" value={codeEntry} onChange={e => setCodeEntry(e.target.value)}
+                  placeholder="e.g. BSCS2-AUG19" icon={KeyRound} className="!font-mono !tracking-wide !uppercase"
+                  onKeyDown={e => e.key === 'Enter' && lookup()} />
+                <Button className="!w-full !py-3.5 !text-[15px]" onClick={lookup}>Continue →</Button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3.5">
+                <Input label="Student ID Number" value={studentId} onChange={e => setStudentId(e.target.value)}
+                  placeholder="e.g. 2019-12345" className="!font-mono !tracking-wide" />
+                <Input label="Full Name (Last Name, First Name, M.I.)" value={name} onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Dela Cruz, Juan A." />
+                <Input label="Section" value={section} onChange={e => setSection(e.target.value)} placeholder="e.g. BSCS 2-A" />
+                {session.has_access_code && (
+                  <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
+                    placeholder="Ask your instructor for the code" icon={KeyRound} className="!font-mono !tracking-wide !uppercase" />
+                )}
+                <Button className="!w-full !py-3.5 !text-[15px]" onClick={submit} loading={loading} icon={loading ? null : UserCheck}>
+                  {loading ? 'Checking in…' : 'Check In'}
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+      </div>
+    </PublicLayout>
   );
 }

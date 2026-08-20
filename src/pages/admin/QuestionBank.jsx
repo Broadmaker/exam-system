@@ -1,58 +1,80 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import '../../styles.css';
-import { Plus, Search, ChevronDown, BookOpen, Lightbulb } from 'lucide-react';
+import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
+import { Plus, Search, BookOpen, Lightbulb, Pencil, Trash2, X } from 'lucide-react';
 
 export default function QuestionBank() {
   return <AdminLayout title="Question Bank"><BankInner /></AdminLayout>;
 }
 
-const inputStyle = {
-  width: '100%', border: '1.5px solid #c8d8f0', borderRadius: 8,
-  padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-};
-const labelStyle = { display: 'block', fontSize: 12, fontWeight: 600, color: '#0f2044', marginBottom: 4 };
+function TypeToggle({ value, onChange, sm = false }) {
+  const base = `rounded-md font-semibold cursor-pointer font-sans border-2 transition-colors ${sm ? 'px-2.5 py-1 text-[11px]' : 'px-3.5 py-1.5 text-[12px]'}`;
+  const active = 'bg-navy-100 border-navy-700 text-navy-700';
+  const idle = 'bg-surface border-border-strong text-muted hover:border-navy-700';
+  return (
+    <div className="flex gap-2">
+      {['multiple_choice', 'fill_blank'].map(t => (
+        <button key={t} type="button" onClick={() => onChange(t)}
+          className={`${base} ${value === t ? active : idle}`}>
+          {t === 'multiple_choice' ? 'Multiple Choice' : 'Fill in the Blank'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ChoiceRows({ choices, setChoices, ans, setAns }) {
+  return (
+    <div>
+      <span className="label">Choices</span>
+      {choices.map(({ key, text }, i) => (
+        <div key={key} className="flex items-center gap-2 mb-1.5">
+          <span className={`font-mono text-[13px] font-semibold min-w-[24px] ${ans === key ? 'text-success' : 'text-navy-700'}`}>{key})</span>
+          <input
+            value={text}
+            onChange={e => setChoices(choices.map((c, j) => j === i ? { ...c, text: e.target.value } : c))}
+            placeholder={`Choice ${key}`}
+            className={`input flex-1 ${ans === key ? '!border-success !bg-success-bg/30' : ''}`}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function BankInner() {
   const [questions, setQuestions] = useState([]);
   const [search, setSearch] = useState('');
-  const [toast, setToast] = useState('');
+  const toast = useToast();
 
-  // Add form
+  const emptyChoices = () => ['A', 'B', 'C', 'D'].map(k => ({ key: k, text: '' }));
   const [showForm, setShowForm] = useState(false);
   const [part, setPart] = useState(1);
   const [qType, setQType] = useState('multiple_choice');
   const [text, setText] = useState('');
-  const [choiceA, setChoiceA] = useState('');
-  const [choiceB, setChoiceB] = useState('');
-  const [choiceC, setChoiceC] = useState('');
-  const [choiceD, setChoiceD] = useState('');
+  const [choices, setChoices] = useState(emptyChoices);
   const [answer, setAnswer] = useState('');
   const [blankAnswer, setBlankAnswer] = useState('');
   const [explain, setExplain] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Edit state
   const [editingId, setEditingId] = useState(null);
   const [editPart, setEditPart] = useState(1);
   const [editType, setEditType] = useState('multiple_choice');
   const [editText, setEditText] = useState('');
-  const [editChoiceA, setEditChoiceA] = useState('');
-  const [editChoiceB, setEditChoiceB] = useState('');
-  const [editChoiceC, setEditChoiceC] = useState('');
-  const [editChoiceD, setEditChoiceD] = useState('');
+  const [editChoices, setEditChoices] = useState(emptyChoices);
   const [editAnswer, setEditAnswer] = useState('');
   const [editBlankAnswer, setEditBlankAnswer] = useState('');
   const [editExplain, setEditExplain] = useState('');
-
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = () => api.listBank().then(setQuestions).catch(() => {});
   useEffect(() => { load(); }, []);
 
   const resetForm = () => {
-    setPart(1); setQType('multiple_choice'); setText(''); setChoiceA(''); setChoiceB(''); setChoiceC(''); setChoiceD('');
+    setPart(1); setQType('multiple_choice'); setText(''); setChoices(emptyChoices());
     setAnswer(''); setBlankAnswer(''); setExplain(''); setShowForm(false);
   };
 
@@ -60,30 +82,32 @@ function BankInner() {
     setSaving(true);
     try {
       if (qType === 'fill_blank') {
-        if (!text.trim() || !blankAnswer.trim()) return showToast('Fill in question text and the correct answer');
+        if (!text.trim() || !blankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
         await api.addBank({ type: 'fill_blank', part, text: text.trim(), choices: [], answer: blankAnswer.trim(), explain: explain.trim() });
       } else {
-        const choices = [{ key: 'A', text: choiceA.trim() }, { key: 'B', text: choiceB.trim() },
-          { key: 'C', text: choiceC.trim() }, { key: 'D', text: choiceD.trim() }].filter(c => c.text);
-        if (!text.trim() || choices.length < 2 || !answer) return showToast('Fill in question, at least 2 choices, and answer');
-        await api.addBank({ type: 'multiple_choice', part, text: text.trim(), choices, answer, explain: explain.trim() });
+        const ch = choices.filter(c => c.text.trim());
+        if (!text.trim() || ch.length < 2 || !answer) { toast.error('Fill in question, at least 2 choices, and answer'); return; }
+        await api.addBank({ type: 'multiple_choice', part, text: text.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer, explain: explain.trim() });
       }
-      showToast('Question added to bank');
+      toast.success('Question added to bank');
       resetForm();
       load();
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
     setSaving(false);
   };
 
   const startEdit = (q) => {
-    const qType = q.type || 'multiple_choice';
-    setEditPart(q.part); setEditType(qType); setEditText(q.text);
-    if (qType === 'fill_blank') {
+    const t = q.type || 'multiple_choice';
+    setEditPart(q.part); setEditType(t); setEditText(q.text);
+    if (t === 'fill_blank') {
       setEditBlankAnswer(q.answer || '');
     } else {
-      const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
-      const m = {}; choices.forEach(c => { m[c.key] = c.text; });
-      setEditChoiceA(m['A'] || ''); setEditChoiceB(m['B'] || ''); setEditChoiceC(m['C'] || ''); setEditChoiceD(m['D'] || '');
+      const ch = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
+      const filled = emptyChoices().map(c => {
+        const match = (ch || []).find(x => x.key === c.key);
+        return { key: c.key, text: match ? match.text : '' };
+      });
+      setEditChoices(filled);
       setEditAnswer(q.answer);
     }
     setEditExplain(q.explain || '');
@@ -94,271 +118,175 @@ function BankInner() {
   const saveEdit = async () => {
     try {
       if (editType === 'fill_blank') {
-        if (!editText.trim() || !editBlankAnswer.trim()) return showToast('Fill in question text and the correct answer');
+        if (!editText.trim() || !editBlankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
         await api.updateBank(editingId, { type: 'fill_blank', part: editPart, text: editText.trim(), choices: [], answer: editBlankAnswer.trim(), explain: editExplain.trim() });
       } else {
-        const choices = [{ key: 'A', text: editChoiceA.trim() }, { key: 'B', text: editChoiceB.trim() },
-          { key: 'C', text: editChoiceC.trim() }, { key: 'D', text: editChoiceD.trim() }].filter(c => c.text);
-        if (!editText.trim() || choices.length < 2 || !editAnswer) return showToast('Fill in all fields');
-        await api.updateBank(editingId, { type: 'multiple_choice', part: editPart, text: editText.trim(), choices, answer: editAnswer, explain: editExplain.trim() });
+        const ch = editChoices.filter(c => c.text.trim());
+        if (!editText.trim() || ch.length < 2 || !editAnswer) { toast.error('Fill in all fields'); return; }
+        await api.updateBank(editingId, { type: 'multiple_choice', part: editPart, text: editText.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer: editAnswer, explain: editExplain.trim() });
       }
-      showToast('Question updated');
+      toast.success('Question updated');
       cancelEdit();
       load();
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
   };
 
-  const deleteQ = async (id) => {
-    if (!window.confirm('Delete this bank question?')) return;
-    try { await api.deleteBank(id); showToast('Deleted'); load(); } catch (e) { showToast(e.message); }
+  const deleteQ = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try { await api.deleteBank(deleteTarget); toast.success('Question deleted'); setDeleteTarget(null); load(); }
+    catch (e) { toast.error(e.message); }
+    setDeleting(false);
   };
 
-  const filtered = questions.filter(q =>
-    q.text.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = questions.filter(q => q.text.toLowerCase().includes(search.toLowerCase()));
+
+  const renderView = (q) => {
+    const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
+    const isFill = (q.type || 'multiple_choice') === 'fill_blank';
+    return (
+      <>
+        <div className="text-[14px] leading-relaxed mb-2.5">{q.text}</div>
+        {isFill ? (
+          <div className="text-[12px] text-navy-700 mb-2">Answer: <strong>{q.answer}</strong></div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {(choices || []).map(c => (
+              <Badge key={c.key} tone={c.key === q.answer ? 'success' : 'neutral'}>{c.key}. {c.text}</Badge>
+            ))}
+          </div>
+        )}
+        {q.explain && (
+          <div className="flex items-center gap-1 text-[12px] text-navy-700 italic">
+            <Lightbulb size={12} /> {q.explain}
+          </div>
+        )}
+      </>
+    );
+  };
 
   return (
-    <div>
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
-          background: '#1a7a4a', color: '#fff', padding: '12px 28px', borderRadius: 8,
-          fontSize: 14, fontWeight: 600, zIndex: 300, animation: 'fadeIn .3s',
-          boxShadow: '0 8px 24px rgba(0,0,0,.2)',
-        }}>
-          {toast}
-          <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } }`}</style>
-        </div>
-      )}
-
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
-        <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap', alignItems: 'center' }}>
-          <div style={{ flex: 1, position: 'relative', minWidth: 200 }}>
-            <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ab' }} />
-            <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search questions..." style={{ ...inputStyle, padding: '10px 14px 10px 36px' }} />
-          </div>
-          <button onClick={() => setShowForm(!showForm)} className="btn" style={{ whiteSpace: 'nowrap' }}>
-            <Plus size={16} /> {showForm ? 'Cancel' : 'Add Question'}
-          </button>
-          <span style={{ fontSize: 13, color: '#5a7090' }}>{questions.length} total</span>
-        </div>
-
-        {/* Add Form */}
-        {showForm && (
-          <div className="card" style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: 16, color: '#0f2044', marginBottom: 16 }}>New Bank Question</h3>
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Part</label>
-              <input type="number" value={part} onChange={e => setPart(Number(e.target.value))} min={1} style={{ ...inputStyle, width: 80 }} />
+    <main className="max-w-[860px] mx-auto px-4 py-6">
+      <PageHeader
+        eyebrow="Exams"
+        title="Question Bank"
+        subtitle={`${questions.length} reusable question${questions.length !== 1 ? 's' : ''}`}
+        icon={BookOpen}
+        actions={
+          <>
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search questions..."
+                className="input !pl-9 !py-2 !text-[13px] min-w-[180px]" />
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Question Type</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setQType('multiple_choice')}
-                  style={{
-                    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                    border: `2px solid ${qType === 'multiple_choice' ? '#1a4fad' : '#c8d8f0'}`,
-                    background: qType === 'multiple_choice' ? '#ddeeff' : '#fff',
-                    color: qType === 'multiple_choice' ? '#1a4fad' : '#5a7090',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}>Multiple Choice</button>
-                <button onClick={() => setQType('fill_blank')}
-                  style={{
-                    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                    border: `2px solid ${qType === 'fill_blank' ? '#1a4fad' : '#c8d8f0'}`,
-                    background: qType === 'fill_blank' ? '#ddeeff' : '#fff',
-                    color: qType === 'fill_blank' ? '#1a4fad' : '#5a7090',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}>Fill in the Blank</button>
+            <Button onClick={() => setShowForm(!showForm)} icon={showForm ? X : Plus} variant={showForm ? 'outline' : 'primary'}>
+              {showForm ? 'Cancel' : 'Add Question'}
+            </Button>
+          </>
+        }
+      />
+
+      {showForm && (
+        <Card title="New Bank Question" icon={Plus} className="!border-navy-700 mb-6">
+          <div className="flex flex-col gap-3.5">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Input label="Part" type="number" value={part} onChange={e => setPart(Number(e.target.value))} min={1} />
+              <div>
+                <span className="label">Question Type</span>
+                <TypeToggle value={qType} onChange={setQType} />
               </div>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>Question Text</label>
-              <textarea value={text} onChange={e => setText(e.target.value)} style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }} />
-            </div>
+            <TextArea label="Question Text" value={text} onChange={e => setText(e.target.value)} style={{ minHeight: 60, resize: 'vertical' }} />
             {qType === 'fill_blank' ? (
-              <div style={{ marginBottom: 12 }}>
-                <label style={labelStyle}>Correct Answer</label>
-                <input value={blankAnswer} onChange={e => setBlankAnswer(e.target.value)}
-                  placeholder="e.g. 42" style={inputStyle} />
-                <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-                  Matching is case-insensitive.
-                </div>
-              </div>
+              <Input label="Correct Answer" value={blankAnswer} onChange={e => setBlankAnswer(e.target.value)} placeholder="e.g. 42" hint="Matching is case-insensitive." />
             ) : (
               <>
-                <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Choices</label>
-                  {['A', 'B', 'C', 'D'].map((l, i) => {
-                    const vals = [choiceA, choiceB, choiceC, choiceD];
-                    const sets = [setChoiceA, setChoiceB, setChoiceC, setChoiceD];
-                    return (
-                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: answer === l ? '#1a7a4a' : '#1a4fad', minWidth: 24 }}>{l})</span>
-                        <input value={vals[i]} onChange={e => sets[i](e.target.value)} placeholder={`Choice ${l}`}
-                          style={{ ...inputStyle, flex: 1, borderColor: answer === l ? '#1a7a4a' : '#c8d8f0', background: answer === l ? '#f0faf4' : '#fff' }} />
-                      </div>
-                    );
-                  })}
-                </div>
-                <div style={{ display: 'flex', gap: 14, marginBottom: 12, flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={labelStyle}>Correct Answer</label>
-                    <div style={{ position: 'relative' }}>
-                      <select value={answer} onChange={e => setAnswer(e.target.value)}
-                        style={{ width: '100%', padding: '11px 40px 11px 14px', borderRadius: 10, fontSize: 14,
-                          fontFamily: 'inherit', border: '2px solid #d0ddf0', background: '#f5f8ff', outline: 'none',
-                          appearance: 'none', cursor: 'pointer', color: answer ? '#1a2a3a' : '#9ab', fontWeight: answer ? 500 : 400 }}>
-                        <option value="">— Select —</option>
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                        <option value="D">D</option>
-                      </select>
-                      <ChevronDown size={18} style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#5a7090' }} />
-                    </div>
-                  </div>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={labelStyle}>Explanation <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
-                    <input value={explain} onChange={e => setExplain(e.target.value)} placeholder="Shown after submission" style={inputStyle} />
-                  </div>
+                <ChoiceRows choices={choices} setChoices={setChoices} ans={answer} setAns={setAnswer} />
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Select label="Correct Answer" value={answer} onChange={e => setAnswer(e.target.value)}>
+                    <option value="">— Select —</option>
+                    {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                  </Select>
+                  <Input label="Explanation (optional)" value={explain} onChange={e => setExplain(e.target.value)} placeholder="Shown after submission" />
                 </div>
               </>
             )}
-            <button onClick={addQuestion} className="btn" disabled={saving} style={{ opacity: saving ? .7 : 1 }}>
-              {saving ? 'Saving...' : <><Plus size={16} /> Add to Bank</>}
-            </button>
+            <div>
+              <Button onClick={addQuestion} loading={saving} icon={Plus}>{saving ? 'Saving...' : 'Add to Bank'}</Button>
+            </div>
           </div>
-        )}
+        </Card>
+      )}
 
-        {/* List */}
-        {!filtered.length ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#5a7090', background: '#fff', borderRadius: 12, border: '2px dashed #c8d8f0' }}>
-            <BookOpen size={40} style={{ marginBottom: 12, opacity: .4 }} />
-            <p style={{ fontSize: 16, fontWeight: 600, color: '#0f2044', marginBottom: 4 }}>{search ? 'No matches' : 'Bank is empty'}</p>
-            <p style={{ fontSize: 13 }}>{search ? 'Try a different search.' : 'Add reusable questions here.'}</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {filtered.map(q => {
-              const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
-              const isEditing = editingId === q.id;
-              return (
-                <div key={q.id} style={{
-                  background: isEditing ? '#fff' : '#f5f8ff',
-                  border: `1px solid ${isEditing ? '#1a4fad' : '#c8d8f0'}`,
-                  borderRadius: 10, padding: '16px 18px',
-                  boxShadow: isEditing ? '0 2px 16px rgba(26,79,173,.15)' : 'none',
-                }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 10, background: '#0f2044', color: '#fff', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>Part {q.part}</span>
-                        {q.type === 'fill_blank' && <span style={{ fontSize: 9, color: '#5a7090', background: '#eef2f7', padding: '1px 6px', borderRadius: 3 }}>Fill Blank</span>}
-                      </div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      {isEditing ? (
-                        <>
-                          <button onClick={saveEdit} className="btn btn-sm">Save</button>
-                          <button onClick={cancelEdit} className="btn btn-outline btn-sm">Cancel</button>
-                        </>
-                      ) : (
-                        <>
-                          <button onClick={() => startEdit(q)} className="btn btn-outline btn-sm">Edit</button>
-                          <button onClick={() => deleteQ(q.id)} className="btn btn-danger btn-sm">Delete</button>
-                        </>
-                      )}
-                    </div>
+      {!filtered.length ? (
+        <EmptyState icon={BookOpen} title={search ? 'No matches' : 'Bank is empty'} body={search ? 'Try a different search.' : 'Add reusable questions here.'} />
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {filtered.map(q => {
+            const isEditing = editingId === q.id;
+            const isFill = (q.type || 'multiple_choice') === 'fill_blank';
+            return (
+              <Card key={q.id} className={`!p-4 ${isEditing ? '!border-navy-700 shadow-card' : ''}`}>
+                <div className="flex justify-between items-start mb-2 gap-2">
+                  <div className="flex items-center gap-2">
+                    <Badge tone="info">Part {q.part}</Badge>
+                    {isFill && <Badge tone="neutral">Fill Blank</Badge>}
                   </div>
-
-                  {isEditing ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <input type="number" value={editPart} onChange={e => setEditPart(Number(e.target.value))} min={1} style={{ ...inputStyle, width: 60 }} />
-                      <textarea value={editText} onChange={e => setEditText(e.target.value)} style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }} />
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => setEditType('multiple_choice')}
-                          style={{
-                            padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-                            border: `2px solid ${editType === 'multiple_choice' ? '#1a4fad' : '#c8d8f0'}`,
-                            background: editType === 'multiple_choice' ? '#ddeeff' : '#fff',
-                            color: editType === 'multiple_choice' ? '#1a4fad' : '#5a7090',
-                            cursor: 'pointer', fontFamily: 'inherit',
-                          }}>MC</button>
-                        <button onClick={() => setEditType('fill_blank')}
-                          style={{
-                            padding: '4px 10px', borderRadius: 4, fontSize: 11, fontWeight: 600,
-                            border: `2px solid ${editType === 'fill_blank' ? '#1a4fad' : '#c8d8f0'}`,
-                            background: editType === 'fill_blank' ? '#ddeeff' : '#fff',
-                            color: editType === 'fill_blank' ? '#1a4fad' : '#5a7090',
-                            cursor: 'pointer', fontFamily: 'inherit',
-                          }}>Fill Blank</button>
-                      </div>
-                      {editType === 'fill_blank' ? (
-                        <input value={editBlankAnswer} onChange={e => setEditBlankAnswer(e.target.value)}
-                          placeholder="Correct answer" style={{ ...inputStyle, fontSize: 13 }} />
-                      ) : (
-                        <>
-                          {['A', 'B', 'C', 'D'].map((l, i) => {
-                            const vals = [editChoiceA, editChoiceB, editChoiceC, editChoiceD];
-                            const sets = [setEditChoiceA, setEditChoiceB, setEditChoiceC, setEditChoiceD];
-                            return (
-                              <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600, color: editAnswer === l ? '#1a7a4a' : '#1a4fad', minWidth: 20 }}>{l})</span>
-                                <input value={vals[i]} onChange={e => sets[i](e.target.value)} style={{ flex: 1, ...inputStyle, borderColor: editAnswer === l ? '#1a7a4a' : '#c8d8f0' }} />
-                              </div>
-                            );
-                          })}
-                          <div style={{ display: 'flex', gap: 10 }}>
-                            <div>
-                              <select value={editAnswer} onChange={e => setEditAnswer(e.target.value)}
-                                style={{ padding: '8px 32px 8px 12px', borderRadius: 6, fontSize: 13, fontFamily: 'inherit', border: '1.5px solid #c8d8f0', outline: 'none', appearance: 'none', cursor: 'pointer', background: '#fff' }}>
-                                <option value="">—</option>
-                                <option value="A">A</option>
-                                <option value="B">B</option>
-                                <option value="C">C</option>
-                                <option value="D">D</option>
-                              </select>
-                            </div>
-                            <div style={{ flex: 1 }}>
-                              <input value={editExplain} onChange={e => setEditExplain(e.target.value)} placeholder="Explanation" style={{ ...inputStyle, fontSize: 13 }} />
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 14, marginBottom: 10, lineHeight: 1.5 }}>{q.text}</div>
-                      {(q.type || 'multiple_choice') === 'fill_blank' ? (
-                        <div style={{ fontSize: 12, color: '#1a4fad', marginBottom: 8 }}>
-                          Answer: <strong>{q.answer}</strong>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                          {choices.map(c => (
-                            <span key={c.key} style={{
-                              fontSize: 12, padding: '3px 10px', borderRadius: 5,
-                              background: c.key === q.answer ? '#d4f5e2' : '#fff',
-                              border: `1px solid ${c.key === q.answer ? '#1a7a4a' : '#c8d8f0'}`,
-                              color: c.key === q.answer ? '#1a7a4a' : '#5a7090',
-                              fontWeight: c.key === q.answer ? 600 : 400,
-                            }}>{c.key}. {c.text}</span>
-                          ))}
-                        </div>
-                      )}
-                      {q.explain && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#1a4fad', fontStyle: 'italic' }}>
-                          <Lightbulb size={12} /> {q.explain}
-                        </div>
-                      )}
-                    </>
-                  )}
+                  <div className="flex gap-1.5">
+                    {isEditing ? (
+                      <>
+                        <Button size="sm" onClick={saveEdit} icon={Pencil}>Save</Button>
+                        <Button size="sm" variant="outline" onClick={cancelEdit} icon={X}>Cancel</Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => startEdit(q)} icon={Pencil}>Edit</Button>
+                        <Button size="sm" variant="danger" onClick={() => setDeleteTarget(q.id)} icon={Trash2}>Delete</Button>
+                      </>
+                    )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        )}
-      </main>
-    </div>
+
+                {isEditing ? (
+                  <div className="flex flex-col gap-2.5">
+                    <div className="grid sm:grid-cols-[90px_1fr] gap-2.5">
+                      <Input type="number" value={editPart} onChange={e => setEditPart(Number(e.target.value))} min={1} />
+                      <TypeToggle value={editType} onChange={setEditType} sm />
+                    </div>
+                    <TextArea value={editText} onChange={e => setEditText(e.target.value)} style={{ minHeight: 60, resize: 'vertical' }} />
+                    {editType === 'fill_blank' ? (
+                      <Input value={editBlankAnswer} onChange={e => setEditBlankAnswer(e.target.value)} placeholder="Correct answer" />
+                    ) : (
+                      <>
+                        <ChoiceRows choices={editChoices} setChoices={setEditChoices} ans={editAnswer} setAns={setEditAnswer} />
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <Select value={editAnswer} onChange={e => setEditAnswer(e.target.value)}>
+                            <option value="">—</option>
+                            {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                          </Select>
+                          <Input value={editExplain} onChange={e => setEditExplain(e.target.value)} placeholder="Explanation" />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  renderView(q)
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Question?"
+        body="This bank question will be permanently removed."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={deleteQ}
+      />
+    </main>
   );
 }

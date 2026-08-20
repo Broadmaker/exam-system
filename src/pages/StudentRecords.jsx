@@ -1,12 +1,8 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../api';
-import { Search, User, GraduationCap, ClipboardList, CalendarCheck, Home } from 'lucide-react';
-
-const inputStyle = {
-  width: '100%', border: '1.5px solid #c8d8f0', borderRadius: 8,
-  padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-};
+import { Button, Card, Input, Badge, EmptyState, Spinner } from '../components/ui';
+import PublicLayout from '../components/PublicLayout';
+import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen } from 'lucide-react';
 
 export default function StudentRecords() {
   const [studentId, setStudentId] = useState('');
@@ -32,129 +28,145 @@ export default function StudentRecords() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', background: '#eef3fb', padding: '40px 16px' }}>
-      <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } }`}</style>
-      <main style={{ maxWidth: 800, margin: '0 auto' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#0f2044' }}>
-            <GraduationCap size={26} />
-            <div>
-              <h2 style={{ fontSize: 20, fontWeight: 700 }}>Student Records</h2>
-              <p style={{ fontSize: 12, color: '#5a7090' }}>View your exam results and attendance</p>
-            </div>
+    <PublicLayout>
+      <main className="max-w-[800px] mx-auto px-4 py-8 w-full flex-1">
+        <div className="flex items-center gap-2.5 mb-6">
+          <span className="w-10 h-10 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center"><GraduationCap size={20} /></span>
+          <div>
+            <h2 className="text-[20px] font-bold text-navy-800 leading-tight">Student Records</h2>
+            <p className="text-[12px] text-muted">View your exam results and attendance</p>
           </div>
-          <Link to="/" style={{ textDecoration: 'none', color: '#1a4fad', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            <Home size={14} /> Back to home
-          </Link>
         </div>
 
-        <form onSubmit={look} className="card" style={{ marginBottom: 24 }}>
-          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#0f2044', marginBottom: 6 }}>Student ID</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{ position: 'relative', flex: 1 }}>
-              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ab' }} />
-              <input value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
-                placeholder="e.g. 2019-12345"
-                style={{ ...inputStyle, paddingLeft: 38, fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '.04em', textTransform: 'uppercase' }}
-                autoFocus />
-            </div>
-            <button type="submit" className="btn" disabled={loading} style={{ opacity: loading ? .7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
-              <Search size={15} /> {loading ? 'Searching…' : 'View Records'}
-            </button>
+        <Card className="!mb-6">
+          <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
+            placeholder="e.g. 2019-12345" icon={Search} className="!font-mono !uppercase !tracking-wide"
+            onKeyDown={e => e.key === 'Enter' && look(e)} />
+          <div className="flex items-center gap-3 mt-3 flex-wrap">
+            <Button type="submit" icon={loading ? null : Search} onClick={look} loading={loading}>
+              {loading ? 'Searching…' : 'View Records'}
+            </Button>
+            {error && <span className="text-[13px] text-danger">{error}</span>}
           </div>
-          {error && <p style={{ color: '#c0392b', fontSize: 13, marginTop: 10 }}>{error}</p>}
-        </form>
+        </Card>
 
-        {data && (
-          <div style={{ animation: 'fadeIn .3s' }}>
-            <div className="card" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: '#1a4fad', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <User size={20} />
+        {loading ? (
+          <Spinner label="Loading records..." />
+        ) : data && (
+          <div style={{ animation: 'fadeInUp .3s' }}>
+            <Card className="!mb-4 !p-4 flex items-center gap-3 flex-wrap">
+              <span className="w-11 h-11 rounded-full bg-navy-900 text-white flex items-center justify-center"><User size={20} /></span>
+              <div className="flex-1 min-w-[180px]">
+                <div className="text-[16px] font-bold text-navy-800">{data.student_name}</div>
+                <div className="text-[12px] text-muted">{data.student_id}{data.student_section ? ' · ' + data.student_section : ''}</div>
               </div>
-              <div style={{ flex: 1, minWidth: 180 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: '#0f2044' }}>{data.student_name}</div>
-                <div style={{ fontSize: 12, color: '#5a7090' }}>{data.student_id}{data.student_section ? ' · ' + data.student_section : ''}</div>
+              <div className="text-[13px] text-muted text-right">
+                <span className="font-semibold text-navy-800">{data.exams.length}</span> exam{data.exams.length !== 1 ? 's' : ''} taken
               </div>
-              <div style={{ fontSize: 13, color: '#5a7090', textAlign: 'right' }}>
-                {data.exams.length} exam{data.exams.length !== 1 ? 's' : ''} taken
+            </Card>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+                <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><BookOpen size={15} /></span>
+                <div>
+                  <div className="text-[11px] text-muted font-medium">Exams taken</div>
+                  <div className="text-[16px] font-bold text-navy-800 leading-tight">{data.exams.length}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+                <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><CheckCircle size={15} /></span>
+                <div>
+                  <div className="text-[11px] text-muted font-medium">Classes</div>
+                  <div className="text-[16px] font-bold text-navy-800 leading-tight">{data.classes.length}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3 col-span-2 sm:col-span-1">
+                <span className="w-8 h-8 rounded-lg bg-purple-bg text-purple flex items-center justify-center shrink-0"><CalendarCheck size={15} /></span>
+                <div>
+                  <div className="text-[11px] text-muted font-medium">Attendance rate</div>
+                  <div className="text-[16px] font-bold text-navy-800 leading-tight">
+                    {(() => {
+                      const total = data.classes.reduce((a, c) => a + (c.attendance.total || 0), 0);
+                      const present = data.classes.reduce((a, c) => a + (c.attendance.present || 0), 0);
+                      return total ? Math.round((present / total) * 100) : 0;
+                    })()}%
+                  </div>
+                </div>
               </div>
             </div>
 
             {data.classes.map(klass => (
-              <div key={klass.class_id} className="card" style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
-                  <GraduationCap size={18} color="#1a4fad" />
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: '#0f2044' }}>{klass.name}</div>
-                    <div style={{ fontSize: 12, color: '#5a7090' }}>
+              <Card key={klass.class_id} className="!mb-4">
+                <div className="flex items-center gap-2.5 mb-3.5 flex-wrap">
+                  <span className="w-8 h-8 rounded-lg bg-navy-100 flex items-center justify-center"><GraduationCap size={16} className="text-navy-700" /></span>
+                  <div className="flex-1 min-w-[180px]">
+                    <div className="text-[15px] font-bold text-navy-800">{klass.name}</div>
+                    <div className="text-[12px] text-muted">
                       {[klass.subject, klass.section].filter(Boolean).join(' · ')}{klass.instructor ? ' · ' + klass.instructor : ''}
                     </div>
                   </div>
                   {klass.attendance.total > 0 && (
-                    <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <CalendarCheck size={14} color="#1a7a4a" />
-                      <span style={{ color: '#1a7a4a', fontWeight: 600 }}>{klass.attendance.present} present</span>
-                      <span style={{ color: '#5a7090' }}>/ {klass.attendance.total} session{klass.attendance.total !== 1 ? 's' : ''}</span>
+                    <div className="text-[12px] flex items-center gap-1.5">
+                      <CalendarCheck size={14} className="text-success" />
+                      <span className="text-success font-semibold">{klass.attendance.present} present</span>
+                      <span className="text-muted">/ {klass.attendance.total} session{klass.attendance.total !== 1 ? 's' : ''}</span>
                     </div>
                   )}
                 </div>
 
                 {klass.attendance.total > 0 && (
-                  <div style={{ marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <div className="mb-3.5 flex flex-wrap gap-1.5">
                     {klass.attendance.records.map((r, i) => (
-                      <span key={i} style={{
-                        fontSize: 11, padding: '3px 10px', borderRadius: 999,
-                        background: r.status === 'absent' ? '#fdecea' : '#e6f6ec',
-                        color: r.status === 'absent' ? '#c0392b' : '#1a7a4a',
-                        fontWeight: 600,
-                      }}>
+                      <Badge key={i} tone={r.status === 'absent' ? 'danger' : 'success'}>
                         {r.date} · {r.status}{r.source === 'exam' ? ' (exam)' : ''}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
                 )}
 
                 {klass.exam_results.length > 0 && (
                   <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: '#5a7090', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="text-[12px] font-semibold text-muted mb-2 flex items-center gap-1.5">
                       <ClipboardList size={13} /> Exam Results
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="flex flex-col gap-1.5">
                       {klass.exam_results.map(r => (
-                        <div key={r.exam_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid #eef3fb', borderRadius: 8, background: '#f5f8ff', fontSize: 13 }}>
-                          <span style={{ flex: 1, fontWeight: 500 }}>{r.title}</span>
-                          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: '#5a7090' }}>{(r.time_taken / 60).toFixed(1)} min</span>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: r.score / r.total >= 0.6 ? '#1a7a4a' : '#c0392b' }}>{r.score}<span style={{ color: '#9ab', fontWeight: 400 }}>/{r.total}</span></span>
-                          <span style={{ fontSize: 11, color: '#9ab' }}>
-                            {r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}
-                          </span>
+                        <div key={r.exam_id} className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg bg-navy-50 text-[13px]">
+                          <span className="flex-1 font-medium truncate">{r.title}</span>
+                          <span className="font-mono text-[12px] text-muted shrink-0">{(r.time_taken / 60).toFixed(1)} min</span>
+                          <Badge tone={r.score / r.total >= 0.6 ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
+                          <span className="text-[11px] text-faint shrink-0">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-              </div>
+              </Card>
             ))}
 
             {data.exams.filter(e => !e.class_name).length > 0 && (
-              <div className="card" style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#0f2044', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ClipboardList size={17} color="#1a4fad" /> Standalone Exams
+              <Card className="!mb-4">
+                <div className="text-[15px] font-bold text-navy-800 mb-3 flex items-center gap-2">
+                  <ClipboardList size={17} className="text-navy-700" /> Standalone Exams
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="flex flex-col gap-1.5">
                   {data.exams.filter(e => !e.class_name).map(r => (
-                    <div key={r.exam_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', border: '1px solid #eef3fb', borderRadius: 8, background: '#f5f8ff', fontSize: 13 }}>
-                      <span style={{ flex: 1, fontWeight: 500 }}>{r.title}</span>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: r.score / r.total >= 0.6 ? '#1a7a4a' : '#c0392b' }}>{r.score}<span style={{ color: '#9ab', fontWeight: 400 }}>/{r.total}</span></span>
-                      <span style={{ fontSize: 11, color: '#9ab' }}>{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}</span>
+                    <div key={r.exam_id} className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg bg-navy-50 text-[13px]">
+                      <span className="flex-1 font-medium truncate">{r.title}</span>
+                      <Badge tone={r.score / r.total >= 0.6 ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
+                      <span className="text-[11px] text-faint shrink-0">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}</span>
                     </div>
                   ))}
                 </div>
-              </div>
+              </Card>
             )}
           </div>
         )}
+
+        {!loading && !data && !error && (
+          <EmptyState icon={UserRound} title="Search your records" body="Enter your student ID above to see your exam results and attendance." />
+        )}
       </main>
-    </div>
+    </PublicLayout>
   );
 }

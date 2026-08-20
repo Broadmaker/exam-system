@@ -1,23 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import '../../styles.css';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, ChevronDown } from 'lucide-react';
+import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2 } from 'lucide-react';
 
 export default function CreateExam() {
-  return <AdminLayout title={useSearchParams()[0].get('id') ? 'Edit Exam' : 'Create Exam'}><CreateExamInner /></AdminLayout>;
+  const [params] = useSearchParams();
+  return <AdminLayout title={params.get('id') ? 'Edit Exam' : 'Create Exam'}><CreateExamInner /></AdminLayout>;
 }
-
-const inputStyle = {
-  width: '100%', border: '1.5px solid #c8d8f0', borderRadius: 8,
-  padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', outline: 'none',
-  transition: 'border-color .2s',
-};
-
-const labelStyle = {
-  display: 'block', fontSize: 12, fontWeight: 600, color: '#0f2044', marginBottom: 4,
-};
 
 function toLocalInput(iso) {
   const d = new Date(iso);
@@ -30,6 +21,161 @@ function toIso(localInput) {
   if (!localInput) return '';
   const d = new Date(localInput);
   return isNaN(d.getTime()) ? '' : d.toISOString();
+}
+
+function Toggle({ checked, onChange, label }) {
+  return (
+    <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`w-10 h-6 rounded-full relative transition-colors duration-200 shrink-0 cursor-pointer ${checked ? 'bg-navy-700' : 'bg-border-strong'}`}
+      >
+        <span className={`w-[18px] h-[18px] rounded-full bg-white absolute top-[3px] transition-all duration-200 shadow ${checked ? 'left-[19px]' : 'left-[3px]'}`} />
+      </button>
+      {label && <span className="text-[13px] font-medium text-navy-800">{label}</span>}
+    </label>
+  );
+}
+
+function TypeToggle({ value, onChange }) {
+  const base = 'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-[13px] font-semibold transition-all duration-150 cursor-pointer font-sans whitespace-nowrap';
+  const active = 'bg-navy-700 text-white shadow-card';
+  const idle = 'bg-surface border border-border text-muted hover:bg-navy-50 hover:text-navy-800';
+  const iconCls = (t) => value === t ? 'text-white' : 'text-navy-700';
+  return (
+    <div className="flex gap-1.5">
+      {[['multiple_choice', 'Multiple Choice', ListChecks], ['fill_blank', 'Fill in the Blank', Type]].map(([t, lbl, Icon]) => (
+        <button key={t} type="button" onClick={() => onChange(t)} className={`${base} ${value === t ? active : idle}`}>
+          <Icon size={14} className={iconCls(t)} /> {lbl}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SectionTitle({ icon: Icon, children, count }) {
+  return (
+    <div className="flex items-center gap-2.5 mb-5 pb-4 border-b border-border">
+      <span className="w-7 h-7 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Icon size={15} /></span>
+      <h2 className="text-[15px] text-navy-800 font-semibold">{children}</h2>
+      {count !== undefined && <Badge tone="info" className="!ml-auto">{count}</Badge>}
+    </div>
+  );
+}
+
+function ChoiceRows({ values, setValue, answer, setAnswer }) {
+  return (
+    <div>
+      <span className="label">Choices</span>
+      <div className="flex flex-col gap-2">
+        {['A', 'B', 'C', 'D'].map(letter => (
+          <div key={letter} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAnswer(letter)}
+              title={answer === letter ? 'Correct answer' : 'Mark as correct answer'}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center font-mono text-[12px] font-bold shrink-0 cursor-pointer transition-all ${answer === letter ? 'bg-success text-white shadow-card' : 'bg-navy-100 text-navy-700 hover:bg-navy-700 hover:text-white'}`}
+            >
+              {letter}
+            </button>
+            <input
+              value={values[letter] || ''}
+              onChange={e => setValue(letter, e.target.value)}
+              placeholder={`Choice ${letter}`}
+              className={`input flex-1 ${answer === letter ? '!border-success !bg-success-bg/30' : ''}`}
+            />
+            {answer === letter && <Check size={15} className="text-success shrink-0" />}
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-faint mt-1.5">Click a letter chip to set the correct answer.</p>
+    </div>
+  );
+}
+
+function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onDelete, editSaving }) {
+  const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
+  const isFill = (q.type || 'multiple_choice') === 'fill_blank';
+
+  return (
+    <Card className={`!p-0 !mb-0 overflow-hidden ${isEditing ? '!border-navy-700 shadow-card' : ''}`}>
+      <div className={`flex justify-between items-center gap-2 px-4 py-3 border-b border-border bg-canvas/60 ${isEditing ? '' : ''}`}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Badge tone="info">Q{index + 1}</Badge>
+          {isEditing ? (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted">Part</span>
+              <Input type="number" value={editState.part} onChange={e => editActions.setPart(Number(e.target.value))} min={1} className="!w-20 !m-0" />
+            </div>
+          ) : (
+            <span className="text-[11px] text-muted">Part {q.part}{isFill ? ' · Fill-in-the-blank' : ''}</span>
+          )}
+        </div>
+        <div className="flex gap-1.5 shrink-0">
+          {isEditing ? (
+            <>
+              <Button size="sm" onClick={() => editActions.save(q)} loading={editSaving} icon={Check}>{editSaving ? 'Saving…' : 'Save'}</Button>
+              <Button size="sm" variant="outline" onClick={editActions.cancel} icon={X}>Cancel</Button>
+            </>
+          ) : (
+            <>
+              <Button size="sm" variant="ghost" onClick={() => onEdit(q)} icon={Pencil}>Edit</Button>
+              <Button size="sm" variant="dangerSoft" onClick={() => onDelete(q.id)} icon={Trash2}>Delete</Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className={`${isEditing ? 'p-4' : 'px-4 py-3.5'}`}>
+        {isEditing ? (
+          <div className="flex flex-col gap-2.5">
+            <TextArea value={editState.text} onChange={e => editActions.setText(e.target.value)} style={{ minHeight: 60, resize: 'vertical' }} />
+            <TypeToggle value={editState.type} onChange={editActions.setType} />
+            {editState.type === 'fill_blank' ? (
+              <Input label="Correct Answer" icon={Key} value={editState.blankAnswer} onChange={e => editActions.setBlankAnswer(e.target.value)} placeholder="e.g. 42" />
+            ) : (
+              <>
+                <ChoiceRows
+                  values={editState.choices}
+                  setValue={editActions.setChoice}
+                  answer={editState.answer}
+                  setAnswer={editActions.setAnswer}
+                />
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Select label="Correct Answer" value={editState.answer} onChange={e => editActions.setAnswer(e.target.value)}>
+                    <option value="" disabled>— Select —</option>
+                    {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                  </Select>
+                  <Input label="Explanation" icon={Lightbulb} value={editState.explain} onChange={e => editActions.setExplain(e.target.value)} placeholder="Shown after submission" />
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="text-[14px] leading-relaxed mb-2.5">{q.text}</div>
+            {isFill ? (
+              <div className="inline-flex items-center gap-1.5 text-[12px] text-navy-700 bg-navy-50 border border-border rounded-md px-2.5 py-1 mb-2">Answer: <strong className="font-mono">{q.answer}</strong></div>
+            ) : (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {(choices || []).map(c => (
+                  <Badge key={c.key} tone={c.key === q.answer ? 'success' : 'neutral'}>{c.key}. {c.text}</Badge>
+                ))}
+              </div>
+            )}
+            {q.explain && (
+              <div className="flex items-center gap-1 text-[12px] text-navy-700 italic">
+                <Lightbulb size={12} /> {q.explain}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
+  );
 }
 
 function CreateExamInner() {
@@ -46,34 +192,26 @@ function CreateExamInner() {
   const [classId, setClassId] = useState(params.get('class') || '');
   const [classes, setClasses] = useState([]);
   const [questions, setQuestions] = useState([]);
+  const toast = useToast();
 
   const [qPart, setQPart] = useState(1);
   const [qType, setQType] = useState('multiple_choice');
   const [qText, setQText] = useState('');
-  const [qChoiceA, setQChoiceA] = useState('');
-  const [qChoiceB, setQChoiceB] = useState('');
-  const [qChoiceC, setQChoiceC] = useState('');
-  const [qChoiceD, setQChoiceD] = useState('');
+  const [qChoices, setQChoices] = useState({ A: '', B: '', C: '', D: '' });
   const [qAnswer, setQAnswer] = useState('');
   const [qBlankAnswer, setQBlankAnswer] = useState('');
   const [qExplain, setQExplain] = useState('');
-  const [toast, setToast] = useState('');
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Inline edit state
-  const [editPart, setEditPart] = useState(1);
-  const [editType, setEditType] = useState('multiple_choice');
-  const [editText, setEditText] = useState('');
-  const [editChoiceA, setEditChoiceA] = useState('');
-  const [editChoiceB, setEditChoiceB] = useState('');
-  const [editChoiceC, setEditChoiceC] = useState('');
-  const [editChoiceD, setEditChoiceD] = useState('');
-  const [editAnswer, setEditAnswer] = useState('');
-  const [editBlankAnswer, setEditBlankAnswer] = useState('');
-  const [editExplain, setEditExplain] = useState('');
+  const [editState, setEditState] = useState({
+    part: 1, type: 'multiple_choice', text: '', choices: { A: '', B: '', C: '', D: '' },
+    answer: '', blankAnswer: '', explain: '',
+  });
   const [editSaving, setEditSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api.listClasses().then(setClasses).catch(() => {});
@@ -102,10 +240,8 @@ function CreateExamInner() {
     });
   }, [examId]);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2500); };
-
   const saveExam = async () => {
-    if (!title.trim()) return showToast('Title is required');
+    if (!title.trim()) { toast.error('Title is required'); return; }
     const parsedRoster = roster.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
       const parts = line.split(',').map(p => p.trim());
       return { id: parts[0] || '', name: parts[1] || '', section: parts[2] || '' };
@@ -119,22 +255,21 @@ function CreateExamInner() {
     try {
       if (examId) {
         await api.updateExam(examId, body);
-        showToast('Exam updated');
+        toast.success('Exam updated');
       } else {
         const data = await api.createExam(body);
         window.location.search = '?id=' + data.id;
       }
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
     setSaving(false);
   };
 
   const addQuestion = async () => {
-    if (!examId) return showToast('Save the exam first');
+    if (!examId) { toast.error('Save the exam first'); return; }
     setAdding(true);
     try {
       if (qType === 'fill_blank') {
-        if (!qText.trim() || !qBlankAnswer.trim())
-          return showToast('Fill in question text and the correct answer');
+        if (!qText.trim() || !qBlankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
         await api.addQuestion(examId, {
           type: 'fill_blank', part: qPart, text: qText.trim(),
           choices: [], answer: qBlankAnswer.trim(),
@@ -142,587 +277,285 @@ function CreateExamInner() {
         });
         setQText(''); setQBlankAnswer(''); setQExplain('');
       } else {
-        const choices = [
-          { key: 'A', text: qChoiceA.trim() },
-          { key: 'B', text: qChoiceB.trim() },
-          { key: 'C', text: qChoiceC.trim() },
-          { key: 'D', text: qChoiceD.trim() },
-        ].filter(c => c.text);
-        if (!qText.trim() || choices.length < 2 || !qAnswer.trim())
-          return showToast('Fill in question text, at least 2 choices, and select the correct answer');
-        if (!choices.find(c => c.key === qAnswer.trim().toUpperCase()))
-          return showToast('Answer key not found in choices');
+        const choices = ['A', 'B', 'C', 'D'].filter(k => qChoices[k].trim()).map(k => ({ key: k, text: qChoices[k].trim() }));
+        if (!qText.trim() || choices.length < 2 || !qAnswer.trim()) { toast.error('Fill in question text, at least 2 choices, and select the correct answer'); return; }
+        if (!choices.find(c => c.key === qAnswer.trim().toUpperCase())) { toast.error('Answer key not found in choices'); return; }
         await api.addQuestion(examId, {
           type: 'multiple_choice', part: qPart, text: qText.trim(),
           choices, answer: qAnswer.trim().toUpperCase(),
           explain: qExplain.trim(), sort_order: questions.length,
         });
-        setQText(''); setQChoiceA(''); setQChoiceB(''); setQChoiceC(''); setQChoiceD(''); setQAnswer(''); setQExplain('');
+        setQText(''); setQChoices({ A: '', B: '', C: '', D: '' }); setQAnswer(''); setQExplain('');
       }
-      showToast('Question added');
+      toast.success('Question added');
       const data = await api.getExam(examId);
       setQuestions(data.questions || []);
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
     setAdding(false);
   };
 
   const startEdit = (q) => {
-    const qType = q.type || 'multiple_choice';
-    setEditPart(q.part);
-    setEditType(qType);
-    setEditText(q.text);
-    if (qType === 'fill_blank') {
-      setEditBlankAnswer(q.answer || '');
-    } else {
-      const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
-      const m = {};
-      choices.forEach(c => { m[c.key] = c.text; });
-      setEditChoiceA(m['A'] || '');
-      setEditChoiceB(m['B'] || '');
-      setEditChoiceC(m['C'] || '');
-      setEditChoiceD(m['D'] || '');
-      setEditAnswer(q.answer);
+    const t = q.type || 'multiple_choice';
+    const choices = { A: '', B: '', C: '', D: '' };
+    if (t !== 'fill_blank') {
+      const ch = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
+      ch.forEach(c => { choices[c.key] = c.text; });
     }
-    setEditExplain(q.explain || '');
+    setEditState({
+      part: q.part, type: t, text: q.text, choices,
+      answer: t === 'fill_blank' ? '' : q.answer,
+      blankAnswer: t === 'fill_blank' ? (q.answer || '') : '',
+      explain: q.explain || '',
+    });
     setEditingId(q.id);
   };
 
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditText('');
+  const editActions = {
+    setPart: (v) => setEditState(s => ({ ...s, part: v })),
+    setType: (v) => setEditState(s => ({ ...s, type: v })),
+    setText: (e) => setEditState(s => ({ ...s, text: e.target.value })),
+    setChoice: (k, v) => setEditState(s => ({ ...s, choices: { ...s.choices, [k]: v } })),
+    setAnswer: (e) => setEditState(s => ({ ...s, answer: e.target.value })),
+    setBlankAnswer: (e) => setEditState(s => ({ ...s, blankAnswer: e.target.value })),
+    setExplain: (e) => setEditState(s => ({ ...s, explain: e.target.value })),
+    cancel: () => { setEditingId(null); },
+    save: async (q) => {
+      setEditSaving(true);
+      try {
+        if (editState.type === 'fill_blank') {
+          if (!editState.text.trim() || !editState.blankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
+          await api.updateQuestion(editingId, {
+            type: 'fill_blank', part: editState.part, text: editState.text.trim(),
+            choices: [], answer: editState.blankAnswer.trim(),
+            explain: editState.explain.trim(), sort_order: q.sort_order || 0,
+          });
+        } else {
+          const choices = ['A', 'B', 'C', 'D'].filter(k => editState.choices[k].trim()).map(k => ({ key: k, text: editState.choices[k].trim() }));
+          if (!editState.text.trim() || choices.length < 2 || !editState.answer.trim()) { toast.error('Fill in question text, at least 2 choices, and select the correct answer'); return; }
+          if (!choices.find(c => c.key === editState.answer.trim().toUpperCase())) { toast.error('Answer key not found in choices'); return; }
+          await api.updateQuestion(editingId, {
+            type: 'multiple_choice', part: editState.part, text: editState.text.trim(),
+            choices, answer: editState.answer.trim().toUpperCase(),
+            explain: editState.explain.trim(), sort_order: q.sort_order || 0,
+          });
+        }
+        toast.success('Question updated');
+        const data = await api.getExam(examId);
+        setQuestions(data.questions || []);
+        setEditingId(null);
+      } catch (e) { toast.error(e.message); }
+      setEditSaving(false);
+    },
   };
 
-  const saveEdit = async (q) => {
-    setEditSaving(true);
+  const deleteQuestion = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      if (editType === 'fill_blank') {
-        if (!editText.trim() || !editBlankAnswer.trim())
-          return showToast('Fill in question text and the correct answer');
-        await api.updateQuestion(editingId, {
-          type: 'fill_blank', part: editPart, text: editText.trim(),
-          choices: [], answer: editBlankAnswer.trim(),
-          explain: editExplain.trim(), sort_order: q.sort_order || 0,
-        });
-      } else {
-        const choices = [
-          { key: 'A', text: editChoiceA.trim() },
-          { key: 'B', text: editChoiceB.trim() },
-          { key: 'C', text: editChoiceC.trim() },
-          { key: 'D', text: editChoiceD.trim() },
-        ].filter(c => c.text);
-        if (!editText.trim() || choices.length < 2 || !editAnswer.trim())
-          return showToast('Fill in question text, at least 2 choices, and select the correct answer');
-        if (!choices.find(c => c.key === editAnswer.trim().toUpperCase()))
-          return showToast('Answer key not found in choices');
-        await api.updateQuestion(editingId, {
-          type: 'multiple_choice', part: editPart, text: editText.trim(),
-          choices, answer: editAnswer.trim().toUpperCase(),
-          explain: editExplain.trim(), sort_order: q.sort_order || 0,
-        });
-      }
-      showToast('Question updated');
-      const data = await api.getExam(examId);
-      setQuestions(data.questions || []);
-      cancelEdit();
-    } catch (e) { showToast(e.message); }
-    setEditSaving(false);
+      await api.deleteQuestion(deleteTarget);
+      setQuestions(prev => prev.filter(q => q.id !== deleteTarget));
+      setDeleteTarget(null);
+      toast.success('Question deleted');
+    } catch (e) { toast.error(e.message); }
+    setDeleting(false);
   };
 
-  const deleteQuestion = async (id) => {
-    if (!window.confirm('Delete this question?')) return;
-    try {
-      await api.deleteQuestion(id);
-      setQuestions(prev => prev.filter(q => q.id !== id));
-      showToast('Question deleted');
-    } catch (e) { showToast(e.message); }
-  };
+  const refreshQuestions = () => { api.getExam(examId).then(d => setQuestions(d.questions || [])); };
 
   return (
-    <div>
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
-          background: '#1a7a4a', color: '#fff', padding: '12px 28px', borderRadius: 8,
-          fontSize: 14, fontWeight: 600, zIndex: 300, animation: 'fadeIn .3s',
-          boxShadow: '0 8px 24px rgba(0,0,0,.2)',
-        }}>
-          {toast}
-          <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } }`}</style>
-        </div>
-      )}
+    <main className="max-w-[860px] mx-auto px-4 py-6">
+      <PageHeader
+        eyebrow="Exams"
+        title={examId ? 'Edit Exam' : 'Create Exam'}
+        subtitle={examId ? 'Update exam details, add or edit questions.' : 'Set up your exam details first.'}
+        icon={FileText}
+      />
 
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
-        {/* Exam Details */}
-        <div className="card">
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
-            paddingBottom: 16, borderBottom: '1px solid #c8d8f0',
-          }}>
-            <span style={{ fontSize: 20 }}><FileText size={20} /></span>
-            <h2 style={{ fontSize: 16, color: '#0f2044' }}>Exam Details</h2>
+      {/* Exam Details */}
+      <Card>
+        <SectionTitle icon={FileText}>Exam Details</SectionTitle>
+        {classId && (
+          <div className="flex items-start gap-2 text-[12px] text-muted bg-navy-50 border border-navy-100 rounded-lg px-3 py-2 mb-4">
+            <GraduationCap size={15} className="text-navy-700 shrink-0 mt-0.5" />
+            <span>Linked to a class — the roster below is filled from its enrollments and submissions auto-mark students <strong className="text-navy-800">present</strong> for attendance records.</span>
           </div>
-
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Exam Title</label>
-            <input value={title} onChange={e => setTitle(e.target.value)}
-              placeholder="e.g. STAT 120 Midterm" style={inputStyle} />
+        )}
+        <div className="flex flex-col gap-4">
+          <Input label="Exam Title" icon={FileText} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. STAT 120 Midterm" />
+          <TextArea label="Description (optional)" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief description of the exam" style={{ minHeight: 60, resize: 'vertical' }} />
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input label="Time Limit (minutes)" icon={Clock} type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))} min={1} />
+            <Input label="Access Code (optional, for live check-in)" icon={Key} value={accessCode} onChange={e => setAccessCode(e.target.value)}
+              placeholder="e.g. MIDTERM25" className="!font-mono !tracking-[.08em] !uppercase" />
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Description <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
-            <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief description of the exam"
-              style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Time Limit (minutes)</label>
-            <input type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))}
-              style={{ ...inputStyle, width: 200 }} min={1} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Deadline <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
-            <input type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)}
-              style={{ ...inputStyle, maxWidth: 280 }} />
+          <div>
+            <Input label="Deadline (optional)" icon={CalendarClock} type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} className="!max-w-[280px]" />
             {deadline && (
-              <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-                Students will no longer be able to access or submit this exam after this time.
-                <button onClick={() => setDeadline('')} className="btn btn-sm btn-outline" style={{ marginLeft: 8, padding: '2px 10px', fontSize: 11 }}>Remove</button>
+              <div className="text-[11px] text-muted mt-1 flex items-center gap-2">
+                Students can no longer access or submit after this time.
+                <Button size="sm" variant="outline" onClick={() => setDeadline('')} icon={X}>Remove</Button>
               </div>
             )}
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Class <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional — links exam to a class for records &amp; auto-attendance)</span></label>
-            <select value={classId} onChange={e => setClassId(e.target.value)}
-              style={{ ...inputStyle, maxWidth: 360, cursor: 'pointer' }}>
+          <div>
+            <Select label="Class (optional — links exam to a class for records & auto-attendance)" value={classId} onChange={e => setClassId(e.target.value)} className="!max-w-[360px]">
               <option value="">— No class —</option>
-              {classes.map(k => (
-                <option key={k.id} value={k.id}>{k.name}{k.section ? ' · ' + k.section : ''}</option>
-              ))}
-            </select>
+              {classes.map(k => <option key={k.id} value={k.id}>{k.name}{k.section ? ' · ' + k.section : ''}</option>)}
+            </Select>
             {classId && (
-              <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-                The roster below was filled from this class's enrollments. Student submissions will automatically mark them <strong>present</strong> for the class on that day.
-              </div>
+              <p className="text-[11px] text-muted mt-1">
+                The roster below was filled from this class's enrollments. Submissions automatically mark students <strong>present</strong> that day.
+              </p>
             )}
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Access Code <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional, for live check-in)</span></label>
-            <input value={accessCode} onChange={e => setAccessCode(e.target.value)}
-              placeholder="e.g. MIDTERM25" style={{ ...inputStyle, maxWidth: 240, textTransform: 'uppercase', fontFamily: "'IBM Plex Mono', monospace", letterSpacing: '.08em' }} />
-            <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-              Students must enter this code (displayed by the proctor / via QR) before they can start. Leave blank to allow anyone with the exam link.
-            </div>
+          <TextArea label="Class Roster (optional, for attendance & absentee reports)" value={roster} onChange={e => setRoster(e.target.value)}
+            placeholder={'One student per line: Student ID, Full Name, Section\nExample:\n2019-12345, Dela Cruz, Juan A., BSCS 2-A\n2019-23456, Santos, Maria B., BSCS 2-A'}
+            className="!font-mono !text-[13px]" style={{ minHeight: 110, resize: 'vertical' }} />
+          <p className="text-[11px] text-muted -mt-2 flex items-center gap-1.5"><Users size={12} className="text-navy-700" /> Students in the roster who never start the exam appear as <strong>absent</strong> in the Attendance report.</p>
+          <div className="flex items-center justify-between gap-3 border border-border rounded-lg px-3.5 py-3 bg-canvas/60">
+            <Toggle checked={showAnswers} onChange={setShowAnswers} label="Show correct answers to students after submission" />
           </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>Class Roster <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional, for attendance &amp; absentee reports)</span></label>
-            <textarea value={roster} onChange={e => setRoster(e.target.value)}
-              placeholder={'One student per line:  Student ID, Full Name, Section\nExample:\n2019-12345, Dela Cruz, Juan A., BSCS 2-A\n2019-23456, Santos, Maria B., BSCS 2-A'}
-              style={{ ...inputStyle, resize: 'vertical', minHeight: 110, fontFamily: "'IBM Plex Mono', monospace", fontSize: 13 }} />
-            <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-              Students in the roster who never start the exam will appear as <strong>absent</strong> in the Attendance report.
-            </div>
+          <div className="flex gap-2 pt-1">
+            <Button onClick={saveExam} loading={saving} icon={FileText}>{saving ? 'Saving...' : examId ? 'Update Exam' : 'Save Exam'}</Button>
           </div>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <label style={{ ...labelStyle, marginBottom: 0, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div onClick={() => setShowAnswers(!showAnswers)} style={{
-                width: 44, height: 24, borderRadius: 12, position: 'relative', cursor: 'pointer', flexShrink: 0,
-                background: showAnswers ? '#1a7a4a' : '#c8d8f0', transition: 'background .2s',
-              }}>
-                <div style={{
-                  width: 20, height: 20, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2,
-                  left: showAnswers ? 22 : 2, transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)',
-                }} />
-              </div>
-              Show correct answers to students after submission
-            </label>
-          </div>
-          <button onClick={saveExam} className="btn" disabled={saving}
-            style={{ opacity: saving ? .7 : 1 }}>
-            {saving ? 'Saving...' : examId ? 'Update Exam' : 'Save Exam'}
-          </button>
         </div>
+      </Card>
 
-        {/* Add Question */}
-        {examId && (
-          <div className="card" style={{ marginTop: 24 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
-              paddingBottom: 16, borderBottom: '1px solid #c8d8f0',
-            }}>
-              <span style={{ fontSize: 20 }}><HelpCircle size={20} /></span>
-              <h2 style={{ fontSize: 16, color: '#0f2044' }}>Add Question</h2>
-              <span style={{ fontSize: 12, color: '#5a7090', marginLeft: 'auto' }}>
-                {questions.length} question{questions.length !== 1 ? 's' : ''} total
-              </span>
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Part</label>
-              <input type="number" value={qPart} onChange={e => setQPart(Number(e.target.value))}
-                min={1} style={{ ...inputStyle, width: 80 }} />
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Question Type</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={() => setQType('multiple_choice')}
-                  style={{
-                    padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600,
-                    border: `2px solid ${qType === 'multiple_choice' ? '#1a4fad' : '#c8d8f0'}`,
-                    background: qType === 'multiple_choice' ? '#ddeeff' : '#fff',
-                    color: qType === 'multiple_choice' ? '#1a4fad' : '#5a7090',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}>Multiple Choice</button>
-                <button onClick={() => setQType('fill_blank')}
-                  style={{
-                    padding: '8px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600,
-                    border: `2px solid ${qType === 'fill_blank' ? '#1a4fad' : '#c8d8f0'}`,
-                    background: qType === 'fill_blank' ? '#ddeeff' : '#fff',
-                    color: qType === 'fill_blank' ? '#1a4fad' : '#5a7090',
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}>Fill in the Blank</button>
+      {/* Add Question */}
+      {examId && (
+        <Card className="!mt-6">
+          <SectionTitle icon={HelpCircle} count={`${questions.length} question${questions.length !== 1 ? 's' : ''} total`}>Add Question</SectionTitle>
+          <div className="flex flex-col gap-4">
+            <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-end">
+              <Input label="Part" icon={ListChecks} type="number" value={qPart} onChange={e => setQPart(Number(e.target.value))} min={1} className="!w-24" />
+              <div>
+                <span className="label">Question Type</span>
+                <TypeToggle value={qType} onChange={setQType} />
               </div>
             </div>
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>
-                Question Text{' '}
-                <span style={{ fontWeight: 400, color: '#5a7090' }}>(use {'{{DATA:1,2,3}}'} for datasets)</span>
-              </label>
-              <textarea value={qText} onChange={e => setQText(e.target.value)}
-                style={{ ...inputStyle, resize: 'vertical', minHeight: 70 }} />
-            </div>
+            <TextArea label="Question Text (use {'{{DATA:1,2,3}}'} for datasets)" value={qText} onChange={e => setQText(e.target.value)} style={{ minHeight: 70, resize: 'vertical' }} />
             {qType === 'fill_blank' ? (
-              <div style={{ marginBottom: 16 }}>
-                <label style={labelStyle}>Correct Answer</label>
-                <input value={qBlankAnswer} onChange={e => setQBlankAnswer(e.target.value)}
-                  placeholder="e.g. 42" style={inputStyle} />
-                <div style={{ fontSize: 11, color: '#5a7090', marginTop: 4 }}>
-                  Matching is flexible: case-insensitive, ignores all spacing, and accepts equivalent math. Examples: "x = 2" ≈ "2"; "1/2" ≈ "0.5" ≈ "50%"; "(x-1)(x+2)" ≈ "(x+2)(x-1)" ≈ "x² + x - 2".
-                </div>
-              </div>
+              <Input label="Correct Answer" icon={Key} value={qBlankAnswer} onChange={e => setQBlankAnswer(e.target.value)} placeholder="e.g. 42"
+                hint='Matching is flexible: case-insensitive, ignores spacing, accepts equivalent math. Examples: "x = 2" ≈ "2"; "1/2" ≈ "0.5"; "(x-1)(x+2)" ≈ "x² + x - 2".' />
             ) : (
               <>
-                <div style={{ marginBottom: 16 }}>
-                  <label style={labelStyle}>Choices</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {['A', 'B', 'C', 'D'].map(letter => {
-                      const val = [qChoiceA, qChoiceB, qChoiceC, qChoiceD][letter.charCodeAt(0) - 65];
-                      const set = [setQChoiceA, setQChoiceB, setQChoiceC, setQChoiceD][letter.charCodeAt(0) - 65];
-                      return (
-                        <div key={letter} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600,
-                            color: qAnswer === letter ? '#1a7a4a' : '#1a4fad', minWidth: 24,
-                          }}>
-                            {letter})
-                          </span>
-                          <input value={val} onChange={e => set(e.target.value)}
-                            placeholder={`Choice ${letter}`}
-                            style={{
-                              ...inputStyle, flex: 1,
-                              borderColor: qAnswer === letter ? '#1a7a4a' : '#c8d8f0',
-                              background: qAnswer === letter ? '#f0faf4' : '#fff',
-                            }} />
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 14, marginBottom: 16, flexWrap: 'wrap' }}>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={labelStyle}>Correct Answer</label>
-                    <div style={{ position: 'relative' }}>
-                      <select value={qAnswer} onChange={e => setQAnswer(e.target.value)}
-                        style={{
-                          width: '100%', padding: '11px 40px 11px 14px', borderRadius: 10, fontSize: 14,
-                          fontFamily: 'inherit', border: '2px solid #d0ddf0', background: '#f5f8ff',
-                          outline: 'none', appearance: 'none', cursor: 'pointer',
-                          color: qAnswer ? '#1a2a3a' : '#9ab', fontWeight: qAnswer ? 500 : 400,
-                          transition: 'border-color .2s, box-shadow .2s',
-                          boxShadow: '0 1px 4px rgba(15,32,68,.06)',
-                        }}
-                        onFocus={e => { e.target.style.borderColor = '#1a4fad'; e.target.style.boxShadow = '0 0 0 3px rgba(26,79,173,.12)'; }}
-                        onBlur={e => { e.target.style.borderColor = '#d0ddf0'; e.target.style.boxShadow = '0 1px 4px rgba(15,32,68,.06)'; }}>
-                        <option value="" disabled>— Select —</option>
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="C">C</option>
-                        <option value="D">D</option>
-                      </select>
-                      <div style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#5a7090' }}>
-                        <ChevronDown size={18} />
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ flex: '1 1 180px' }}>
-                    <label style={labelStyle}>Explanation <span style={{ fontWeight: 400, color: '#5a7090' }}>(optional)</span></label>
-                    <input value={qExplain} onChange={e => setQExplain(e.target.value)}
-                      placeholder="Shown after submission" style={inputStyle} />
-                  </div>
+                <ChoiceRows values={qChoices} setValue={(k, v) => setQChoices(c => ({ ...c, [k]: v }))} answer={qAnswer} setAnswer={setQAnswer} />
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Select label="Correct Answer" value={qAnswer} onChange={e => setQAnswer(e.target.value)}>
+                    <option value="" disabled>— Select —</option>
+                    {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                  </Select>
+                  <Input label="Explanation (optional)" icon={Lightbulb} value={qExplain} onChange={e => setQExplain(e.target.value)} placeholder="Shown after submission" />
                 </div>
               </>
             )}
-            <button onClick={addQuestion} className="btn" disabled={adding}
-              style={{ opacity: adding ? .7 : 1 }}>
-              {adding ? 'Adding...' : <><Plus size={16} /> Add Question</>}
-            </button>
-          </div>
-        )}
-
-        {/* Bulk Import & Bank Import */}
-        {examId && (
-          <div className="card" style={{ marginTop: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid #c8d8f0' }}>
-              <HelpCircle size={20} />
-              <h2 style={{ fontSize: 16, color: '#0f2044' }}>Import Questions</h2>
+            <div>
+              <Button onClick={addQuestion} loading={adding} icon={Plus}>{adding ? 'Adding...' : 'Add Question'}</Button>
             </div>
-
-            {/* Bulk Import */}
-            <BulkImportSection examId={examId} onImported={() => { api.getExam(examId).then(d => setQuestions(d.questions || [])); showToast('Questions imported!'); }} showToast={showToast} />
-
-            {/* From Bank */}
-            <BankImportSection examId={examId} onImported={() => { api.getExam(examId).then(d => setQuestions(d.questions || [])); showToast('Questions imported from bank!'); }} showToast={showToast} />
           </div>
-        )}
+        </Card>
+      )}
 
-        {/* Questions List */}
-        {examId && (
-          <div className="card" style={{ marginTop: 24 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
-              paddingBottom: 16, borderBottom: '1px solid #c8d8f0',
-            }}>
-              <span style={{ fontSize: 20 }}><FileText size={20} /></span>
-              <h2 style={{ fontSize: 16, color: '#0f2044' }}>Questions</h2>
-              <span style={{ fontSize: 12, color: '#5a7090', marginLeft: 'auto' }}>
-                {questions.length} question{questions.length !== 1 ? 's' : ''}
-              </span>
+      {/* Import */}
+      {examId && (
+        <Card className="!mt-6">
+          <SectionTitle icon={Upload} count="Bulk JSON · Question Bank">Import Questions</SectionTitle>
+          <BulkImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported!'); }} />
+          <div className="my-3 flex items-center gap-3 text-[11px] text-faint">
+            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+          </div>
+          <BankImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported from bank!'); }} />
+        </Card>
+      )}
+
+      {/* Questions List */}
+      {examId && (
+        <Card className="!mt-6">
+          <SectionTitle icon={FileText} count={`${questions.length} question${questions.length !== 1 ? 's' : ''}`}>Questions</SectionTitle>
+          {!questions.length ? (
+            <EmptyState icon={Inbox} title="No questions yet" body="Add your first question above." compact />
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {questions.map((q, i) => (
+                <QuestionCard
+                  key={q.id}
+                  q={q}
+                  index={i}
+                  isEditing={editingId === q.id}
+                  editState={editState}
+                  editActions={editActions}
+                  editSaving={editSaving}
+                  onEdit={startEdit}
+                  onDelete={(id) => setDeleteTarget(id)}
+                />
+              ))}
             </div>
+          )}
+        </Card>
+      )}
 
-            {!questions.length ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px', color: '#5a7090' }}>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 8 }}><Inbox size={32} /></div>
-                <p style={{ fontSize: 14, fontWeight: 600, color: '#0f2044' }}>No questions yet</p>
-                <p style={{ fontSize: 13, marginTop: 4 }}>Add your first question above.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {questions.map((q, i) => {
-                  const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
-                  const isEditing = editingId === q.id;
-                  return (
-                    <div key={q.id} style={{
-                      background: isEditing ? '#fff' : '#f5f8ff',
-                      border: `1px solid ${isEditing ? '#1a4fad' : '#c8d8f0'}`,
-                      borderRadius: 10, padding: '16px 18px',
-                      boxShadow: isEditing ? '0 2px 16px rgba(26,79,173,.15)' : 'none',
-                      transition: 'box-shadow .15s',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{
-                            fontSize: 10, background: '#0f2044', color: '#fff', padding: '2px 8px',
-                            borderRadius: 4, fontWeight: 600, letterSpacing: '.03em',
-                          }}>
-                            Q{i + 1}
-                          </span>
-                          {isEditing ? (
-                            <input type="number" value={editPart} onChange={e => setEditPart(Number(e.target.value))}
-                              min={1} style={{ width: 50, ...inputStyle }} />
-                          ) : (
-                            <span style={{ fontSize: 11, color: '#5a7090' }}>Part {q.part}{q.type === 'fill_blank' ? ' · Fill-in-the-blank' : ''}</span>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          {isEditing ? (
-                            <>
-                              <button onClick={() => saveEdit(q)} disabled={editSaving}
-                                style={{
-                                  background: '#1a4fad', color: '#fff', border: 'none', borderRadius: 6,
-                                  padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                                }}>{editSaving ? 'Saving...' : 'Save'}</button>
-                              <button onClick={cancelEdit}
-                                style={{
-                                  background: 'none', border: '1px solid #c8d8f0', borderRadius: 6,
-                                  padding: '5px 14px', fontSize: 12, cursor: 'pointer', color: '#5a7090',
-                                }}>Cancel</button>
-                            </>
-                          ) : (
-                            <>
-                              <button onClick={() => startEdit(q)}
-                                style={{
-                                  background: 'none', border: 'none', color: '#1a4fad', cursor: 'pointer',
-                                  fontSize: 12, padding: '2px 6px', borderRadius: 4,
-                                }}>Edit</button>
-                              <button onClick={() => deleteQuestion(q.id)}
-                                style={{
-                                  background: 'none', border: 'none', color: '#9ab', cursor: 'pointer',
-                                  fontSize: 16, padding: '2px 6px', borderRadius: 4, lineHeight: 1,
-                                }}
-                                onMouseEnter={e => { e.target.style.background = '#ffe0e0'; e.target.style.color = '#c0392b'; }}
-                                onMouseLeave={e => { e.target.style.background = 'none'; e.target.style.color = '#9ab'; }}>
-                                <X size={14} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {isEditing ? (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                          <textarea value={editText} onChange={e => setEditText(e.target.value)}
-                            style={{ ...inputStyle, resize: 'vertical', minHeight: 60 }} />
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button onClick={() => setEditType('multiple_choice')}
-                              style={{
-                                padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-                                border: `2px solid ${editType === 'multiple_choice' ? '#1a4fad' : '#c8d8f0'}`,
-                                background: editType === 'multiple_choice' ? '#ddeeff' : '#fff',
-                                color: editType === 'multiple_choice' ? '#1a4fad' : '#5a7090',
-                                cursor: 'pointer', fontFamily: 'inherit',
-                              }}>MC</button>
-                            <button onClick={() => setEditType('fill_blank')}
-                              style={{
-                                padding: '5px 12px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-                                border: `2px solid ${editType === 'fill_blank' ? '#1a4fad' : '#c8d8f0'}`,
-                                background: editType === 'fill_blank' ? '#ddeeff' : '#fff',
-                                color: editType === 'fill_blank' ? '#1a4fad' : '#5a7090',
-                                cursor: 'pointer', fontFamily: 'inherit',
-                              }}>Fill Blank</button>
-                          </div>
-                          {editType === 'fill_blank' ? (
-                            <div>
-                              <label style={{ ...labelStyle, fontSize: 11 }}>Correct Answer</label>
-                              <input value={editBlankAnswer} onChange={e => setEditBlankAnswer(e.target.value)}
-                                placeholder="e.g. 42" style={{ ...inputStyle, fontSize: 13 }} />
-                            </div>
-                          ) : (
-                            <>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                {['A', 'B', 'C', 'D'].map(letter => {
-                                  const val = [editChoiceA, editChoiceB, editChoiceC, editChoiceD][letter.charCodeAt(0) - 65];
-                                  const set = [setEditChoiceA, setEditChoiceB, setEditChoiceC, setEditChoiceD][letter.charCodeAt(0) - 65];
-                                  return (
-                                    <div key={letter} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                      <span style={{
-                                        fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, fontWeight: 600,
-                                        color: editAnswer === letter ? '#1a7a4a' : '#1a4fad', minWidth: 20,
-                                      }}>{letter})</span>
-                                      <input value={val} onChange={e => set(e.target.value)}
-                                        placeholder={`Choice ${letter}`}
-                                        style={{ flex: 1, ...inputStyle, borderColor: editAnswer === letter ? '#1a7a4a' : '#c8d8f0' }} />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                              <div style={{ display: 'flex', gap: 10 }}>
-                                <div>
-                                  <label style={{ ...labelStyle, fontSize: 11 }}>Correct Answer</label>
-                                  <select value={editAnswer} onChange={e => setEditAnswer(e.target.value)}
-                                    style={{
-                                      padding: '8px 32px 8px 12px', borderRadius: 6, fontSize: 13,
-                                      fontFamily: 'inherit', border: '1.5px solid #c8d8f0', outline: 'none',
-                                      appearance: 'none', cursor: 'pointer', background: '#fff',
-                                    }}>
-                                    <option value="" disabled>—</option>
-                                    <option value="A">A</option>
-                                    <option value="B">B</option>
-                                    <option value="C">C</option>
-                                    <option value="D">D</option>
-                                  </select>
-                                </div>
-                                <div style={{ flex: 1 }}>
-                                  <label style={{ ...labelStyle, fontSize: 11 }}>Explanation</label>
-                                  <input value={editExplain} onChange={e => setEditExplain(e.target.value)}
-                                    placeholder="Shown after submission" style={{ ...inputStyle, fontSize: 13 }} />
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          <div style={{ fontSize: 14, marginBottom: 10, lineHeight: 1.5 }}>{q.text}</div>
-                          {(q.type || 'multiple_choice') === 'fill_blank' ? (
-                            <div style={{ fontSize: 12, color: '#1a4fad', marginBottom: 8 }}>
-                              Answer: <strong>{q.answer}</strong>
-                            </div>
-                          ) : (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                              {choices.map(c => (
-                                <span key={c.key} style={{
-                                  fontSize: 12, padding: '3px 10px', borderRadius: 5,
-                                  background: c.key === q.answer ? '#d4f5e2' : '#fff',
-                                  border: `1px solid ${c.key === q.answer ? '#1a7a4a' : '#c8d8f0'}`,
-                                  color: c.key === q.answer ? '#1a7a4a' : '#5a7090',
-                                  fontWeight: c.key === q.answer ? 600 : 400,
-                                }}>
-                                  {c.key}. {c.text}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {q.explain && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: '#1a4fad', fontStyle: 'italic' }}>
-                              <Lightbulb size={12} /> {q.explain}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
-      </main>
-      </div>
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Question?"
+        body="This question will be removed from the exam."
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={deleteQuestion}
+      />
+    </main>
   );
 }
 
-function BulkImportSection({ examId, onImported, showToast }) {
+function BulkImportSection({ examId, onImported }) {
   const [open, setOpen] = useState(false);
   const [json, setJson] = useState('');
   const [importing, setImporting] = useState(false);
+  const toast = useToast();
 
   const doImport = async () => {
     let questions;
-    try { questions = JSON.parse(json); } catch { return showToast('Invalid JSON'); }
-    if (!Array.isArray(questions) || !questions.length) return showToast('Provide an array of questions');
+    try { questions = JSON.parse(json); } catch { toast.error('Invalid JSON'); return; }
+    if (!Array.isArray(questions) || !questions.length) { toast.error('Provide an array of questions'); return; }
     setImporting(true);
     try {
       await api.bulkImportQuestions(examId, questions, 0);
       setJson(''); setOpen(false);
       onImported();
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
     setImporting(false);
   };
 
+  const count = (() => { try { const q = JSON.parse(json); return Array.isArray(q) ? q.length : 0; } catch { return 0; } })();
+
   return (
-    <div style={{ marginBottom: 16 }}>
-      <button onClick={() => setOpen(!open)} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <Plus size={14} /> {open ? 'Close Bulk Import' : 'Bulk Import JSON'}
-      </button>
+    <div className="mb-1">
+      <Button size="sm" variant="soft" icon={open ? X : Upload} onClick={() => setOpen(!open)}>
+        {open ? 'Close Bulk Import' : 'Bulk Import JSON'}
+      </Button>
       {open && (
-        <div style={{ marginTop: 12 }}>
-          <p style={{ fontSize: 12, color: '#5a7090', marginBottom: 8 }}>
-            Paste a JSON array of questions. Each object: {`{ "text": "...", "choices": [{"key":"A","text":"..."},...], "answer": "A", "part": 1, "explain": "...", "type": "multiple_choice" }`}. For fill-in-the-blank, use {`{ "text": "...", "type": "fill_blank", "choices": [], "answer": "correct answer", "part": 1 }`}.
+        <div className="mt-3 border border-border rounded-lg p-3.5 bg-canvas/50">
+          <p className="text-[12px] text-muted mb-2">
+            Paste a JSON array of questions. Each object: <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"choices\": [{\"key\":\"A\",\"text\":\"...\"},...], \"answer\": \"A\", \"part\": 1, \"explain\": \"...\", \"type\": \"multiple_choice\" }"}</code>. For fill-in-the-blank, use <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"type\": \"fill_blank\", \"choices\": [], \"answer\": \"correct answer\", \"part\": 1 }"}</code>.
           </p>
-          <textarea value={json} onChange={e => setJson(e.target.value)}
+          <TextArea value={json} onChange={e => setJson(e.target.value)}
             placeholder='[{"text":"What is 2+2?","choices":[{"key":"A","text":"3"},{"key":"B","text":"4"},{"key":"C","text":"5"}],"answer":"B","part":1}]'
-            style={{ width: '100%', minHeight: 120, border: '1.5px solid #c8d8f0', borderRadius: 8, padding: 10, fontSize: 13, fontFamily: "'IBM Plex Mono', monospace", resize: 'vertical', outline: 'none' }} />
-          <button onClick={doImport} disabled={importing || !json.trim()} className="btn btn-sm" style={{ marginTop: 8, opacity: importing ? .7 : 1 }}>
-            {importing ? 'Importing...' : 'Import ' + (() => { try { const q = JSON.parse(json); return Array.isArray(q) ? q.length + ' question(s)' : ''; } catch { return ''; } })()}
-          </button>
+            className="!font-mono !text-[13px]" style={{ minHeight: 120, resize: 'vertical' }} />
+          <Button size="sm" className="!mt-2" onClick={doImport} loading={importing} disabled={!json.trim()} icon={Upload}>
+            {importing ? 'Importing...' : `Import${count ? ' ' + count + ' question(s)' : ''}`}
+          </Button>
         </div>
       )}
     </div>
   );
 }
 
-function BankImportSection({ examId, onImported, showToast }) {
+function BankImportSection({ examId, onImported }) {
   const [open, setOpen] = useState(false);
   const [bank, setBank] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [importing, setImporting] = useState(false);
+  const toast = useToast();
 
   const loadBank = async () => {
     try {
@@ -730,7 +563,7 @@ function BankImportSection({ examId, onImported, showToast }) {
       setBank(data);
       setOpen(true);
       setSelected(new Set());
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
   };
 
   const toggle = (id) => {
@@ -743,7 +576,7 @@ function BankImportSection({ examId, onImported, showToast }) {
 
   const doImport = async () => {
     const toImport = bank.filter(q => selected.has(q.id));
-    if (!toImport.length) return showToast('Select at least one question');
+    if (!toImport.length) { toast.error('Select at least one question'); return; }
     setImporting(true);
     try {
       const formatted = toImport.map(q => ({
@@ -754,43 +587,40 @@ function BankImportSection({ examId, onImported, showToast }) {
       await api.bulkImportQuestions(examId, formatted, 0);
       setOpen(false);
       onImported();
-    } catch (e) { showToast(e.message); }
+    } catch (e) { toast.error(e.message); }
     setImporting(false);
   };
 
   return (
     <div>
-      <button onClick={loadBank} className="btn btn-outline btn-sm" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        <Plus size={14} /> Import from Question Bank
-      </button>
+      <Button size="sm" variant="soft" icon={Library} onClick={loadBank}>Import from Question Bank</Button>
       {open && (
-        <div style={{ marginTop: 12, border: '1px solid #c8d8f0', borderRadius: 10, padding: 16, background: '#f5f8ff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#0f2044' }}>Select questions to import</span>
-            <button onClick={() => setOpen(false)} className="btn btn-sm btn-outline">Cancel</button>
+        <div className="mt-3 border border-border rounded-[10px] p-4 bg-canvas/50">
+          <div className="flex justify-between items-center mb-3">
+            <span className="text-[13px] font-semibold text-navy-800 flex items-center gap-2">
+              <span className="w-6 h-6 rounded-md bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Library size={13} /></span>
+              Select questions to import
+            </span>
+            <Button size="sm" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           </div>
           {!bank.length ? (
-            <p style={{ fontSize: 13, color: '#5a7090' }}>Bank is empty.</p>
+            <p className="text-[13px] text-muted">Bank is empty.</p>
           ) : (
-            <div style={{ maxHeight: 300, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="max-h-[300px] overflow-y-auto flex flex-col gap-1.5">
               {bank.map(q => (
-                <label key={q.id} onClick={() => toggle(q.id)} style={{
-                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                  border: `1px solid ${selected.has(q.id) ? '#1a4fad' : '#c8d8f0'}`,
-                  borderRadius: 6, cursor: 'pointer', fontSize: 13,
-                  background: selected.has(q.id) ? '#ddeeff' : '#fff',
-                }}>
-                  <input type="checkbox" checked={selected.has(q.id)} onChange={() => {}} style={{ accentColor: '#1a4fad' }} />
-                  <span style={{ fontSize: 10, background: '#0f2044', color: '#fff', padding: '1px 6px', borderRadius: 3, fontWeight: 600, whiteSpace: 'nowrap' }}>Part {q.part}</span>
-                  <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{q.text}</span>
+                <label key={q.id} onClick={() => toggle(q.id)}
+                  className={`flex items-center gap-2.5 px-3 py-2 border rounded-md cursor-pointer text-[13px] transition-colors ${selected.has(q.id) ? 'border-navy-700 bg-navy-100' : 'border-border bg-surface hover:border-navy-700'}`}>
+                  <input type="checkbox" checked={selected.has(q.id)} onChange={() => {}} className="accent-navy-700" />
+                  <Badge tone="info">Part {q.part}</Badge>
+                  <span className="flex-1 truncate">{q.text}</span>
                 </label>
               ))}
             </div>
           )}
           {selected.size > 0 && (
-            <button onClick={doImport} disabled={importing} className="btn btn-sm" style={{ marginTop: 12, opacity: importing ? .7 : 1 }}>
+            <Button size="sm" className="!mt-3" onClick={doImport} loading={importing} icon={Check}>
               {importing ? 'Importing...' : `Import ${selected.size} question${selected.size > 1 ? 's' : ''}`}
-            </button>
+            </Button>
           )}
         </div>
       )}

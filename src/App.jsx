@@ -1,4 +1,5 @@
 import { Routes, Route } from 'react-router-dom';
+import { ToastProvider } from './components/ui';
 import Landing from './pages/Landing';
 import Exam from './pages/Exam';
 import Leaderboard from './pages/Leaderboard';
@@ -18,23 +19,25 @@ import StudentRecords from './pages/StudentRecords';
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route path="/exam" element={<Exam />} />
-      <Route path="/leaderboard" element={<Leaderboard />} />
-      <Route path="/checkin" element={<Checkin />} />
-      <Route path="/enroll" element={<StudentEnroll />} />
-      <Route path="/records" element={<StudentRecords />} />
-      <Route path="/admin" element={<Dashboard />} />
-      <Route path="/admin/create" element={<CreateExam />} />
-      <Route path="/admin/results" element={<Results />} />
-      <Route path="/admin/answers" element={<Answers />} />
-      <Route path="/admin/preview" element={<Preview />} />
-      <Route path="/admin/regrade" element={<Regrade />} />
-      <Route path="/admin/bank" element={<QuestionBank />} />
-      <Route path="/admin/logs" element={<ActivityLog />} />
-      <Route path="/admin/proctor" element={<Proctor />} />
-      <Route path="/admin/classes" element={<Classes />} />
-    </Routes>
+    <ToastProvider>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route path="/exam" element={<Exam />} />
+        <Route path="/leaderboard" element={<Leaderboard />} />
+        <Route path="/checkin" element={<Checkin />} />
+        <Route path="/enroll" element={<StudentEnroll />} />
+        <Route path="/records" element={<StudentRecords />} />
+        <Route path="/admin" element={<Dashboard />} />
+        <Route path="/admin/create" element={<CreateExam />} />
+        <Route path="/admin/results" element={<Results />} />
+        <Route path="/admin/answers" element={<Answers />} />
+        <Route path="/admin/preview" element={<Preview />} />
+        <Route path="/admin/regrade" element={<Regrade />} />
+        <Route path="/admin/bank" element={<QuestionBank />} />
+        <Route path="/admin/logs" element={<ActivityLog />} />
+        <Route path="/admin/proctor" element={<Proctor />} />
+        <Route path="/admin/classes" element={<Classes />} />
+      </Routes>
+    </ToastProvider>
   );
 }

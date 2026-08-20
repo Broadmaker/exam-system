@@ -1,10 +1,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import '../../styles.css';
-import { RotateCcw, CheckCircle, AlertTriangle, Loader } from 'lucide-react';
-
-const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
+import { Button, Card, Select, Badge, PageHeader } from '../../components/ui';
+import { RotateCcw, CheckCircle, AlertTriangle, Loader2, TrendingUp, Minus } from 'lucide-react';
 
 export default function Regrade() {
   const [exams, setExams] = useState([]);
@@ -21,7 +19,7 @@ export default function Regrade() {
     setResult(null);
     setError('');
     try {
-      const data = await api.regrade(selectedId, ADMIN_PASSWORD);
+      const data = await api.regrade(selectedId);
       setResult(data);
     } catch (e) {
       setError(e.message);
@@ -31,68 +29,72 @@ export default function Regrade() {
 
   return (
     <AdminLayout title="Regrade Submissions">
-      <main style={{ maxWidth: 700, margin: '0 auto', padding: '24px 16px' }}>
-        <div className="card" style={{ padding: 28 }}>
-          <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 20, lineHeight: 1.6 }}>
+      <main className="max-w-[700px] mx-auto px-4 py-6">
+        <PageHeader
+          eyebrow="Exams"
+          title="Regrade Submissions"
+          subtitle="Recalculate scores for past submissions using the fixed grading logic."
+          icon={RotateCcw}
+        />
+        <Card className="!p-7">
+          <p className="text-[13px] text-muted mb-5 leading-relaxed">
             Recalculates scores for all past submissions using the fixed grading logic.
             Only run this once after deploying the scoring fix.
           </p>
 
-          <label style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-            Select Exam
-            <select value={selectedId} onChange={e => { setSelectedId(e.target.value); setResult(null); setError(''); }}
-              style={{
-                border: '1.5px solid #c8d8f0', borderRadius: 8, fontSize: 14,
-                padding: '11px 14px', color: '#1a2a3a', outline: 'none', background: '#fff',
-                fontFamily: "'IBM Plex Sans', sans-serif",
-              }}>
+          <div className="mb-5">
+            <Select
+              label="Select Exam"
+              value={selectedId}
+              onChange={e => { setSelectedId(e.target.value); setResult(null); setError(''); }}
+            >
               <option value="">— Choose an exam —</option>
               {exams.map(e => (
                 <option key={e.id} value={e.id}>
                   {e.title} ({e.submission_count || 0} submissions)
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </div>
 
-          <button onClick={doRegrade} disabled={!selectedId || loading}
-            className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {loading ? <Loader size={16} /> : <RotateCcw size={16} />}
+          <Button onClick={doRegrade} disabled={!selectedId || loading} loading={loading} icon={loading ? null : RotateCcw}>
             {loading ? 'Regrading...' : 'Run Regrade'}
-          </button>
-        </div>
+          </Button>
+        </Card>
 
         {error && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff5f5', border: '1px solid #c0392b', borderRadius: 10, padding: '14px 18px', marginTop: 16, fontSize: 13, color: '#c0392b' }}>
+          <div className="mt-4 flex items-center gap-2 bg-danger-bg border border-danger rounded-[10px] px-4 py-3.5 text-[13px] text-danger">
             <AlertTriangle size={16} /> {error}
           </div>
         )}
 
         {result && (
-          <div style={{ marginTop: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#d4f5e2', border: '1px solid #1a7a4a', borderRadius: 10, padding: '14px 18px', marginBottom: 16, fontSize: 14, color: '#1a7a4a', fontWeight: 600 }}>
+          <div className="mt-5">
+            <div className="flex items-center gap-2 bg-success-bg border border-success rounded-[10px] px-4 py-3.5 mb-4 text-[14px] text-success font-semibold">
               <CheckCircle size={18} /> {result.regraded} submission(s) regraded
             </div>
-            <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid #c8d8f0' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr style={{ background: '#0f2044', color: '#fff' }}>
-                  <th style={{ padding: '10px 14px', textAlign: 'left' }}>Student</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'left' }}>Section</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Old Score</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>New Score</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'center' }}>Change</th>
-                </tr></thead>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Student</th>
+                    <th>Section</th>
+                    <th style={{ textAlign: 'center' }}>Old Score</th>
+                    <th style={{ textAlign: 'center' }}>New Score</th>
+                    <th style={{ textAlign: 'center' }}>Change</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {result.results.map((r, i) => {
                     const diff = r.new_score - r.old_score;
                     return (
-                      <tr key={i} style={{ borderTop: '1px solid #c8d8f0', background: diff > 0 ? '#f0faf4' : 'transparent' }}>
-                        <td style={{ padding: '9px 14px', fontWeight: 600 }}>{r.name}</td>
-                        <td style={{ padding: '9px 14px', color: '#5a7090' }}>{r.section}</td>
-                        <td style={{ padding: '9px 14px', textAlign: 'center' }}>{r.old_score}/{r.total}</td>
-                        <td style={{ padding: '9px 14px', textAlign: 'center', fontWeight: 600, color: diff > 0 ? '#1a7a4a' : '#1a2a3a' }}>{r.new_score}/{r.total}</td>
-                        <td style={{ padding: '9px 14px', textAlign: 'center', color: diff > 0 ? '#1a7a4a' : '#5a7090' }}>
-                          {diff > 0 ? `+${diff}` : diff === 0 ? '—' : diff}
+                      <tr key={i} className={diff > 0 ? '!bg-success-bg/40' : ''}>
+                        <td className="font-semibold">{r.name}</td>
+                        <td className="text-muted">{r.section}</td>
+                        <td style={{ textAlign: 'center' }}>{r.old_score}/{r.total}</td>
+                        <td style={{ textAlign: 'center' }} className={diff > 0 ? 'text-success font-semibold' : ''}>{r.new_score}/{r.total}</td>
+                        <td style={{ textAlign: 'center' }}>
+                          {diff > 0 ? <Badge tone="success"><TrendingUp size={11} /> +{diff}</Badge> : diff === 0 ? <Minus size={14} className="text-faint" /> : diff}
                         </td>
                       </tr>
                     );

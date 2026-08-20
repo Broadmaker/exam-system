@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useSearchParams, Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
-import '../styles.css';
-import { UserPlus, CheckCircle, AlertTriangle, ArrowLeft, Home, GraduationCap } from 'lucide-react';
+import { Button, Input, Badge } from '../components/ui';
+import PublicLayout from '../components/PublicLayout';
+import { UserPlus, CheckCircle, AlertTriangle, GraduationCap, Search, School } from 'lucide-react';
 
 export default function StudentEnroll() {
   const [params] = useSearchParams();
@@ -16,7 +17,7 @@ export default function StudentEnroll() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [done, setDone] = useState(null); // { name, already }
+  const [done, setDone] = useState(null);
 
   const lookup = async (e) => {
     if (e) e.preventDefault();
@@ -50,109 +51,111 @@ export default function StudentEnroll() {
     setLoading(false);
   };
 
-  const renderInput = (label, val, set, placeholder, mono = false) => (
-    <label style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {label}
-      <input value={val} onChange={e => set(e.target.value)} placeholder={placeholder} autoComplete="off"
-        style={{
-          border: '1.5px solid #c8d8f0', borderRadius: 8,
-          fontFamily: mono ? "'IBM Plex Mono', sans-serif" : "'IBM Plex Sans', sans-serif",
-          fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none',
-        }} />
-    </label>
-  );
-
   return (
-    <div style={{
-      minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: '32px 16px', background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)',
-    }}>
-      <div style={{ background: '#fff', borderRadius: 18, maxWidth: 460, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
-        <div style={{ padding: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-            <UserPlus size={22} color="#1a4fad" />
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044' }}>Enroll in a Class</h1>
+    <PublicLayout>
+      <div className="flex-1 flex items-stretch justify-center"
+        style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+        <div className="max-w-[1000px] mx-auto w-full px-4 py-10 grid lg:grid-cols-[1fr_460px] gap-8 items-center">
+          {/* Info panel */}
+          <div className="text-white hidden lg:block">
+            <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center mb-5"><UserPlus size={24} className="text-accent" /></span>
+            <h1 className="text-[34px] font-bold leading-tight mb-4">
+              Enroll in<br />a Class
+            </h1>
+            <p className="text-white/70 text-[15px] leading-relaxed mb-8 max-w-[380px]">
+              Join your class with the code shared by your instructor. Once enrolled, your exams and attendance appear in your records.
+            </p>
+            <div className="flex flex-col gap-2.5 max-w-[380px]">
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><School size={16} /></span>
+                <div>
+                  <div className="text-[13px] font-semibold">One code per class</div>
+                  <div className="text-[11px] text-white/50">Your instructor shares it — usually in class.</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                <span className="w-8 h-8 rounded-lg bg-purple-bg text-purple flex items-center justify-center shrink-0"><GraduationCap size={16} /></span>
+                <div>
+                  <div className="text-[13px] font-semibold">Track your progress</div>
+                  <div className="text-[11px] text-white/50">Results and attendance link to your student ID.</div>
+                </div>
+              </div>
+            </div>
           </div>
-          <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.5 }}>
+
+          {/* Form card */}
+          <div className="bg-surface rounded-[18px] w-full shadow-modal">
+            <div className="p-6 sm:p-8">
+          <div className="flex items-center gap-2.5 mb-1.5">
+            <span className="w-10 h-10 rounded-lg bg-navy-900 text-white flex items-center justify-center"><UserPlus size={20} /></span>
+            <h1 className="text-[22px] font-bold text-navy-800">Enroll in a Class</h1>
+          </div>
+          <p className="text-[13px] text-muted mb-6 leading-relaxed">
             Enter the class code given by your instructor to enroll. You can view your records afterwards.
           </p>
 
           {error && (
-            <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div className="text-[12px] text-danger mb-3.5 flex items-center gap-1.5 bg-danger-bg rounded-md px-3 py-2">
               <AlertTriangle size={12} /> {error}
             </div>
           )}
 
           {done ? (
-            <div style={{ textAlign: 'center', padding: '12px 0 4px' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 14 }}>
-                <span style={{
-                  width: 64, height: 64, borderRadius: '50%',
-                  background: done.already ? '#fff3d4' : '#d4f5e2',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  color: done.already ? '#e8a020' : '#1a7a4a',
-                }}>
+            <div className="text-center py-3">
+              <div className="flex justify-center mb-3.5">
+                <span className={`w-16 h-16 rounded-full flex items-center justify-center ${done.already ? 'bg-warning-bg text-warning' : 'bg-success-bg text-success'}`}>
                   <CheckCircle size={32} />
                 </span>
               </div>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#0f2044', marginBottom: 6 }}>
+              <h2 className="text-[16px] font-bold text-navy-800 mb-1.5">
                 {done.already ? 'Already enrolled' : 'You are now enrolled'}
               </h2>
-              <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 20 }}>
+              <p className="text-[14px] text-muted mb-5">
                 {done.already ? 'You were already enrolled in' : 'Welcome to'} <strong>{done.name}</strong>.
               </p>
-              <Link to="/records" className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <GraduationCap size={15} /> View My Records
-              </Link>
-              <button onClick={() => setDone(null)} className="btn btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginLeft: 8 }}>
-                Enroll Another
-              </button>
+              <div className="flex gap-2 justify-center flex-wrap">
+                <Button to="/records" icon={GraduationCap}>View My Records</Button>
+                <Button variant="outline" onClick={() => setDone(null)}>Enroll Another</Button>
+              </div>
             </div>
           ) : (
             <>
-              <form onSubmit={lookup} style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 22 }}>
-                {renderInput('Class Code', codeEntry, setCodeEntry, 'e.g. ' + 'BSCS2A', true)}
-                <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center' }}>
-                  Find Class
-                </button>
+              <form onSubmit={lookup} className="flex flex-col gap-2.5 mb-6">
+                <Input label="Class Code" value={codeEntry} onChange={e => setCodeEntry(e.target.value)}
+                  placeholder="e.g. BSCS2A" icon={Search} className="!font-mono !uppercase !tracking-wide"
+                  onKeyDown={e => e.key === 'Enter' && lookup(e)} />
+                <Button type="submit" className="!w-full !py-3.5 !text-[15px]">Find Class</Button>
               </form>
 
               {klass && (
-                <div style={{ animation: 'fadeIn .25s' }}>
-                  <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } }`}</style>
-                  <div style={{ border: '2px solid #d4f5e2', background: '#f0fbf5', borderRadius: 10, padding: '12px 16px', marginBottom: 18 }}>
-                    <div style={{ fontSize: 12, color: '#1a7a4a', fontWeight: 600, marginBottom: 2 }}>Class found</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: '#0f2044' }}>{klass.name}</div>
-                    <div style={{ fontSize: 12, color: '#5a7090' }}>
-                      {[klass.subject, klass.section].filter(Boolean).join(' · ') || ' '}
+                <div style={{ animation: 'fadeInUp .25s' }}>
+                  <div className="border-2 border-success-bg bg-success-bg/40 rounded-[10px] px-4 py-3 mb-4">
+                    <div className="text-[12px] text-success font-semibold mb-0.5">Class found</div>
+                    <div className="text-[16px] font-bold text-navy-800 flex items-center gap-2">
+                      <School size={16} className="text-navy-700" /> {klass.name}
                     </div>
+                    <div className="text-[12px] text-muted">{[klass.subject, klass.section].filter(Boolean).join(' · ') || ' '}</div>
                     {klass.section && (
-                      <div style={{ fontSize: 11, color: '#1a7a4a', marginTop: 6, background: '#d4f5e2', display: 'inline-block', padding: '3px 10px', borderRadius: 5, fontWeight: 600 }}>
-                        You will be enrolled in section {klass.section}
-                      </div>
+                      <Badge tone="success" className="!mt-1.5">You will be enrolled in section {klass.section}</Badge>
                     )}
                   </div>
 
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {renderInput('Student ID', studentId, setStudentId, 'e.g. 2019-12345', true)}
-                    {renderInput('Full Name', name, setName, 'e.g. Dela Cruz, Juan A.')}
-                    <button onClick={submit} disabled={loading} className="btn"
-                      style={{ width: '100%', justifyContent: 'center', opacity: loading ? .7 : 1, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <UserPlus size={15} /> {loading ? 'Enrolling…' : 'Enroll Me'}
-                    </button>
+                  <div className="flex flex-col gap-3">
+                    <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value)}
+                      placeholder="e.g. 2019-12345" className="!font-mono !tracking-wide" />
+                    <Input label="Full Name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Dela Cruz, Juan A." />
+                    <Button onClick={submit} loading={loading} icon={loading ? null : UserPlus} className="!w-full !py-3.5 !text-[15px]">
+                      {loading ? 'Enrolling…' : 'Enroll Me'}
+                    </Button>
                   </div>
                 </div>
               )}
             </>
           )}
-
-          <div style={{ marginTop: 24, display: 'flex', justifyContent: 'space-between' }}>
-            <Link to="/" style={{ fontSize: 12, color: '#1a4fad', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              <Home size={13} /> Back to home
-            </Link>
-          </div>
         </div>
       </div>
-    </div>
+      </div>
+      </div>
+    </PublicLayout>
   );
 }

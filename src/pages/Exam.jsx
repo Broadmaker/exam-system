@@ -5,8 +5,10 @@ import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer } from '../utils'
 import ToastContainer, { toast } from '../components/Toast';
 import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
+import PublicLayout from '../components/PublicLayout';
+import { Button, Input, ConfirmDialog } from '../components/ui';
 import '../styles.css';
-import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff } from 'lucide-react';
+import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon } from 'lucide-react';
 
 export default function Exam() {
   const [params] = useSearchParams();
@@ -401,10 +403,10 @@ export default function Exam() {
   const totalQ = questions.length;
 
   if (loading) {
-    return <div style={{ textAlign: 'center', padding: 60, fontSize: 18, color: '#5a7090' }}>Loading exam...</div>;
+    return <div className="min-h-screen bg-canvas flex items-center justify-center text-[18px] text-muted">Loading exam...</div>;
   }
   if (error) {
-    return <div style={{ textAlign: 'center', padding: 60, fontSize: 18, color: '#c0392b' }}>Error: {error}</div>;
+    return <div className="min-h-screen bg-canvas flex items-center justify-center text-[18px] text-danger px-6 text-center">Error: {error}</div>;
   }
 
   // ── Deadline Check ──
@@ -419,78 +421,97 @@ export default function Exam() {
   const expired = !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) && !resumedInProgress;
   if (expired) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
-        <div style={{ background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)', padding: 40 }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><Ban size={48} /></div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044', marginBottom: 10 }}>Exam Ended</h1>
-          <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 8, lineHeight: 1.6 }}>
-            {examData?.title}
-          </p>
-          <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
-            The deadline for this exam has passed.<br />It is no longer available for students.
-          </p>
-          <button onClick={() => window.location.href = '/'} className="btn" style={{ padding: '14px 40px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <ArrowLeft size={14} /> Back to Home
-          </button>
+      <PublicLayout>
+        <div className="flex-1 flex items-center justify-center px-5 py-8"
+          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+          <div className="bg-surface rounded-[16px] max-w-[440px] w-full text-center shadow-modal px-8 py-10">
+            <span className="w-14 h-14 rounded-full bg-danger-bg flex items-center justify-center mx-auto mb-4"><Ban size={30} className="text-danger" /></span>
+            <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">Exam Ended</h1>
+            <p className="text-[14px] text-muted mb-2 leading-relaxed">{examData?.title}</p>
+            <p className="text-[14px] text-muted mb-6 leading-relaxed">
+              The deadline for this exam has passed.<br />It is no longer available for students.
+            </p>
+            <Button onClick={() => window.location.href = '/'} icon={ArrowLeft} className="!px-10 !py-3.5">Back to Home</Button>
+          </div>
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
   // ── Gate Screen ──
   if (!started) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '32px 16px', background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
-        <div className="exam-gate-card" style={{ background: '#fff', borderRadius: 18, maxWidth: 480, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.35)' }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '.14em', color: '#1a4fad', textTransform: 'uppercase', marginBottom: 8 }}>
-            {examId?.slice(0, 8)}
-          </div>
-          <h1 style={{ fontSize: 26, fontWeight: 600, color: '#0f2044', marginBottom: 6 }}>{examData?.title}</h1>
-          <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 32, lineHeight: 1.5 }}>
-            {(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes
-          </p>
-          <div style={{ background: '#ddeeff', border: '1px solid #c8d8f0', borderRadius: 10, padding: '16px 18px', marginBottom: 28, fontSize: 13, color: '#0f2044', lineHeight: 1.7 }}>
-            <strong style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, color: '#1a4fad', fontSize: 11, letterSpacing: '.08em', textTransform: 'uppercase' }}><ClipboardList size={14} /> Exam Rules</strong>
-            Answer all items. Questions are randomized per student.<br />
-            You may not go back once the exam is submitted.<br />
-            <Ban size={14} /> The exam is locked to fullscreen. Exiting fullscreen counts as a violation.<br />
-            <Ban size={14} /> Leaving this tab 3 times will auto-submit your exam.
-          </div>
-          {offline && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#fff3d4', border: '1px solid #e8a020', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: '#b8860b' }}>
-              <WifiOff size={14} /> You are offline — your answers will be saved locally and submitted when connection restores.
+      <PublicLayout>
+        <div className="flex-1 flex items-stretch justify-center"
+          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+          <div className="max-w-[1000px] mx-auto w-full px-4 py-10 grid lg:grid-cols-[1fr_480px] gap-8 items-center">
+            {/* Exam info panel */}
+            <div className="text-white hidden lg:block">
+              <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center mb-5"><ClipboardList size={24} className="text-accent" /></span>
+              <div className="text-[11px] font-mono tracking-[.14em] text-accent uppercase mb-2">{examId?.slice(0, 8)}</div>
+              <h1 className="text-[34px] font-bold leading-tight mb-3">{examData?.title}</h1>
+              <p className="text-white/70 text-[15px] leading-relaxed mb-8">
+                {(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes
+                {examData?.deadline && <span className="block mt-1">Deadline: {new Date(examData.deadline).toLocaleString()}</span>}
+              </p>
+              <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-4 mb-8 text-[13px] text-white/80 leading-relaxed">
+                <strong className="flex items-center gap-1.5 mb-2 text-white text-[11px] tracking-[.08em] uppercase"><ShieldCheck size={14} /> Exam Rules</strong>
+                Answer all items. Questions are randomized per student.<br />
+                You may not go back once the exam is submitted.<br />
+                <span className="inline-flex items-center gap-1.5 mt-1.5"><Ban size={13} className="text-warning" /> Locked to fullscreen — exiting counts as a violation.</span><br />
+                <span className="inline-flex items-center gap-1.5"><Ban size={13} className="text-warning" /> Leaving this tab 3 times auto-submits.</span>
+              </div>
+              <div className="flex flex-col gap-2.5 max-w-[380px]">
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><Shuffle size={16} /></span>
+                  <div>
+                    <div className="text-[13px] font-semibold">Randomized per student</div>
+                    <div className="text-[11px] text-white/50">Order and choices are shuffled by your seed.</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                  <span className="w-8 h-8 rounded-lg bg-warning-bg text-warning flex items-center justify-center shrink-0"><TimerIcon size={16} /></span>
+                  <div>
+                    <div className="text-[13px] font-semibold">{examData?.time_limit} minute limit</div>
+                    <div className="text-[11px] text-white/50">The timer runs continuously once you start.</div>
+                  </div>
+                </div>
+              </div>
             </div>
-          )}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginBottom: 28 }}>
-            {[
-              { label: 'Student ID Number', val: studentId, set: setStudentId, placeholder: 'e.g. 2019-12345', type: 'text' },
-              { label: 'Full Name (Last Name, First Name, M.I.)', val: name, set: setName, placeholder: 'e.g. Dela Cruz, Juan A.', type: 'text' },
-              { label: 'Section', val: section, set: setSection, placeholder: 'e.g. BSCS 2-A', type: 'text' },
-              { label: 'Date', val: date, set: setDate, placeholder: 'e.g. June 25, 2025', type: 'text' },
-            ].map(f => (
-              <label key={f.label} style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {f.label}
-                <input value={f.val} onChange={e => f.set(e.target.value)}
-                  placeholder={f.placeholder} autoComplete="off"
-                  style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none' }} />
-              </label>
-            ))}
-            {examData?.has_access_code && (
-              <label style={{ fontSize: 12, fontWeight: 600, color: '#0f2044', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                Access Code
-                <input value={accessCode} onChange={e => setAccessCode(e.target.value)}
-                  placeholder="Ask your proctor for the code" autoComplete="off"
-                  style={{ border: '1.5px solid #c8d8f0', borderRadius: 8, fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, padding: '11px 14px', color: '#1a2a3a', outline: 'none', letterSpacing: '.1em', textTransform: 'uppercase' }} />
-              </label>
-            )}
+
+            {/* Gate form */}
+            <div className="bg-surface rounded-[18px] w-full shadow-modal p-6 sm:p-8">
+              <div className="lg:hidden font-mono text-[11px] tracking-[.14em] text-navy-700 uppercase mb-2">{examId?.slice(0, 8)}</div>
+              <h1 className="lg:hidden text-[24px] font-semibold text-navy-800 mb-1.5">{examData?.title}</h1>
+              <p className="lg:hidden text-[13px] text-muted mb-6 leading-relaxed">{(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes</p>
+              <h2 className="text-[17px] font-bold text-navy-800 mb-1.5">Start the exam</h2>
+              <p className="text-[13px] text-muted mb-6 leading-relaxed">Enter your details to begin. Keep your ID handy.</p>
+
+              {offline && (
+                <div className="flex items-center gap-2 bg-warning-bg border-[1.5px] border-warning rounded-lg px-3.5 py-2.5 mb-5 text-[12px] text-warning">
+                  <WifiOff size={14} /> You are offline — your answers will be saved locally and submitted when connection restores.
+                </div>
+              )}
+              <div className="flex flex-col gap-3.5 mb-6">
+                <Input label="Student ID Number" value={studentId} onChange={e => setStudentId(e.target.value)}
+                  placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !tracking-wide" />
+                <Input label="Full Name (Last Name, First Name, M.I.)" value={name} onChange={e => setName(e.target.value)}
+                  placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
+                <Input label="Section" value={section} onChange={e => setSection(e.target.value)}
+                  placeholder="e.g. BSCS 2-A" autoComplete="off" />
+                <Input label="Date" value={date} onChange={e => setDate(e.target.value)}
+                  placeholder="e.g. June 25, 2025" autoComplete="off" />
+                {examData?.has_access_code && (
+                  <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
+                    placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                )}
+              </div>
+              {gateError && <div className="text-[12px] text-danger mb-3 flex items-center gap-1.5"><AlertTriangle size={12} /> {gateError}</div>}
+              <Button className="!w-full !py-3.5 !text-[15px]" onClick={startExam}>Start Exam →</Button>
+            </div>
           </div>
-          {gateError && <div style={{ fontSize: 12, color: '#c0392b', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={12} /> {gateError}</div>}
-          <button onClick={startExam}
-            style={{ width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 15, fontWeight: 600, padding: 15, cursor: 'pointer' }}>
-            Start Exam →
-          </button>
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
@@ -500,38 +521,43 @@ export default function Exam() {
     const parts = [...new Set(questions.map(q => q.part))].sort();
     const qpp = Math.ceil(results.totalQ / parts.length);
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(10,20,40,.7)' }}>
-        <div className="exam-results-card" style={{ background: '#fff', borderRadius: 16, maxWidth: 520, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.3)', maxHeight: '90vh', overflowY: 'auto' }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: '.12em', color: '#5a7090', textTransform: 'uppercase', marginBottom: 6 }}>{name} · {section}</div>
-          <div style={{ fontSize: 68, fontWeight: 600, color: '#0f2044', lineHeight: 1, marginBottom: 4 }}>
-            {results.total} <span style={{ fontSize: 28, color: '#5a7090' }}>/ {results.totalQ}</span>
+      <div className="min-h-screen flex items-center justify-center px-4 py-4 bg-[rgba(10,20,40,.7)]">
+        <div className="bg-surface rounded-[16px] max-w-[520px] w-full text-center shadow-modal max-h-[90vh] overflow-y-auto px-6 sm:px-8 py-8">
+          <div className="font-mono text-[11px] tracking-[.12em] text-muted uppercase mb-4">{name} · {section}</div>
+          <div className="relative w-36 h-36 mx-auto mb-4">
+            <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="var(--color-border)" strokeWidth="10" />
+              <circle cx="60" cy="60" r="52" fill="none" stroke={results.total >= results.totalQ * 0.7 ? 'var(--color-success)' : results.total >= results.totalQ * 0.5 ? 'var(--color-warning)' : 'var(--color-danger)'}
+                strokeWidth="10" strokeLinecap="round" strokeDasharray={`${(results.total / results.totalQ) * 326.7} 326.7`} />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-[34px] font-bold text-navy-800 leading-none">{results.total}<span className="text-[18px] text-muted">/{results.totalQ}</span></span>
+              <span className={`text-[16px] font-semibold ${results.total >= results.totalQ * 0.7 ? 'text-success' : results.total >= results.totalQ * 0.5 ? 'text-warning' : 'text-danger'}`}>{pct}%</span>
+            </div>
           </div>
-          <div style={{ fontSize: 26, fontWeight: 600, marginBottom: 16, color: results.total >= results.totalQ * 0.7 ? '#1a7a4a' : results.total >= results.totalQ * 0.5 ? '#e8a020' : '#c0392b' }}>
-            {pct}%
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 14, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+          <div className="flex items-center justify-center gap-1.5 text-[14px] text-muted mb-6 leading-relaxed">
             {results.total >= results.totalQ * 0.9 ? <><Trophy size={16} /> Excellent!</> :
              results.total >= results.totalQ * 0.8 ? <><CheckCircle size={16} /> Very Good!</> :
              results.total >= results.totalQ * 0.7 ? <><Book size={16} /> Good.</> :
              results.total >= results.totalQ * 0.5 ? <><AlertTriangle size={16} /> Needs Improvement.</> : <><XCircle size={16} /> Below passing.</>}
           </div>
-          <div style={{ textAlign: 'left', border: '1px solid #c8d8f0', borderRadius: 10, overflow: 'hidden', marginBottom: 24 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: '#0f2044', color: '#fff' }}>
-                <th style={{ padding: '8px 14px', textAlign: 'left', fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '.08em' }}>Part</th>
-                <th style={{ padding: '8px 14px', textAlign: 'left' }}>Score</th>
+          <div className="text-left border border-border rounded-[10px] overflow-hidden mb-6">
+            <table className="w-full border-collapse text-[13px]">
+              <thead><tr className="bg-navy-900 text-white">
+                <th className="px-3.5 py-2 text-left font-mono text-[10px] tracking-[.08em]">Part</th>
+                <th className="px-3.5 py-2 text-left">Score</th>
               </tr></thead>
               <tbody>
                 {parts.map(p => {
                   const sc = results.partScores[p] || 0;
                   const pct2 = (sc / qpp) * 100;
                   return (
-                    <tr key={p} style={{ borderTop: '1px solid #c8d8f0' }}>
-                      <td style={{ padding: '9px 14px', fontWeight: 600 }}>Part {p}</td>
-                      <td style={{ padding: '9px 14px' }}>
+                    <tr key={p} className="border-t border-border">
+                      <td className="px-3.5 py-2.5 font-semibold">Part {p}</td>
+                      <td className="px-3.5 py-2.5">
                         {sc}/{qpp}
-                        <div style={{ height: 5, background: '#c8d8f0', borderRadius: 3, overflow: 'hidden', marginTop: 4 }}>
-                          <div style={{ height: '100%', background: '#1a4fad', borderRadius: 3, width: pct2 + '%' }} />
+                        <div className="h-1.5 bg-border rounded-full overflow-hidden mt-1">
+                          <div className="h-full bg-navy-700 rounded-full transition-all duration-500" style={{ width: pct2 + '%' }} />
                         </div>
                       </td>
                     </tr>
@@ -541,13 +567,13 @@ export default function Exam() {
             </table>
           </div>
           {pendingSubmit && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, color: '#e8a020', marginBottom: 12 }}>
+            <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning mb-3">
               <WifiOff size={14} /> Score saved locally — will sync when connection restores.
             </div>
           )}
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <button onClick={() => setReviewMode(true)} className="btn">Review My Answers</button>
-            <button onClick={() => window.location.href = '/'} className="btn btn-outline">Back to Home</button>
+          <div className="flex gap-2.5 justify-center flex-wrap">
+            <Button onClick={() => setReviewMode(true)}>Review My Answers</Button>
+            <Button variant="outline" onClick={() => window.location.href = '/'}>Back to Home</Button>
           </div>
         </div>
       </div>
@@ -557,23 +583,24 @@ export default function Exam() {
   // ── Already Submitted (revisit, no saved results) ──
   if (submitted && !results) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20, background: 'linear-gradient(135deg, #0f2044 0%, #1a4fad 100%)' }}>
-        <div className="exam-submitted-card" style={{ background: '#fff', borderRadius: 16, maxWidth: 440, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.35)' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}><ClipboardList size={48} /></div>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#0f2044', marginBottom: 10 }}>Already Submitted</h1>
-          <p style={{ fontSize: 14, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
-            You have already submitted this exam.<br />You cannot retake it.
-          </p>
-          {pendingSubmit && (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, color: '#e8a020', marginBottom: 16 }}>
-              <WifiOff size={14} /> Score not yet synced — will upload when connected.
-            </div>
-          )}
-          <button onClick={() => window.location.href = '/'} className="btn" style={{ padding: '14px 40px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <ArrowLeft size={14} /> Back to Home
-          </button>
+      <PublicLayout>
+        <div className="flex-1 flex items-center justify-center px-5 py-8"
+          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+          <div className="bg-surface rounded-[16px] max-w-[440px] w-full text-center shadow-modal px-8 py-10">
+            <span className="w-14 h-14 rounded-full bg-navy-100 flex items-center justify-center mx-auto mb-4"><ClipboardList size={30} className="text-navy-700" /></span>
+            <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">Already Submitted</h1>
+            <p className="text-[14px] text-muted mb-6 leading-relaxed">
+              You have already submitted this exam.<br />You cannot retake it.
+            </p>
+            {pendingSubmit && (
+              <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning mb-4">
+                <WifiOff size={14} /> Score not yet synced — will upload when connected.
+              </div>
+            )}
+            <Button onClick={() => window.location.href = '/'} icon={ArrowLeft} className="!px-10 !py-3.5">Back to Home</Button>
+          </div>
         </div>
-      </div>
+      </PublicLayout>
     );
   }
 
@@ -582,70 +609,59 @@ export default function Exam() {
     <div>
       <ToastContainer />
       {kicked && !submitted && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.94)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ban size={40} color="#c0392b" /></div>
-            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 10 }}>Session Closed by Proctor</h3>
-            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+        <div className="fixed inset-0 bg-[rgba(10,20,40,.94)] z-[400] flex items-center justify-center px-6">
+          <div className="bg-surface rounded-[14px] px-6 sm:px-8 py-9 max-w-[400px] w-full text-center shadow-modal">
+            <span className="w-12 h-12 rounded-full bg-danger-bg flex items-center justify-center mx-auto mb-3"><Ban size={24} className="text-danger" /></span>
+            <h3 className="text-[18px] text-navy-800 mb-2.5">Session Closed by Proctor</h3>
+            <p className="text-[13px] text-muted mb-6 leading-relaxed">
               An administrator ended your exam session.<br />
               Your answers up to this point have been recorded.
             </p>
-            {submitting && <p style={{ fontSize: 12, color: '#1a4fad', marginBottom: 16 }}>Submitting your answers…</p>}
+            {submitting && <p className="text-[12px] text-navy-700 mb-4">Submitting your answers…</p>}
             {!submitting && (
-              <button onClick={() => window.location.href = '/'}
-                style={{ width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
-                Back to Home
-              </button>
+              <Button className="!w-full !py-3.5" onClick={() => window.location.href = '/'}>Back to Home</Button>
             )}
           </div>
         </div>
       )}
       {fsBlocked && !submitting && !submitted && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.93)', zIndex: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 400, width: '100%', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,.4)' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Ban size={40} color="#c0392b" /></div>
-            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 10 }}>Fullscreen Required</h3>
-            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.6 }}>
+        <div className="fixed inset-0 bg-[rgba(10,20,40,.93)] z-[400] flex items-center justify-center px-6">
+          <div className="bg-surface rounded-[14px] px-6 sm:px-8 py-9 max-w-[400px] w-full text-center shadow-modal">
+            <span className="w-12 h-12 rounded-full bg-danger-bg flex items-center justify-center mx-auto mb-3"><Ban size={24} className="text-danger" /></span>
+            <h3 className="text-[18px] text-navy-800 mb-2.5">Fullscreen Required</h3>
+            <p className="text-[13px] text-muted mb-6 leading-relaxed">
               You exited fullscreen mode, which is not allowed during the exam.<br />
               Return to fullscreen to continue.
             </p>
-            <button onClick={enterFullscreen}
-              style={{ width: '100%', background: '#0f2044', color: '#fff', border: 'none', borderRadius: 10, padding: 14, fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
-              Return to Fullscreen
-            </button>
+            <Button className="!w-full !py-3.5" onClick={enterFullscreen}>Return to Fullscreen</Button>
           </div>
         </div>
       )}
       {offline && (
-        <div style={{ background: '#e8a020', color: '#fff', padding: '8px 16px', textAlign: 'center', fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+        <div className="bg-warning text-white px-4 py-2 text-center text-[12px] font-semibold flex items-center justify-center gap-1.5">
           <WifiOff size={14} /> You are offline — answers are saved locally. Connect to submit.
         </div>
       )}
-      <header style={{
-        background: '#0f2044', color: '#fff', padding: '16px 24px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        gap: 16, position: 'sticky', top: 0, zIndex: 100,
-        boxShadow: '0 2px 16px rgba(0,0,0,.3)', flexWrap: 'wrap',
-      }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: '.12em', color: '#e8a020', textTransform: 'uppercase', marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+      <header className="bg-navy-900 text-white px-4 sm:px-6 py-4 flex items-center justify-between gap-4 sticky top-0 z-[100] shadow-card flex-wrap">
+        <div className="min-w-0">
+          <div className="font-mono text-[10px] tracking-[.12em] text-accent uppercase mb-0.5 truncate max-w-[180px]">
             {examData?.title}
           </div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>{name}</div>
-          <div style={{ fontSize: 11, color: '#9ab' }}>{section}</div>
+          <div className="text-[15px] font-semibold">{name}</div>
+          <div className="text-[11px] text-white/50">{section}</div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: '#9ab', marginBottom: 4 }}>{answeredCount} / {totalQ} answered</div>
-            <div style={{ background: 'rgba(255,255,255,.15)', borderRadius: 4, height: 5, width: 120, overflow: 'hidden' }}>
-              <div style={{ height: '100%', background: '#e8a020', borderRadius: 4, transition: 'width .3s', width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="text-right">
+            <div className="text-[10px] text-white/50 mb-1">{answeredCount} / {totalQ} answered</div>
+            <div className="bg-white/15 rounded h-1.5 w-[120px] overflow-hidden">
+              <div className="h-full bg-accent rounded transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
             </div>
           </div>
           {!submitted && <Timer initialSeconds={totalSeconds} onExpire={handleSubmit} onTick={handleTimerTick} />}
         </div>
       </header>
 
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px 80px' }}>
+      <main className="max-w-[860px] mx-auto px-4 py-6 pb-20">
         {questions.map((q, i) => (
           <QuestionCard
             key={q.id}
@@ -658,43 +674,28 @@ export default function Exam() {
             showAnswers={examData?.show_answers !== 0}
           />
         ))}
-        <div style={{ textAlign: 'center', marginTop: 48 }}>
+        <div className="text-center mt-12">
           {!submitted && !submitting && (
-            <button onClick={() => setShowConfirm(true)} className="btn" style={{ padding: '16px 48px', fontSize: 16 }}>
-              Submit Exam
-            </button>
+            <Button className="!px-12 !py-4 !text-[16px]" onClick={() => setShowConfirm(true)}>Submit Exam</Button>
           )}
           {reviewMode && (
-            <button onClick={() => setReviewMode(false)} className="btn btn-outline" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <ArrowLeft size={14} /> Back to Results
-            </button>
+            <Button variant="outline" icon={ArrowLeft} className="mt-3" onClick={() => setReviewMode(false)}>Back to Results</Button>
           )}
         </div>
       </main>
 
-      {/* Confirm modal */}
-      {showConfirm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,20,40,.6)', zIndex: 150, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: '36px 32px', maxWidth: 380, width: '90%', textAlign: 'center' }}>
-            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 10 }}>Submit Exam?</h3>
-            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 24, lineHeight: 1.5 }}>
-              {totalQ - answeredCount > 0
-                ? `You have ${totalQ - answeredCount} unanswered item(s). Are you sure?`
-                : 'All items answered. Ready to submit?'}
-            </p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setShowConfirm(false)}
-                style={{ flex: 1, padding: 12, borderRadius: 8, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#c8d8f0', color: '#0f2044' }}>
-                Go Back
-              </button>
-              <button onClick={handleSubmit}
-                style={{ flex: 1, padding: 12, borderRadius: 8, fontFamily: "'IBM Plex Sans', sans-serif", fontSize: 14, fontWeight: 600, cursor: 'pointer', border: 'none', background: '#0f2044', color: '#fff' }}>
-                Yes, Submit
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={showConfirm}
+        title="Submit Exam?"
+        body={totalQ - answeredCount > 0
+          ? `You have ${totalQ - answeredCount} unanswered item(s). Are you sure?`
+          : 'All items answered. Ready to submit?'}
+        confirmLabel="Yes, Submit"
+        tone="primary"
+        loading={submitting}
+        onConfirm={handleSubmit}
+        onClose={() => setShowConfirm(false)}
+      />
     </div>
   );
 }

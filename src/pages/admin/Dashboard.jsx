@@ -1,183 +1,173 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import '../../styles.css';
-import { Plus, ClipboardList, Trash2, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Users } from 'lucide-react';
+import { PageHeader, StatCard, Card, Badge, Button, ConfirmDialog, EmptyState, useToast } from '../../components/ui';
+import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp } from 'lucide-react';
 
 export default function Dashboard() {
   const [exams, setExams] = useState([]);
-  const [toast, setToast] = useState('');
+  const [classes, setClasses] = useState([]);
+  const [students, setStudents] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const toast = useToast();
 
-  const showToast = useCallback((msg) => { setToast(msg); setTimeout(() => setToast(''), 2500); }, []);
+  const load = useCallback(() => {
+    api.listExams().then(setExams).catch(e => toast.error(e.message));
+    api.listClasses().then(setClasses).catch(() => {});
+    api.listStudents().then(setStudents).catch(() => {});
+  }, [toast]);
 
-  const load = () => api.listExams().then(setExams).catch(e => showToast(e.message));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const totalSubs = exams.reduce((s, e) => s + (e.submission_count || 0), 0);
+  const activeExams = exams.filter(e => !e.deadline || new Date(e.deadline).getTime() > Date.now()).length;
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
-    await api.deleteExam(deleteTarget.id).catch(e => showToast(e.message));
+    setDeleting(true);
+    await api.deleteExam(deleteTarget.id).catch(e => toast.error(e.message));
+    setDeleting(false);
     setDeleteTarget(null);
+    toast.success('Exam deleted');
     load();
+  };
+
+  const copyId = (e) => {
+    navigator.clipboard.writeText(e.id);
+    toast.info('Exam ID copied');
+  };
+
+  const copyLink = (e) => {
+    navigator.clipboard.writeText(window.location.origin + '/exam?id=' + e.id);
+    toast.info('Exam link copied');
   };
 
   return (
     <AdminLayout title="Dashboard">
-      {toast && (
-        <div style={{
-          position: 'fixed', top: 20, left: '50%', transform: 'translateX(-50%)',
-          background: '#1a7a4a', color: '#fff', padding: '12px 28px', borderRadius: 8,
-          fontSize: 14, fontWeight: 600, zIndex: 300, animation: 'fadeIn .3s',
-          boxShadow: '0 8px 24px rgba(0,0,0,.2)',
-        }}>
-          {toast}
-          <style>{`@keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } }`}</style>
-        </div>
-      )}
-
-
-
-      <main style={{ maxWidth: 1000, margin: '0 auto', padding: '24px 16px' }}>
-        <div style={{
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28, flexWrap: 'wrap', gap: 12,
-        }}>
+      <main className="max-w-[1100px] mx-auto px-4 py-6">
+        {/* Hero */}
+        <section className="flex flex-wrap items-end justify-between gap-4 mb-7">
           <div>
-            <h2 style={{ fontSize: 20, color: '#0f2044' }}>All Exams</h2>
-            <p style={{ fontSize: 13, color: '#5a7090', marginTop: 4 }}>{exams.length} exam{exams.length !== 1 ? 's' : ''} total</p>
+            <div className="text-[10px] font-semibold tracking-[.14em] uppercase text-faint mb-1.5">
+              Workspace · Dashboard
+            </div>
+            <h1 className="text-[24px] sm:text-[28px] font-bold text-navy-800 leading-tight">
+              Welcome back, <span className="text-navy-700">Admin</span>
+            </h1>
+            <p className="text-[13px] text-muted mt-1.5">
+              <strong className="text-navy-800 font-semibold">{totalSubs}</strong> submission{totalSubs !== 1 ? 's' : ''} across{' '}
+              <strong className="text-navy-800 font-semibold">{exams.length}</strong> exam{exams.length !== 1 ? 's' : ''} and{' '}
+              <strong className="text-navy-800 font-semibold">{classes.length}</strong> class{classes.length !== 1 ? 'es' : ''}.
+            </p>
           </div>
-          <Link to="/admin/classes" className="btn btn-outline" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px' }}>
-            <Users size={16} /> Classes
-          </Link>
-          <Link to="/admin/create" className="btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px' }}>
-            <Plus size={16} /> New Exam
-          </Link>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <Button variant="outline" icon={Users} to="/admin/classes">Classes</Button>
+            <Button icon={Plus} to="/admin/create">New Exam</Button>
+          </div>
+        </section>
+
+        {/* KPI grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          <StatCard icon={ClipboardList} value={exams.length} label="Total Exams" tone="navy"
+            trend={{ dir: 'info', text: `${activeExams} open`, icon: <Radio size={11} /> }}
+            note="Exams created across all subjects" />
+          <StatCard icon={BarChart3} value={totalSubs} label="Total Submissions" tone="green"
+            trend={{ dir: 'up', text: 'live', icon: <TrendingUp size={11} /> }}
+            note="Answers received across all exams" />
+          <StatCard icon={Users} value={students.length} label="Known Students" tone="accent"
+            note="Registered student records" />
+          <StatCard icon={GraduationCap} value={classes.length} label="Classes" tone="red"
+            note="Class groups & rosters" />
         </div>
+
+        <PageHeader
+          eyebrow="Exams"
+          title="All Exams"
+          subtitle={`${exams.length} exam${exams.length !== 1 ? 's' : ''} total`}
+        />
 
         {!exams.length ? (
-          <div style={{
-            textAlign: 'center', color: '#5a7090', padding: '80px 20px',
-            background: '#fff', borderRadius: 12, border: '2px dashed #c8d8f0',
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 16, display: 'flex', justifyContent: 'center' }}><ClipboardList size={48} /></div>
-            <p style={{ marginBottom: 8, fontSize: 16, fontWeight: 600, color: '#0f2044' }}>No exams yet</p>
-            <p style={{ marginBottom: 20, fontSize: 13 }}>Create your first exam to get started.</p>
-            <Link to="/admin/create" className="btn">Create Your First Exam</Link>
-          </div>
+          <EmptyState
+            icon={ClipboardList}
+            title="No exams yet"
+            body="Create your first exam to get started."
+            action={<Button icon={Plus} to="/admin/create">Create Your First Exam</Button>}
+          />
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="flex flex-col gap-3.5">
             {exams.map(e => (
-              <div key={e.id} className="card dashboard-exam-card" style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                transition: 'box-shadow .2s, transform .15s',
-              }}
-                onMouseEnter={el => { el.currentTarget.style.boxShadow = '0 4px 20px rgba(15,32,68,.1)'; el.currentTarget.style.transform = 'translateY(-1px)'; }}
-                onMouseLeave={el => { el.currentTarget.style.boxShadow = 'none'; el.currentTarget.style.transform = 'none'; }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-                    <h3 style={{ fontSize: 17, fontWeight: 600, color: '#0f2044' }}>{e.title}</h3>
-                    <span style={{
-                      fontSize: 10, background: '#ddeeff', color: '#1a4fad', padding: '2px 8px',
-                      borderRadius: 4, fontWeight: 600, letterSpacing: '.03em',
-                    }}>
-                      {e.question_count || 0} Q
+              <Card key={e.id} padded={false} className="overflow-hidden card-hover">
+                <div className="p-4 sm:p-5">
+                  <div className="flex items-start gap-3">
+                    <span className="w-10 h-10 rounded-xl bg-navy-100 text-navy-700 flex items-center justify-center shrink-0">
+                      <FileText size={18} />
                     </span>
-                  </div>
-                  <div style={{ display: 'flex', gap: 16, fontSize: 12, color: '#5a7090', flexWrap: 'wrap' }}>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={12} /> {e.time_limit} min</span>
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><BarChart3 size={12} /> {e.submission_count || 0} submission{(e.submission_count || 0) !== 1 ? 's' : ''}</span>
-                    {e.deadline && (
-                      <DeadlineBadge deadline={e.deadline} />
-                    )}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#9ab', fontFamily: "'IBM Plex Mono', monospace" }}>
-                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{e.id}</span>
-                    <span onClick={() => { navigator.clipboard.writeText(e.id); showToast('Exam ID copied!'); }}
-                      style={{ cursor: 'pointer', color: '#1a4fad', textDecoration: 'none', fontSize: 11 }}>
-                      copy ID
-                    </span>
-                    <span onClick={() => { navigator.clipboard.writeText(window.location.origin + '/exam?id=' + e.id); showToast('Exam link copied!'); }}
-                      style={{ cursor: 'pointer', color: '#1a4fad', textDecoration: 'none', fontSize: 11 }}>
-                      copy link
-                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="text-[15px] font-semibold text-navy-800 leading-tight">{e.title}</h3>
+                        <Badge tone="info">{e.question_count || 0} Q</Badge>
+                        <ExamStatus deadline={e.deadline} />
+                      </div>
+                      <div className="flex gap-4 text-[12px] text-muted mt-1.5 flex-wrap">
+                        <span className="inline-flex items-center gap-1.5"><Clock size={12} /> {e.time_limit} min</span>
+                        <span className="inline-flex items-center gap-1.5"><BarChart3 size={12} /> {e.submission_count || 0} submission{(e.submission_count || 0) !== 1 ? 's' : ''}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 4, marginLeft: 16, flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center' }}>
-                  <Link to={"/admin/preview?id=" + e.id} className="btn btn-outline btn-sm" title="Preview"><FileText size={14} /></Link>
-                  <Link to={"/admin/answers?id=" + e.id} className="btn btn-outline btn-sm" title="View student answers"><Eye size={14} /></Link>
-                  <Link to={"/admin/proctor?id=" + e.id} className="btn btn-outline btn-sm" title="Live proctoring"><Radio size={14} /></Link>
-                  <Link to={"/admin/create?id=" + e.id} className="btn btn-outline btn-sm" title="Edit"><Pencil size={14} /></Link>
-                  <Link to={"/admin/results?id=" + e.id} className="btn btn-outline btn-sm" title="Scores"><BarChart3 size={14} /></Link>
-                  <button onClick={() => setDeleteTarget(e)} className="btn btn-sm"
-                    style={{ background: '#c0392b', color: '#fff', border: 'none' }}
-                    onMouseEnter={el => el.target.style.background = '#e74c3c'}
-                    onMouseLeave={el => el.target.style.background = '#c0392b'}>
-                    <Trash2 size={14} />
-                  </button>
+
+                {/* Footer toolbar */}
+                <div className="flex items-center justify-between gap-3 px-4 sm:px-5 py-2.5 bg-canvas/70 border-t border-border flex-wrap">
+                  <div className="flex items-center gap-2.5 text-[11px] font-mono text-faint min-w-0">
+                    <span className="truncate max-w-[200px]">{e.id}</span>
+                    <span className="text-border-strong shrink-0">·</span>
+                    <button onClick={() => copyId(e)} className="text-navy-700 hover:text-navy-800 font-sans cursor-pointer hover:underline shrink-0">copy ID</button>
+                    <span className="text-border-strong shrink-0">·</span>
+                    <button onClick={() => copyLink(e)} className="text-navy-700 hover:text-navy-800 font-sans cursor-pointer inline-flex items-center gap-1 hover:underline shrink-0">
+                      <Copy size={11} /> link
+                    </button>
+                  </div>
+                  <div className="flex gap-1.5 flex-wrap">
+                    <Button size="sm" variant="soft" title="Preview" icon={FileText} to={"/admin/preview?id=" + e.id} />
+                    <Button size="sm" variant="soft" title="Student answers" icon={Eye} to={"/admin/answers?id=" + e.id} />
+                    <Button size="sm" variant="soft" title="Live proctoring" icon={Radio} to={"/admin/proctor?id=" + e.id} />
+                    <Button size="sm" variant="soft" title="Edit" icon={Pencil} to={"/admin/create?id=" + e.id} />
+                    <Button size="sm" variant="soft" title="Scores" icon={BarChart3} to={"/admin/results?id=" + e.id} />
+                    <Button size="sm" variant="dangerSoft" title="Delete" icon={Trash2} onClick={() => setDeleteTarget(e)} />
+                  </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
       </main>
 
-      {/* Styled Delete Modal */}
-      {deleteTarget && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(10,20,40,.55)', zIndex: 200,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-        }}>
-          <div style={{
-            background: '#fff', borderRadius: 16, padding: '36px 32px 28px',
-            maxWidth: 380, width: '100%', textAlign: 'center', boxShadow: '0 24px 64px rgba(0,0,0,.3)',
-            animation: 'fadeIn .25s',
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}><Trash2 size={40} /></div>
-            <h3 style={{ fontSize: 18, color: '#0f2044', marginBottom: 8 }}>Delete Exam?</h3>
-            <p style={{ fontSize: 13, color: '#5a7090', marginBottom: 4, lineHeight: 1.5 }}>
-              You are about to delete <strong>{deleteTarget.title}</strong>.
-            </p>
-            <p style={{ fontSize: 12, color: '#c0392b', marginBottom: 24 }}>
-              This will also remove all questions and submissions.
-            </p>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button onClick={() => setDeleteTarget(null)}
-                style={{
-                  flex: 1, padding: '12px 0', borderRadius: 8, fontSize: 14, fontWeight: 600,
-                  cursor: 'pointer', border: '1.5px solid #c8d8f0', background: '#fff', color: '#0f2044',
-                }}>
-                Cancel
-              </button>
-              <button onClick={confirmDelete}
-                style={{
-                  flex: 1, padding: '12px 0', borderRadius: 8, fontSize: 14, fontWeight: 600,
-                  cursor: 'pointer', border: 'none', background: '#c0392b', color: '#fff',
-                }}
-                onMouseEnter={e => e.target.style.background = '#e74c3c'}
-                onMouseLeave={e => e.target.style.background = '#c0392b'}>
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete Exam?"
+        body={
+          <>
+            You are about to delete <strong>{deleteTarget?.title}</strong>. This will also remove all
+            questions and submissions.
+          </>
+        }
+        confirmLabel="Delete"
+        loading={deleting}
+        onConfirm={confirmDelete}
+      />
     </AdminLayout>
   );
 }
 
-function DeadlineBadge({ deadline }) {
+function ExamStatus({ deadline }) {
+  if (!deadline) return <Badge tone="neutral">No deadline</Badge>;
   const expired = new Date(deadline).getTime() <= Date.now();
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
-      background: expired ? '#ffe0e0' : '#d4f5e2',
-      color: expired ? '#c0392b' : '#1a7a4a',
-      border: `1px solid ${expired ? '#c0392b' : '#1a7a4a'}`,
-    }}>
-      <Lock size={11} /> {expired ? 'Expired ' : 'Open until '}{fmtDeadline(deadline)}
-    </span>
+    <Badge tone={expired ? 'danger' : 'success'}>
+      <Lock size={10} /> {expired ? 'Expired' : 'Open until'} {fmtDeadline(deadline)}
+    </Badge>
   );
 }
 
@@ -185,6 +175,6 @@ function fmtDeadline(deadline) {
   try {
     const d = new Date(deadline);
     if (isNaN(d.getTime())) return String(deadline).slice(0, 16).replace('T', ' ');
-    return d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   } catch { return String(deadline); }
 }

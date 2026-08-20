@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { parseChoices } from '../../utils';
-import '../../styles.css';
-import { FileText } from 'lucide-react';
+import { PageHeader, Spinner, Card, EmptyState } from '../../components/ui';
+import { FileText, FolderOpen, Lightbulb, CheckCircle2, HelpCircle } from 'lucide-react';
 
 export default function Preview() {
   return <AdminLayout title="Preview Exam"><PreviewInner /></AdminLayout>;
@@ -24,99 +24,80 @@ function PreviewInner() {
     }).catch(() => setLoading(false));
   }, [examId]);
 
-  if (!examId) return <div style={{ textAlign: 'center', padding: 60, color: '#5a7090' }}>Select an exam from the Dashboard to preview.</div>;
-  if (loading) return <div style={{ textAlign: 'center', padding: 60, color: '#5a7090' }}>Loading exam...</div>;
-  if (!exam) return <div style={{ textAlign: 'center', padding: 60, color: '#c0392b' }}>Exam not found</div>;
+  if (!examId) {
+    return <main className="max-w-[860px] mx-auto px-4 py-6"><EmptyState icon={FolderOpen} title="No exam selected" body="Select an exam from the Dashboard to preview." /></main>;
+  }
+  if (loading) return <main className="max-w-[860px] mx-auto px-4 py-6"><Spinner label="Loading exam..." /></main>;
+  if (!exam) return <main className="max-w-[860px] mx-auto px-4 py-6"><EmptyState icon={HelpCircle} title="Exam not found" /></main>;
 
   const parts = [...new Set((exam.questions || []).map(q => q.part))].sort();
 
   return (
-    <div>
-      <main style={{ maxWidth: 860, margin: '0 auto', padding: '24px 16px' }}>
-        {exam.description && (
-          <div style={{ background: '#f5f8ff', border: '1px solid #c8d8f0', borderRadius: 10, padding: '16px 20px', marginBottom: 24, fontSize: 13, color: '#5a7090' }}>
-            {exam.description}
-          </div>
-        )}
+    <main className="max-w-[860px] mx-auto px-4 py-6">
+      <PageHeader
+        eyebrow="Exams"
+        title={exam.title || 'Exam Preview'}
+        subtitle={`${exam.questions?.length || 0} questions · ${exam.time_limit} min`}
+        icon={FileText}
+      />
 
-        {!exam.questions?.length ? (
-          <div style={{ textAlign: 'center', color: '#5a7090', padding: '60px 20px' }}>No questions in this exam.</div>
-        ) : (
-          parts.map(part => (
-            <div key={part} style={{ marginBottom: 28 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14,
-                paddingBottom: 8, borderBottom: '2px solid #0f2044',
-              }}>
-                <span style={{
-                  background: '#0f2044', color: '#fff', fontSize: 10, fontWeight: 700,
-                  padding: '2px 10px', borderRadius: 4, letterSpacing: '.06em',
-                }}>PART {part}</span>
-                <span style={{ fontSize: 12, color: '#5a7090' }}>
-                  {exam.questions.filter(q => q.part === part).length} question{exam.questions.filter(q => q.part === part).length !== 1 ? 's' : ''}
-                </span>
-              </div>
+      {exam.description && (
+        <div className="bg-navy-50 border border-border rounded-[10px] px-5 py-4 mb-6 text-[13px] text-muted">
+          {exam.description}
+        </div>
+      )}
 
-              {exam.questions
-                .filter(q => q.part === part)
-                .sort((a, b) => a.sort_order - b.sort_order)
-                .map((q, i) => {
-                  const qType = q.type || 'multiple_choice';
-                  const choices = parseChoices(q.choices);
-                  return (
-                    <div key={q.id} style={{
-                      background: '#fff', border: '1px solid #c8d8f0',
-                      borderRadius: 10, padding: '20px 22px', marginBottom: 12,
-                    }}>
-                      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: '#5a7090', marginBottom: 8, letterSpacing: '.03em' }}>
-                        Q{i + 1}
-                      </div>
-                      <div style={{ fontSize: 14.5, lineHeight: 1.6, marginBottom: 14 }}
-                        dangerouslySetInnerHTML={{ __html: q.text }} />
-                      {qType === 'fill_blank' ? (
-                        <div style={{
-                          display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                          border: '1.5px dashed #1a4fad', borderRadius: 6, fontSize: 14,
-                          background: '#f8faff', color: '#1a4fad',
-                        }}>
-                          Answer: <strong>{q.answer}</strong>
-                        </div>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          {choices.map(c => (
-                            <div key={c.key} style={{
-                              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
-                              border: `1.5px solid ${c.key === q.answer ? '#1a7a4a' : '#c8d8f0'}`,
-                              borderRadius: 6, fontSize: 14,
-                              background: c.key === q.answer ? '#d4f5e2' : '#f8faff',
-                              color: c.key === q.answer ? '#1a7a4a' : '#1a2a3a',
-                              fontWeight: c.key === q.answer ? 600 : 400,
-                            }}>
-                              <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, fontWeight: 700, minWidth: 18 }}>
-                                {c.key})
-                              </span>
-                              <span>{c.text}</span>
-                              {c.key === q.answer && <span style={{ marginLeft: 'auto', fontSize: 12 }}>✓</span>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {q.explain && (
-                        <div style={{
-                          marginTop: 12, fontSize: 12, color: '#1a4fad', lineHeight: 1.5,
-                          padding: '8px 14px', background: '#ddeeff', borderRadius: 6,
-                        }}>
-                          💡 {q.explain}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+      {!exam.questions?.length ? (
+        <EmptyState icon={FileText} title="No questions in this exam" />
+      ) : (
+        parts.map(part => (
+          <div key={part} className="mb-7">
+            <div className="flex items-center gap-2.5 mb-3.5 pb-2 border-b-2 border-navy-900">
+              <span className="bg-navy-900 text-white text-[10px] font-bold px-2.5 py-0.5 rounded tracking-[.06em]">PART {part}</span>
+              <span className="text-[12px] text-muted">
+                {exam.questions.filter(q => q.part === part).length} question{exam.questions.filter(q => q.part === part).length !== 1 ? 's' : ''}
+              </span>
             </div>
-          ))
-        )}
-      </main>
 
-    </div>
+            {exam.questions
+              .filter(q => q.part === part)
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((q, i) => {
+                const qType = q.type || 'multiple_choice';
+                const choices = parseChoices(q.choices);
+                return (
+                  <Card key={q.id} className="!p-5 mb-3">
+                    <div className="font-mono text-[10px] text-muted mb-2 tracking-wide">Q{i + 1}</div>
+                    <div className="text-[14.5px] leading-relaxed mb-3.5" dangerouslySetInnerHTML={{ __html: q.text }} />
+                    {qType === 'fill_blank' ? (
+                      <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-[1.5px] border-dashed border-navy-700 rounded-md text-[14px] bg-navy-50 text-navy-700">
+                        Answer: <strong>{q.answer}</strong>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {choices.map(c => {
+                          const correct = c.key === q.answer;
+                          return (
+                            <div key={c.key} className={`flex items-center gap-2.5 px-3 py-2 border-[1.5px] rounded-md text-[14px] ${correct ? 'border-success bg-success-bg text-success font-semibold' : 'border-border bg-navy-50 text-text'}`}>
+                              <span className="font-mono text-[12px] font-bold min-w-[18px]">{c.key})</span>
+                              <span>{c.text}</span>
+                              {correct && <span className="ml-auto"><CheckCircle2 size={14} /></span>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {q.explain && (
+                      <div className="mt-3 text-[12px] text-navy-700 leading-relaxed px-3.5 py-2 bg-navy-100 rounded-md">
+                        <Lightbulb size={12} className="inline -mt-0.5 mr-1" /> {q.explain}
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+          </div>
+        ))
+      )}
+    </main>
   );
 }
