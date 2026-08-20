@@ -54,6 +54,7 @@ export const api = {
   kickStudent: (examId, sessionId) => request('/proctor/' + examId + '/kick', { method: 'POST', body: JSON.stringify({ session_id: sessionId }), headers: { 'Authorization': adminPass() } }),
   allowRetry: (examId, studentId, allow) => request('/proctor/' + examId + '/retry', { method: 'POST', body: JSON.stringify({ student_id: studentId, allow }), headers: { 'Authorization': adminPass() } }),
   getRetryStatus: (examId, studentId, studentName, studentSection) => request('/exams/' + examId + '/retry-status?student_id=' + encodeURIComponent(studentId) + '&student_name=' + encodeURIComponent(studentName) + '&student_section=' + encodeURIComponent(studentSection)),
+  lookupStudent: (examId, studentId) => request('/exams/' + examId + '/student?student_id=' + encodeURIComponent(studentId)),
   // Attendance
   getAttendance: (examId) => request('/exams/' + examId + '/attendance', { headers: { 'Authorization': adminPass() } }),
   // Standalone attendance sessions
@@ -73,6 +74,7 @@ export const api = {
   getClass: (id) => request('/classes/' + id, { headers: { 'Authorization': adminPass() } }),
   enrollStudents: (classId, students) => request('/classes/' + classId + '/enroll', { method: 'POST', body: JSON.stringify({ students }), headers: { 'Authorization': adminPass() } }),
   removeStudent: (classId, studentId) => request('/classes/' + classId + '/enroll/' + encodeURIComponent(studentId), { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  updateStudent: (classId, studentId, body) => request('/classes/' + classId + '/enroll/' + encodeURIComponent(studentId), { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   listStudents: () => request('/students', { headers: { 'Authorization': adminPass() } }),
   // Class attendance
   getClassAttendance: (classId, date) => request('/classes/' + classId + '/attendance?date=' + encodeURIComponent(date), { headers: { 'Authorization': adminPass() } }),

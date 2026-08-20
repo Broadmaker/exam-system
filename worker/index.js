@@ -121,6 +121,29 @@ app.get('/api/exams/:id/retry-status', async (c) => {
   return c.json({ allowed: !!sub.retry_allowed || auto, reason: sub.reason });
 });
 
+// Look up a student in the class roster for a class-linked exam, so they only
+// need to type their student ID to start.
+app.get('/api/exams/:id/student', async (c) => {
+  const db = c.env.DB;
+  const examId = c.req.param('id');
+  const studentId = (c.req.query('student_id') || '').trim().toUpperCase();
+  if (!studentId) return c.json({ error: 'Student ID is required.' }, 400);
+
+  const exam = await db.prepare(`SELECT class_id FROM exams WHERE id = ?`).bind(examId).first();
+  if (!exam) return c.json({ error: 'Exam not found' }, 404);
+
+  if (!exam.class_id) return c.json({ error: 'This exam is not linked to a class.' }, 400);
+
+  const roster = await db.prepare(
+    `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`
+  ).bind(exam.class_id, studentId).first();
+  if (!roster) {
+    return c.json({ error: 'This student ID is not enrolled in the linked class.' }, 404);
+  }
+
+  return c.json({ student_id: roster.student_id, student_name: roster.student_name, student_section: roster.student_section });
+});
+
 // ── QUESTIONS ──────────────────────────────────────
 app.post('/api/exams/:examId/questions', async (c) => {
   const db = c.env.DB;
@@ -307,21 +330,30 @@ app.post('/api/exams/:id/session/start', async (c) => {
   const body = await c.req.json();
   const { student_id, student_name, student_section, device_id = '' } = body;
 
-  if (!student_id || !student_name || !student_section) {
-    return c.json({ error: 'Student ID, name and section are required.' }, 400);
+  if (!student_id) {
+    return c.json({ error: 'Student ID is required.' }, 400);
   }
 
   const exam = await db.prepare(`SELECT deadline, access_code, class_id FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
 
+  // For class-linked exams the name/section come from the class roster, so the
+  // student only needs to enter their student ID.
   if (exam.class_id) {
-    const enrolled = await db.prepare(
-      `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+    const roster = await db.prepare(
+      `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`
     ).bind(exam.class_id, student_id).first();
-    if (!enrolled) {
+    if (!roster) {
       return c.json({ error: 'You must be enrolled in this class to take this exam.' }, 403);
     }
+    body.student_name = roster.student_name;
+    body.student_section = roster.student_section;
+  } else if (!student_name || !student_section) {
+    return c.json({ error: 'Student ID, name and section are required.' }, 400);
   }
+
+  const enrolledName = body.student_name;
+  const enrolledSection = body.student_section;
 
   if (exam.access_code && body.access_code !== exam.access_code) {
     return c.json({ error: 'Invalid access code. Ask your proctor for the correct code.' }, 403);
@@ -350,7 +382,7 @@ app.post('/api/exams/:id/session/start', async (c) => {
   await db.prepare(
     `INSERT INTO exam_sessions (id, exam_id, student_id, student_name, student_section, device_id)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(sessionId, examId, student_id, student_name, student_section, device_id).run();
+  ).bind(sessionId, examId, student_id, enrolledName, enrolledSection, device_id).run();
 
   // Attendance: one row per student per exam. Insert if new, otherwise mark started.
   const existingAtt = await db.prepare(
@@ -360,16 +392,16 @@ app.post('/api/exams/:id/session/start', async (c) => {
     await db.prepare(
       `UPDATE attendance SET status = 'started', started_at = datetime('now'), student_name = ?, student_section = ?
        WHERE id = ?`
-    ).bind(student_name, student_section, existingAtt.id).run();
+    ).bind(enrolledName, enrolledSection, existingAtt.id).run();
   } else {
     await db.prepare(
       `INSERT INTO attendance (id, exam_id, student_id, student_name, student_section, status, started_at, checked_in)
        VALUES (?, ?, ?, ?, ?, 'started', datetime('now'), datetime('now'))`
-    ).bind(uuid(), examId, student_id, student_name, student_section).run();
+    ).bind(uuid(), examId, student_id, enrolledName, enrolledSection).run();
   }
 
-  await log(db, 'session_start', `${student_name} (${student_id}) started ${examId}`);
-  return c.json({ session_id: sessionId }, 201);
+  await log(db, 'session_start', `${enrolledName} (${student_id}) started ${examId}`);
+  return c.json({ session_id: sessionId, student_name: enrolledName, student_section: enrolledSection }, 201);
 });
 
 app.post('/api/exams/:id/session/heartbeat', async (c) => {
@@ -840,6 +872,62 @@ app.delete('/api/classes/:id/enroll/:studentId', async (c) => {
   await db.prepare(
     `DELETE FROM enrollments WHERE class_id = ? AND student_id = ?`
   ).bind(c.req.param('id'), c.req.param('studentId')).run();
+  return c.json({ success: true });
+});
+
+// Update an enrolled student's details (ID, name, or section).
+app.put('/api/classes/:id/enroll/:studentId', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const classId = c.req.param('id');
+  const oldStudentId = c.req.param('studentId');
+  const body = await c.req.json();
+  const newStudentId = (body.student_id || '').trim().toUpperCase();
+  const newName = (body.student_name || '').trim();
+  const newSection = (body.student_section || '').trim();
+  if (!newStudentId || !newName) {
+    return c.json({ error: 'Student ID and name are required.' }, 400);
+  }
+
+  const existing = await db.prepare(
+    `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+  ).bind(classId, oldStudentId).first();
+  if (!existing) return c.json({ error: 'Student is not enrolled in this class.' }, 404);
+
+  if (newStudentId !== oldStudentId) {
+    const clash = await db.prepare(
+      `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(classId, newStudentId).first();
+    if (clash) return c.json({ error: 'Another student with that ID is already enrolled.' }, 409);
+    await db.prepare(
+      `UPDATE enrollments SET student_id = ?, student_name = ?, student_section = ? WHERE id = ?`
+    ).bind(newStudentId, newName, newSection, existing.id).run();
+    // Keep linked records in sync with the corrected ID/name.
+    await db.prepare(
+      `UPDATE submissions SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ?`
+    ).bind(newStudentId, newName, newSection, oldStudentId).run();
+    await db.prepare(
+      `UPDATE attendance SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ?`
+    ).bind(newStudentId, newName, newSection, oldStudentId).run();
+    await db.prepare(
+      `UPDATE class_attendance SET student_id = ?, student_name = ? WHERE class_id = ? AND student_id = ?`
+    ).bind(newStudentId, newName, classId, oldStudentId).run();
+  } else {
+    await db.prepare(
+      `UPDATE enrollments SET student_name = ?, student_section = ? WHERE id = ?`
+    ).bind(newName, newSection, existing.id).run();
+    await db.prepare(
+      `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ? AND student_section = ?`
+    ).bind(newName, newSection, oldStudentId, newSection).run();
+await db.prepare(
+      `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ?`
+    ).bind(newName, newSection, oldStudentId).run();
+    await db.prepare(
+      `UPDATE class_attendance SET student_name = ? WHERE class_id = ? AND student_id = ?`
+    ).bind(newName, classId, oldStudentId).run();
+  }
+
+  await log(db, 'enroll_updated', `${oldStudentId} → ${newStudentId} (${newName}) in class ${classId}`);
   return c.json({ success: true });
 });
 

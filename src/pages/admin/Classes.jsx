@@ -241,6 +241,9 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [removeTarget, setRemoveTarget] = useState(null);
   const [removing, setRemoving] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [editForm, setEditForm] = useState({ student_id: '', student_name: '', student_section: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
   const toast = useToast();
 
   const loadKnown = () => api.listStudents().then(setKnown).catch(() => {});
@@ -282,6 +285,31 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
       onChanged();
     } catch (e) { toast.error(e.message); }
     setRemoving(false);
+  };
+
+  const openEdit = (e) => {
+    setEditForm({ student_id: e.student_id, student_name: e.student_name, student_section: e.student_section || '' });
+    setEditTarget(e);
+  };
+
+  const saveEdit = async () => {
+    if (!editTarget) return;
+    if (!editForm.student_id.trim() || !editForm.student_name.trim()) {
+      toast.error('Student ID and name are required');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      await api.updateStudent(classId, editTarget.student_id, {
+        student_id: editForm.student_id.trim().toUpperCase(),
+        student_name: editForm.student_name.trim(),
+        student_section: editForm.student_section.trim(),
+      });
+      toast.success('Student updated');
+      setEditTarget(null);
+      onChanged();
+    } catch (e) { toast.error(e.message); }
+    setSavingEdit(false);
   };
 
   const filtered = known.filter(s =>
@@ -354,6 +382,7 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
                   <span className="block font-medium truncate">{e.student_name}</span>
                   <span className="block text-[11px] text-muted font-mono">{e.student_id}{e.student_section ? ' · ' + e.student_section : ''}</span>
                 </span>
+                <button onClick={() => openEdit(e)} title="Edit student details" className="bg-none border-none text-faint hover:text-navy-700 cursor-pointer p-1.5 rounded-md hover:bg-navy-50"><Pencil size={14} /></button>
                 <button onClick={() => setRemoveTarget(e)} title="Remove from class" className="bg-none border-none text-faint hover:text-danger cursor-pointer p-1.5 rounded-md hover:bg-danger-bg"><X size={15} /></button>
               </div>
             ))}
@@ -370,6 +399,32 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
         loading={removing}
         onConfirm={remove}
       />
+
+      <Modal
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        title="Edit Student"
+        icon={Pencil}
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setEditTarget(null)}>Cancel</Button>
+            <Button icon={Save} loading={savingEdit} onClick={saveEdit}>Save Changes</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Input label="Student ID" value={editForm.student_id}
+            onChange={e => setEditForm({ ...editForm, student_id: e.target.value.toUpperCase() })}
+            placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono" />
+          <Input label="Full Name" value={editForm.student_name}
+            onChange={e => setEditForm({ ...editForm, student_name: e.target.value })}
+            placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
+          <Input label="Section" value={editForm.student_section}
+            onChange={e => setEditForm({ ...editForm, student_section: e.target.value })}
+            placeholder="e.g. BSCS 2-A" autoComplete="off" />
+          <p className="text-[11px] text-faint">Changing the ID or name also updates their submissions, attendance, and class attendance records.</p>
+        </div>
+      </Modal>
     </Card>
   );
 }

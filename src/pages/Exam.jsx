@@ -8,7 +8,7 @@ import QuestionCard from '../components/QuestionCard';
 import PublicLayout from '../components/PublicLayout';
 import { Button, Input, ConfirmDialog } from '../components/ui';
 import '../styles.css';
-import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon } from 'lucide-react';
+import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar } from 'lucide-react';
 
 export default function Exam() {
   const [params] = useSearchParams();
@@ -22,10 +22,12 @@ export default function Exam() {
   // Gate fields
   const [name, setName] = useState('');
   const [section, setSection] = useState('');
-  const [date, setDate] = useState('');
+  const [date, setDate] = useState(() => new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }));
   const [studentId, setStudentId] = useState('');
   const [accessCode, setAccessCode] = useState('');
   const [gateError, setGateError] = useState('');
+  const [lookupState, setLookupState] = useState('idle'); // idle | loading | found | notfound
+  const [rosterInfo, setRosterInfo] = useState(null);
 
   // Exam state
   const [started, setStarted] = useState(false);
@@ -296,15 +298,39 @@ export default function Exam() {
     };
   }, [started, submitted]);
 
+  const lookupRoster = async () => {
+    if (!examData?.class_id) return;
+    if (!studentId.trim()) { setLookupState('notfound'); setRosterInfo(null); return; }
+    setLookupState('loading');
+    try {
+      const res = await api.lookupStudent(examId, studentId.trim().toUpperCase());
+      setRosterInfo(res);
+      setName(res.student_name);
+      setSection(res.student_section || '');
+      setLookupState('found');
+      setGateError('');
+    } catch (e) {
+      setLookupState('notfound');
+      setRosterInfo(null);
+      setGateError(e.message || 'Student not found in the class roster.');
+    }
+  };
+
   const startExam = async () => {
     if (examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) {
       setGateError('This exam has already ended. The deadline has passed.');
       return;
     }
-    if (!name.trim() || !section.trim() || !date.trim() || !studentId.trim()) {
-      setGateError('Please fill in all fields, including your Student ID.');
+    if (!studentId.trim()) {
+      setGateError('Please enter your Student ID.');
       return;
     }
+    if (!examData?.class_id && (!name.trim() || !section.trim())) {
+      setGateError('Please fill in your name and section.');
+      return;
+    }
+    let effName = name.trim();
+    let effSection = section.trim();
     try {
       const res = await api.startSession(examId, {
         student_id: studentId.trim().toUpperCase(),
@@ -313,6 +339,9 @@ export default function Exam() {
         access_code: accessCode.trim(),
         device_id: deviceId,
       });
+      // For class-linked exams the server returns the roster name/section; use them.
+      if (res.student_name) { setName(res.student_name); effName = res.student_name; }
+      if (res.student_section) { setSection(res.student_section); effSection = res.student_section; }
       sessionIdRef.current = res.session_id;
       setSessionId(res.session_id);
       localStorage.setItem('exam_session_' + examId, res.session_id);
@@ -321,14 +350,14 @@ export default function Exam() {
       return;
     }
     setGateError('');
-    const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
+    const s = hashStr(effName.toLowerCase().replace(/\s/g, '') + effSection.toLowerCase() + examId);
     setSeed(s);
     const qs = examData.questions || [];
     setQuestions(shuffleWithSeed(qs, s));
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual' }));
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name: effName, section: effSection, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual' }));
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -420,6 +449,8 @@ export default function Exam() {
       access_code: accessCode.trim(),
       device_id: deviceId,
     });
+    if (res.student_name) setName(res.student_name);
+    if (res.student_section) setSection(res.student_section);
     sessionIdRef.current = res.session_id;
     setSessionId(res.session_id);
     localStorage.setItem('exam_session_' + examId, res.session_id);
@@ -582,18 +613,58 @@ export default function Exam() {
                 </div>
               )}
               <div className="flex flex-col gap-3.5 mb-6">
-                <Input label="Student ID Number" value={studentId} onChange={e => setStudentId(e.target.value)}
-                  placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !tracking-wide" />
-                <Input label="Full Name (Last Name, First Name, M.I.)" value={name} onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
-                <Input label="Section" value={section} onChange={e => setSection(e.target.value)}
-                  placeholder="e.g. BSCS 2-A" autoComplete="off" />
-                <Input label="Date" value={date} onChange={e => setDate(e.target.value)}
-                  placeholder="e.g. June 25, 2025" autoComplete="off" />
-                {examData?.has_access_code && (
-                  <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
-                    placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                {examData?.class_id ? (
+                  <>
+                    <div>
+                      <label className="label mb-1.5">Student ID Number</label>
+                      <div className="flex gap-2">
+                        <input
+                          value={studentId}
+                          onChange={e => { setStudentId(e.target.value.toUpperCase()); setLookupState('idle'); }}
+                          onBlur={lookupRoster}
+                          placeholder="e.g. 2019-12345" autoComplete="off"
+                          className="input !font-mono !tracking-wide flex-1"
+                        />
+                        <Button variant={lookupState === 'found' ? 'success' : 'outline'} size="md"
+                          loading={lookupState === 'loading'} onClick={lookupRoster}
+                          disabled={lookupState === 'found'}>
+                          {lookupState === 'found' ? 'Verified' : 'Verify'}
+                        </Button>
+                      </div>
+                      {lookupState === 'notfound' && (
+                        <div className="text-[12px] text-danger mt-1.5 flex items-center gap-1.5">
+                          <AlertTriangle size={12} /> This ID is not enrolled in the linked class.
+                        </div>
+                      )}
+                      {lookupState === 'found' && rosterInfo && (
+                        <div className="bg-success-bg border border-success rounded-lg px-3.5 py-2.5 mt-2 text-[13px]">
+                          <div className="font-semibold text-success">{rosterInfo.student_name}</div>
+                          <div className="text-[12px] text-muted">{rosterInfo.student_id}{rosterInfo.student_section ? ' · ' + rosterInfo.student_section : ''}</div>
+                        </div>
+                      )}
+                    </div>
+                    {examData?.has_access_code && (
+                      <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
+                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Input label="Student ID Number" value={studentId} onChange={e => setStudentId(e.target.value)}
+                      placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !tracking-wide" />
+                    <Input label="Full Name (Last Name, First Name, M.I.)" value={name} onChange={e => setName(e.target.value)}
+                      placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
+                    <Input label="Section" value={section} onChange={e => setSection(e.target.value)}
+                      placeholder="e.g. BSCS 2-A" autoComplete="off" />
+                    {examData?.has_access_code && (
+                      <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
+                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                    )}
+                  </>
                 )}
+              </div>
+              <div className="flex items-center gap-2 text-[12px] text-faint mb-4">
+                <Calendar size={13} /> {date}
               </div>
               {gateError && <div className="text-[12px] text-danger mb-3 flex items-center gap-1.5"><AlertTriangle size={12} /> {gateError}</div>}
               <Button className="!w-full !py-3.5 !text-[15px]" onClick={startExam}>Start Exam →</Button>
