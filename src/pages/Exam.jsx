@@ -361,8 +361,19 @@ export default function Exam() {
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
-    setAnswers(prev => ({ ...prev, [qid]: displayKey }));
-    setAnsweredSet(prev => { const n = new Set(prev); n.add(qid); return n; });
+    const empty = displayKey === undefined || String(displayKey).trim() === '';
+    setAnswers(prev => {
+      const next = { ...prev };
+      if (empty) delete next[qid];
+      else next[qid] = displayKey;
+      return next;
+    });
+    setAnsweredSet(prev => {
+      const n = new Set(prev);
+      if (empty) n.delete(qid);
+      else n.add(qid);
+      return n;
+    });
   }, []);
 
   const handleTimerTick = useCallback((s) => {
