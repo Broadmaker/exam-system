@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 
 const sizes = {
-  sm: 'max-w-[380px]',
-  md: 'max-w-[480px]',
-  lg: 'max-w-[680px]',
+  sm: 'max-w-[min(380px,100%)]',
+  md: 'max-w-[min(480px,100%)]',
+  lg: 'max-w-[min(680px,100%)]',
 };
 
 export default function Modal({ open, onClose, title, icon: Icon, size = 'md', footer, children }) {

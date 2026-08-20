@@ -321,7 +321,7 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
     <Card eyebrow="Students" title="Enroll Students" icon={UserPlus} actions={<Badge tone="info">{enrollments.length} enrolled</Badge>}>
 
       <div className="grid lg:grid-cols-2 gap-3 mb-4">
-        <div className="border border-border rounded-lg p-3.5 bg-canvas/50">
+        <div className="border border-border rounded-lg p-3.5 bg-canvas/50 min-w-0">
           <div className="flex items-center gap-2 mb-2.5">
             <span className="w-6 h-6 rounded-md bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><ClipboardList size={13} /></span>
             <span className="text-[13px] font-semibold text-navy-800">Bulk enroll</span>
@@ -336,24 +336,24 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
         </div>
 
         {known.length > 0 && (
-          <div className="border border-border rounded-lg p-3.5 bg-canvas/50">
+          <div className="border border-border rounded-lg p-3.5 bg-canvas/50 min-w-0">
             <div className="flex items-center gap-2 mb-2.5">
               <span className="w-6 h-6 rounded-md bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Search size={13} /></span>
               <span className="text-[13px] font-semibold text-navy-800">Add from known students</span>
             </div>
-            <div className="relative mb-2">
+            <div className="relative mb-2 min-w-0">
               <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
               <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search name or ID…" className="input !pl-9" />
             </div>
-            <div className="max-h-[200px] overflow-y-auto flex flex-col gap-1.5">
+            <div className="max-h-[200px] overflow-y-auto overflow-x-hidden flex flex-col gap-1.5">
               {filtered.slice(0, 30).map(s => (
-                <div key={s.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px]">
+                <div key={s.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] min-w-0">
                   <span className="w-7 h-7 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center text-[11px] font-bold shrink-0">
                     {(s.student_name || '?').charAt(0).toUpperCase()}
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block font-medium truncate">{s.student_name}</span>
-                    <span className="block text-[11px] text-muted font-mono">{s.student_id}</span>
+                    <span className="block text-[11px] text-muted font-mono truncate">{s.student_id}</span>
                   </span>
                   <Button size="sm" variant="soft" className="!px-2.5 !py-0.5 !text-[11px] !shrink-0" icon={Plus} onClick={() => addKnown(s)}>Add</Button>
                 </div>
@@ -374,16 +374,16 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
         ) : (
           <div className="flex flex-col gap-1.5">
             {enrollments.map(e => (
-              <div key={e.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] hover:bg-navy-50 transition-colors">
+              <div key={e.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] hover:bg-navy-50 transition-colors min-w-0">
                 <span className="w-7 h-7 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center text-[11px] font-bold shrink-0">
                   {(e.student_name || '?').charAt(0).toUpperCase()}
                 </span>
                 <span className="flex-1 min-w-0">
                   <span className="block font-medium truncate">{e.student_name}</span>
-                  <span className="block text-[11px] text-muted font-mono">{e.student_id}{e.student_section ? ' · ' + e.student_section : ''}</span>
+                  <span className="block text-[11px] text-muted font-mono truncate">{e.student_id}{e.student_section ? ' · ' + e.student_section : ''}</span>
                 </span>
-                <button onClick={() => openEdit(e)} title="Edit student details" className="bg-none border-none text-faint hover:text-navy-700 cursor-pointer p-1.5 rounded-md hover:bg-navy-50"><Pencil size={14} /></button>
-                <button onClick={() => setRemoveTarget(e)} title="Remove from class" className="bg-none border-none text-faint hover:text-danger cursor-pointer p-1.5 rounded-md hover:bg-danger-bg"><X size={15} /></button>
+                <button onClick={() => openEdit(e)} title="Edit student details" className="bg-none border-none text-faint hover:text-navy-700 cursor-pointer p-1.5 rounded-md hover:bg-navy-50 shrink-0"><Pencil size={14} /></button>
+                <button onClick={() => setRemoveTarget(e)} title="Remove from class" className="bg-none border-none text-faint hover:text-danger cursor-pointer p-1.5 rounded-md hover:bg-danger-bg shrink-0"><X size={15} /></button>
               </div>
             ))}
           </div>

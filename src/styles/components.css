@@ -203,8 +203,11 @@ header.app-header a { color: var(--color-accent); font-size: 13px; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: calc(88vh - max(env(safe-area-inset-top), 0px) - max(env(safe-area-inset-bottom), 0px));
   overflow-y: auto;
+  overflow-x: hidden;
   animation: popIn .25s ease;
 }
 
