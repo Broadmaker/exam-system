@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus, ArrowRight, Search, MonitorSmartphone, ShieldCheck, Zap, BarChart3, QrCode } from 'lucide-react';
-import InstallPrompt from '../components/InstallPrompt';
 import PublicLayout from '../components/PublicLayout';
 import { Button } from '../components/ui';
 
@@ -70,7 +69,6 @@ export default function Landing() {
             <div className="text-[11px] font-semibold tracking-[.14em] uppercase text-navy-700 mb-1">Student Portal</div>
             <h2 className="text-[22px] font-bold text-navy-800">What would you like to do?</h2>
           </div>
-          <InstallPrompt />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import { ToastProvider } from './components/ui';
+import FloatingInstall from './components/FloatingInstall';
 import Landing from './pages/Landing';
 import Exam from './pages/Exam';
 import Leaderboard from './pages/Leaderboard';
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/admin/proctor" element={<Proctor />} />
         <Route path="/admin/classes" element={<Classes />} />
       </Routes>
+      <FloatingInstall />
     </ToastProvider>
   );
 }
