@@ -521,7 +521,7 @@ export default function Exam() {
     const parts = [...new Set(questions.map(q => q.part))].sort();
     const qpp = Math.ceil(results.totalQ / parts.length);
     return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-4 bg-[rgba(10,20,40,.7)]">
+      <div className="min-h-screen flex items-center justify-center px-4 pt-safe pb-safe bg-[rgba(10,20,40,.7)]">
         <div className="bg-surface rounded-[16px] max-w-[520px] w-full text-center shadow-modal max-h-[90vh] overflow-y-auto px-6 sm:px-8 py-8">
           <div className="font-mono text-[11px] tracking-[.12em] text-muted uppercase mb-4">{name} · {section}</div>
           <div className="relative w-36 h-36 mx-auto mb-4">
@@ -609,7 +609,7 @@ export default function Exam() {
     <div>
       <ToastContainer />
       {kicked && !submitted && (
-        <div className="fixed inset-0 bg-[rgba(10,20,40,.94)] z-[400] flex items-center justify-center px-6">
+        <div className="fixed inset-0 bg-[rgba(10,20,40,.94)] z-[400] flex items-center justify-center px-6 pt-safe pb-safe">
           <div className="bg-surface rounded-[14px] px-6 sm:px-8 py-9 max-w-[400px] w-full text-center shadow-modal">
             <span className="w-12 h-12 rounded-full bg-danger-bg flex items-center justify-center mx-auto mb-3"><Ban size={24} className="text-danger" /></span>
             <h3 className="text-[18px] text-navy-800 mb-2.5">Session Closed by Proctor</h3>
@@ -625,7 +625,7 @@ export default function Exam() {
         </div>
       )}
       {fsBlocked && !submitting && !submitted && (
-        <div className="fixed inset-0 bg-[rgba(10,20,40,.93)] z-[400] flex items-center justify-center px-6">
+        <div className="fixed inset-0 bg-[rgba(10,20,40,.93)] z-[400] flex items-center justify-center px-6 pt-safe pb-safe">
           <div className="bg-surface rounded-[14px] px-6 sm:px-8 py-9 max-w-[400px] w-full text-center shadow-modal">
             <span className="w-12 h-12 rounded-full bg-danger-bg flex items-center justify-center mx-auto mb-3"><Ban size={24} className="text-danger" /></span>
             <h3 className="text-[18px] text-navy-800 mb-2.5">Fullscreen Required</h3>
@@ -642,7 +642,7 @@ export default function Exam() {
           <WifiOff size={14} /> You are offline — answers are saved locally. Connect to submit.
         </div>
       )}
-      <header className="bg-navy-900 text-white px-4 sm:px-6 py-4 flex items-center justify-between gap-4 sticky top-0 z-[100] shadow-card flex-wrap">
+      <header className="bg-navy-900 text-white px-4 sm:px-6 pb-4 pt-safe flex items-center justify-between gap-4 sticky top-0 z-[100] shadow-card flex-wrap">
         <div className="min-w-0">
           <div className="font-mono text-[10px] tracking-[.12em] text-accent uppercase mb-0.5 truncate max-w-[180px]">
             {examData?.title}

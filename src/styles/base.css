@@ -40,7 +40,9 @@
 
   /* Safe-area helpers for notched phones */
   .pt-safe { padding-top: max(env(safe-area-inset-top), 0px); }
+  .pr-safe { padding-right: max(env(safe-area-inset-right), 0px); }
   .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0px); }
+  .pl-safe { padding-left: max(env(safe-area-inset-left), 0px); }
 
   @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(-10px); }

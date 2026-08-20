@@ -34,7 +34,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none w-[min(92vw,420px)]">
+      <div className="fixed top-[max(env(safe-area-inset-top),20px)] left-1/2 -translate-x-1/2 z-[70] flex flex-col items-center gap-2 pointer-events-none w-[min(92vw,420px)]">
         {items.map((t) => {
           const s = toneStyles[t.tone] || toneStyles.info;
           const Icon = s.icon;

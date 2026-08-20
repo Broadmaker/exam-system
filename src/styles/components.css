@@ -194,7 +194,8 @@ header.app-header a { color: var(--color-accent); font-size: 13px; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: max(env(safe-area-inset-top), 20px) max(env(safe-area-inset-right), 20px)
+    max(env(safe-area-inset-bottom), 20px) max(env(safe-area-inset-left), 20px);
   animation: fadeIn .2s ease;
 }
 .modal-panel {
@@ -202,7 +203,7 @@ header.app-header a { color: var(--color-accent); font-size: 13px; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-modal);
   width: 100%;
-  max-height: 88vh;
+  max-height: calc(88vh - max(env(safe-area-inset-top), 0px) - max(env(safe-area-inset-bottom), 0px));
   overflow-y: auto;
   animation: popIn .25s ease;
 }

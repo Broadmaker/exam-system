@@ -173,7 +173,7 @@ export default function AdminLayout({ children, title }) {
         )}
 
         {/* Mobile drawer */}
-        <aside className={`fixed inset-y-0 left-0 z-[60] w-60 bg-surface border-r border-border flex flex-col transition-transform duration-250 ease-in-out lg:hidden ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <aside className={`fixed inset-y-0 left-0 z-[60] w-60 bg-surface border-r border-border flex flex-col pt-safe pb-safe transition-transform duration-250 ease-in-out lg:hidden ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}>
           <button onClick={() => setDrawerOpen(false)}
             className="absolute top-3 right-3 p-1.5 rounded-md text-faint hover:text-navy-800 hover:bg-navy-50 cursor-pointer">
             <X size={18} />

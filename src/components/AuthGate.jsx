@@ -28,7 +28,7 @@ export default function AuthGate({ children }) {
 
   if (!authed) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-6 py-8"
+      <div className="min-h-screen flex items-center justify-center px-6 pt-safe pb-8"
         style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
         <div className="bg-surface rounded-[18px] max-w-[400px] w-full shadow-modal text-center">
           <div className="px-8 py-10">
