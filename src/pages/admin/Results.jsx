@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import { PageHeader, StatCard, Card, Badge, Button, Table, EmptyState, Spinner } from '../../components/ui';
-import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen } from 'lucide-react';
+import { PageHeader, StatCard, Card, Badge, Button, Table, EmptyState, Spinner, useToast } from '../../components/ui';
+import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat } from 'lucide-react';
 
 export default function Results() {
   return <AdminLayout title="Exam Results"><ResultsInner /></AdminLayout>;
@@ -23,6 +23,7 @@ function ResultsInner() {
   const [analytics, setAnalytics] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const toast = useToast();
 
   const load = async () => {
     if (!examId) return;
@@ -39,6 +40,15 @@ function ResultsInner() {
   };
 
   useEffect(() => { load(); }, [examId]);
+
+  const toggleRetry = async (sub) => {
+    const next = !sub.retry_allowed;
+    try {
+      await api.allowRetry(examId, sub.student_id, next);
+      toast.success(`${sub.student_name}: retry ${next ? 'allowed' : 'revoked'}`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
 
   const total = subs.length;
   const avg = total ? (subs.reduce((s, r) => s + r.score, 0) / total) : 0;
@@ -58,14 +68,15 @@ function ResultsInner() {
     .sort((a, b) => b.score - a.score || a.time_taken - b.time_taken);
 
   const exportCSV = () => {
-    const header = 'Student,Section,Score,Total,Percentage,Tab Switches,Time (min),Submitted';
+    const header = 'Student,Section,Score,Total,Percentage,Tab Switches,Time (min),Status,Submitted';
     const rows = subs.map(r => {
       const pct = ((r.score / r.total) * 100).toFixed(1);
       const mins = Math.floor(r.time_taken / 60);
       const secs = r.time_taken % 60;
       const time = mins + ':' + String(secs).padStart(2, '0');
       const date = new Date(r.submitted_at + 'Z').toLocaleString('en-PH');
-      return `"${r.student_name}","${r.student_section}",${r.score},${r.total},${pct},${r.tab_switches},"${time}","${date}"`;
+      const status = r.retry_allowed ? 'retry' : (r.reason === 'manual' ? 'submitted' : r.reason + '-auto');
+      return `"${r.student_name}","${r.student_section}",${r.score},${r.total},${pct},${r.tab_switches},"${time}","${status}","${date}"`;
     }).join('\n');
     const blob = new Blob([header + '\n' + rows], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -189,6 +200,21 @@ function ResultsInner() {
                 render: r => <span className={r.tab_switches > 0 ? 'text-warning font-semibold' : 'text-muted'}>{r.tab_switches}</span>,
               },
               {
+                key: 'status', header: 'Status',
+                render: r => (
+                  <div className="flex flex-col gap-1 items-start">
+                    <Badge tone={r.reason === 'manual' ? 'neutral' : r.reason === 'timeout' ? 'warning' : r.reason === 'tab' ? 'danger' : 'danger'}>
+                      {r.reason === 'manual' ? 'Submitted' : r.reason === 'timeout' ? 'Timed out' : r.reason === 'tab' ? 'Tab switch' : 'Proctor end'}
+                    </Badge>
+                    {r.retry_allowed && <Badge tone="success">Retry allowed</Badge>}
+                    <Button size="sm" variant={r.retry_allowed ? 'danger' : 'outline'} icon={Repeat}
+                      onClick={() => toggleRetry(r)}>
+                      {r.retry_allowed ? 'Revoke Retry' : 'Allow Retry'}
+                    </Button>
+                  </div>
+                ),
+              },
+              {
                 key: 'time', header: 'Time',
                 render: r => {
                   const mins = Math.floor(r.time_taken / 60);
@@ -208,7 +234,7 @@ function ResultsInner() {
             data={filtered}
             footer={
               <tr>
-                <td colSpan={7} className="!text-[11px] !text-faint !py-2.5 !px-4 !bg-canvas">
+                <td colSpan={8} className="!text-[11px] !text-faint !py-2.5 !px-4 !bg-canvas">
                   Showing {filtered.length} of {subs.length} submission{subs.length !== 1 ? 's' : ''}
                 </td>
               </tr>

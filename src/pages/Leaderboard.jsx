@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
-import { Button, Card, Select, EmptyState, Spinner } from '../components/ui';
+import { Button, Card, Select, EmptyState, Spinner, Badge } from '../components/ui';
 import PublicLayout from '../components/PublicLayout';
 import { Trophy, RefreshCw, Medal, Timer } from 'lucide-react';
 
@@ -121,6 +121,12 @@ export default function Leaderboard() {
                         <div className="text-[11px] text-faint flex items-center gap-3">
                           <span className="truncate">{e.student_section}</span>
                           <span className="inline-flex items-center gap-1"><Timer size={11} /> {mins}:{String(secs).padStart(2, '0')}</span>
+                          {e.reason && e.reason !== 'manual' && (
+                            <Badge tone={e.reason === 'timeout' ? 'warning' : 'danger'}>
+                              {e.reason === 'tab' ? 'tab' : e.reason}
+                            </Badge>
+                          )}
+                          {e.retry_allowed && <Badge tone="success">retry</Badge>}
                         </div>
                       </div>
                       <div className="text-right shrink-0">

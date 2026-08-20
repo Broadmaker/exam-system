@@ -54,6 +54,15 @@ export default function Proctor() {
     setKicking(false);
   };
 
+  const toggleRetry = async (sub) => {
+    const next = !sub.retry_allowed;
+    try {
+      await api.allowRetry(examId, sub.student_id, next);
+      toast.success(`${sub.student_name}: retry ${next ? 'allowed' : 'revoked'}`);
+      load();
+    } catch (e) { toast.error(e.message); }
+  };
+
   const copyExamLink = () => {
     navigator.clipboard.writeText(window.location.origin + '/exam?id=' + encodeURIComponent(examId));
     toast.info('Exam link copied');
@@ -191,7 +200,17 @@ export default function Proctor() {
                     <div className="flex flex-col gap-2">
                       {data.submitted.slice(0, 15).map((s, i) => (
                         <SessionRow key={i} s={s}
-                          action={<Button size="sm" variant="outline" to={"/admin/answers?id=" + examId}>View</Button>} />
+                          action={
+                            <>
+                              {s.retry_allowed && <Badge tone="success">Retry on</Badge>}
+                              <Button size="sm" variant={s.retry_allowed ? 'danger' : 'outline'}
+                                onClick={() => toggleRetry(s)}>
+                                {s.retry_allowed ? 'Revoke Retry' : 'Allow Retry'}
+                              </Button>
+                              <Button size="sm" variant="outline" to={"/admin/answers?id=" + examId}>View</Button>
+                            </>
+                          }
+                        />
                       ))}
                     </div>
                   )}

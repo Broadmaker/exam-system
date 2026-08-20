@@ -104,6 +104,23 @@ app.delete('/api/exams/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// Tell the student whether a retry is currently allowed for their submission
+// (auto-submitted, or explicitly granted by the proctor).
+app.get('/api/exams/:id/retry-status', async (c) => {
+  const db = c.env.DB;
+  const examId = c.req.param('id');
+  const { student_id = '', student_name = '', student_section = '' } = c.req.query();
+  if (!student_id || !student_name) return c.json({ allowed: false });
+
+  const sub = await db.prepare(
+    `SELECT reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_id = ? AND student_name = ? AND student_section = ?`
+  ).bind(examId, student_id, student_name, student_section).first();
+
+  if (!sub) return c.json({ allowed: false });
+  const auto = sub.reason === 'timeout' || sub.reason === 'tab' || sub.reason === 'kick';
+  return c.json({ allowed: !!sub.retry_allowed || auto, reason: sub.reason });
+});
+
 // ── QUESTIONS ──────────────────────────────────────
 app.post('/api/exams/:examId/questions', async (c) => {
   const db = c.env.DB;
@@ -211,7 +228,7 @@ app.get('/api/logs', async (c) => {
 app.post('/api/submit', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
-  const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken } = body;
+  const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken, reason = 'manual' } = body;
 
   const exam = await db.prepare(`SELECT deadline, class_id FROM exams WHERE id = ?`).bind(exam_id).first();
   if (exam?.deadline) {
@@ -222,10 +239,15 @@ app.post('/api/submit', async (c) => {
     }
   }
 
+  const safeReason = ['manual', 'timeout', 'tab', 'kick'].includes(reason) ? reason : 'manual';
   const existing = await db.prepare(
-    `SELECT id FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+    `SELECT id, reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
   ).bind(exam_id, student_name, student_section).first();
-  if (existing) return c.json({ error: 'You have already submitted this exam.' }, 409);
+  // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
+  // or the proctor explicitly granted a retry for this student.
+  if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
+    return c.json({ error: 'You have already submitted this exam.' }, 409);
+  }
 
   if (exam.class_id) {
     const enrolled = await db.prepare(
@@ -236,11 +258,21 @@ app.post('/api/submit', async (c) => {
     }
   }
 
-  const id = uuid();
-  await db.prepare(
-    `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, exam_id, student_name, student_section, student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken).run();
+  const id = existing ? existing.id : uuid();
+  if (existing) {
+    await db.prepare(
+      `UPDATE submissions
+       SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, submitted_at = datetime('now')
+       WHERE id = ?`
+    ).bind(student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, id).run();
+    // Answers changed, so discard any manual reviews tied to the old attempt.
+    await db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id).run();
+  } else {
+    await db.prepare(
+      `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, exam_id, student_name, student_section, student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason).run();
+  }
 
   // Mark attendance as submitted and close the student's active session(s).
   await db.prepare(
@@ -262,8 +294,8 @@ app.post('/api/submit', async (c) => {
     ).bind(uuid(), exam.class_id, today, student_id, student_name).run();
   }
 
-  await log(db, 'submission', `Score recorded for ${student_name} (${student_id || 'no ID'}): ${score}/${total}`);
-  return c.json({ id }, 201);
+  await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${student_id || 'no ID'}): ${score}/${total} (${safeReason})`);
+  return c.json({ id }, existing ? 200 : 201);
 });
 
 // ── SESSIONS (single-session lock + heartbeat) ──────
@@ -403,7 +435,7 @@ app.get('/api/proctor/:examId', async (c) => {
   ).bind(examId).all();
 
   const { results: submitted } = await db.prepare(
-    `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at
+    `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at, reason, retry_allowed
      FROM submissions WHERE exam_id = ? ORDER BY submitted_at DESC LIMIT 50`
   ).bind(examId).all();
 
@@ -429,6 +461,25 @@ app.post('/api/proctor/:examId/kick', async (c) => {
     `UPDATE attendance SET status = 'kicked' WHERE exam_id = ? AND student_id = ?`
   ).bind(examId, session.student_id).run();
   await log(db, 'session_kicked', `Admin kicked ${session.student_name} (${session.student_id})`);
+
+  return c.json({ success: true });
+});
+
+// Allow/deny a retry for an already-submitted student. Body: { student_id, allow }.
+app.post('/api/proctor/:examId/retry', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const body = await c.req.json();
+  if (!body.student_id) return c.json({ error: 'Missing student_id' }, 400);
+
+  await db.prepare(
+    `UPDATE submissions SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
+  ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+  await db.prepare(
+    `UPDATE attendance SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
+  ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+  await log(db, 'retry_allowed', `Admin ${body.allow ? 'allowed' : 'denied'} retry for student ${body.student_id} in ${examId}`);
 
   return c.json({ success: true });
 });
@@ -966,7 +1017,7 @@ app.get('/api/student/:studentId', async (c) => {
 app.get('/api/leaderboard/:examId', async (c) => {
   const db = c.env.DB;
   const { results } = await db.prepare(
-    `SELECT student_name, student_section, score, total, tab_switches, time_taken, submitted_at
+    `SELECT student_name, student_section, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed
      FROM submissions WHERE exam_id = ?
      ORDER BY score DESC, time_taken ASC LIMIT 100`
   ).bind(c.req.param('examId')).all();
@@ -977,7 +1028,7 @@ app.get('/api/leaderboard/:examId', async (c) => {
 app.get('/api/submissions/:examId', async (c) => {
   const db = c.env.DB;
   const { results } = await db.prepare(
-    `SELECT id, student_name, student_section, score, total, tab_switches, time_taken, submitted_at, answers
+    `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC`
   ).bind(c.req.param('examId')).all();

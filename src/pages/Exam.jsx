@@ -30,6 +30,7 @@ export default function Exam() {
   // Exam state
   const [started, setStarted] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitReason, setSubmitReason] = useState('manual');
   const [seed, setSeed] = useState(0);
   const [questions, setQuestions] = useState([]);
   const [answers, setAnswers] = useState({});
@@ -42,6 +43,7 @@ export default function Exam() {
   const [submitting, setSubmitting] = useState(false);
   const [offline, setOffline] = useState(!navigator.onLine);
   const [pendingSubmit, setPendingSubmit] = useState(null);
+  const [serverRetry, setServerRetry] = useState(false);
 
   const cooldownRef = useRef(false);
   const resizeCooldownRef = useRef(false);
@@ -121,12 +123,14 @@ export default function Exam() {
         setSection(saved.section || '');
         if (saved.studentId) setStudentId(saved.studentId);
         if (saved.sessionId) { sessionIdRef.current = saved.sessionId; setSessionId(saved.sessionId); }
+        if (saved.accessCode) setAccessCode(saved.accessCode);
         // Don't restore date from saved state since it's a new day
         if (saved.answers) setAnswers(saved.answers);
         if (saved.answered) setAnsweredSet(new Set(saved.answered));
         if (saved.tabSwitches) setTabSwitches(saved.tabSwitches);
         if (saved.totalSeconds) setTotalSeconds(saved.totalSeconds);
         if (saved.startedAt) startTimeRef.current = saved.startedAt;
+        if (saved.submitReason) setSubmitReason(saved.submitReason);
         if (saved.submitted) {
           setSubmitted(true);
           setStarted(true);
@@ -167,6 +171,15 @@ export default function Exam() {
     retry();
   }, [pendingSubmit, offline, examId]);
 
+  // When the student has already submitted, check with the server whether a
+  // retry is currently allowed (auto-submitted, or granted by the proctor).
+  useEffect(() => {
+    if (!submitted || !name || !studentId) return;
+    api.getRetryStatus(examId, studentId.trim().toUpperCase(), name.trim(), section.trim())
+      .then(r => setServerRetry(!!r.allowed))
+      .catch(() => setServerRetry(false));
+  }, [submitted, examId, name, section, studentId]);
+
   // Heartbeat: keeps the live session alive and detects admin kicks.
   useEffect(() => {
     if (!started || submitted || !sessionIdRef.current || !examId) return;
@@ -178,7 +191,7 @@ export default function Exam() {
           kickedRef.current = true;
           setKicked(true);
           toast('Session ended by proctor', 'The exam was closed by the administrator. Your answers were submitted.');
-          setTimeout(() => handleSubmitRef.current(), 800);
+          setTimeout(() => handleSubmitRef.current('kick'), 800);
         }
       } catch {}
     };
@@ -198,7 +211,7 @@ export default function Exam() {
         const next = prev + 1;
         if (next >= 3) {
           toast('3rd Violation — Exam Auto-Submitted', 'You switched away too many times.');
-          setTimeout(() => handleSubmitRef.current(), 1500);
+          setTimeout(() => handleSubmitRef.current('tab'), 1500);
         } else {
           toast('You ' + source + '!', 'Violation #' + next + ' of 3 — Next will auto-submit.');
         }
@@ -315,7 +328,7 @@ export default function Exam() {
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false }));
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual' }));
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -328,14 +341,15 @@ export default function Exam() {
     // Debounced save
     if (started && !submitted) {
       localStorage.setItem('exam_state_' + examId, JSON.stringify({
-        name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: Array.from(answeredSet),
-        tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false,
+        name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+        tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false, submitReason,
       }));
     }
-  }, [started, submitted, name, section, studentId, answers, answeredSet, tabSwitches, examId]);
+  }, [started, submitted, name, section, studentId, answers, answeredSet, tabSwitches, accessCode, submitReason, examId]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = useCallback(async (reason = 'manual') => {
     if (submitted) return;
+    setSubmitReason(reason);
     setSubmitting(true);
     setShowConfirm(false);
 
@@ -369,14 +383,14 @@ export default function Exam() {
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section: '', studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, answers, answered: Array.from(answeredSet),
-      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true,
+      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true, submitReason: reason,
     }));
 
     const payload = {
       exam_id: examId, student_name: name, student_section: section, student_id: studentId.trim().toUpperCase(),
       seed: String(seed), answers, score: total, total: qs.length,
-      tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0,
+      tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0, reason,
     };
 
     try {
@@ -394,7 +408,82 @@ export default function Exam() {
     }
     setSubmitting(false);
     setSubmitted(true);
-  }, [submitted, questions, answers, name, section, seed, tabSwitches, totalSeconds, answeredSet, examId]);
+  }, [submitted, questions, answers, name, section, seed, tabSwitches, totalSeconds, answeredSet, accessCode, examId]);
+
+  // Re-open a session so the student can continue or retry an auto-submitted exam.
+  const reopenSession = async () => {
+    if (sessionIdRef.current) await api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
+    const res = await api.startSession(examId, {
+      student_id: studentId.trim().toUpperCase(),
+      student_name: name.trim(),
+      student_section: section.trim(),
+      access_code: accessCode.trim(),
+      device_id: deviceId,
+    });
+    sessionIdRef.current = res.session_id;
+    setSessionId(res.session_id);
+    localStorage.setItem('exam_session_' + examId, res.session_id);
+    return res.session_id;
+  };
+
+  const saveExamState = (overrides) => {
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({
+      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(),
+      answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds, startedAt: startTimeRef.current,
+      submitted: false, submitReason: 'manual', ...overrides,
+    }));
+  };
+
+  const continueExam = async () => {
+    try {
+      await reopenSession();
+    } catch (e) {
+      toast('Cannot continue', e.message || 'Could not resume your session. Please try again.');
+      return;
+    }
+    // The seed is deterministic per student, so rebuild it to restore the same
+    // question/choice order the answers were recorded against.
+    const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
+    setSeed(s);
+    setQuestions(shuffleWithSeed(examData.questions || [], s));
+    localStorage.removeItem('pending_submission_' + examId);
+    setPendingSubmit(null);
+    setResults(null);
+    setSubmitted(false);
+    setSubmitReason('manual');
+    setReviewMode(false);
+    setKicked(false);
+    kickedRef.current = false;
+    enterFullscreen();
+    saveExamState({ answers, answered: Array.from(answeredSet) });
+  };
+
+  const retryExam = async () => {
+    try {
+      await reopenSession();
+    } catch (e) {
+      toast('Cannot retry', e.message || 'Could not restart the exam. Please try again.');
+      return;
+    }
+    const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
+    setSeed(s);
+    setQuestions(shuffleWithSeed(examData.questions || [], s));
+    setAnswers({});
+    setAnsweredSet(new Set());
+    setTabSwitches(0);
+    setTotalSeconds(examData.time_limit * 60);
+    startTimeRef.current = Date.now();
+    localStorage.removeItem('pending_submission_' + examId);
+    setPendingSubmit(null);
+    setResults(null);
+    setSubmitted(false);
+    setSubmitReason('manual');
+    setReviewMode(false);
+    setKicked(false);
+    kickedRef.current = false;
+    enterFullscreen();
+    saveExamState({ answers: {}, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: Date.now() });
+  };
 
   // Keep ref in sync with latest handleSubmit
   useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);
@@ -571,6 +660,17 @@ export default function Exam() {
               <WifiOff size={14} /> Score saved locally — will sync when connection restores.
             </div>
           )}
+          {(serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick') && !submitting && !pendingSubmit && (
+            <div className="flex flex-col gap-2.5 mb-5">
+              <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning">
+                <AlertTriangle size={13} /> This exam was submitted automatically ({submitReason === 'tab' ? 'tab switch' : submitReason === 'timeout' ? 'time ran out' : submitReason === 'kick' ? 'session closed by proctor' : 'retry granted by proctor'}).
+              </div>
+              {(submitReason === 'tab' || submitReason === 'kick') && (
+                <Button variant="outline" onClick={continueExam}>Continue Exam</Button>
+              )}
+              <Button onClick={retryExam}>Retry Exam</Button>
+            </div>
+          )}
           <div className="flex gap-2.5 justify-center flex-wrap">
             <Button onClick={() => setReviewMode(true)}>Review My Answers</Button>
             <Button variant="outline" onClick={() => window.location.href = '/'}>Back to Home</Button>
@@ -588,13 +688,31 @@ export default function Exam() {
           style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
           <div className="bg-surface rounded-[16px] max-w-[440px] w-full text-center shadow-modal px-8 py-10">
             <span className="w-14 h-14 rounded-full bg-navy-100 flex items-center justify-center mx-auto mb-4"><ClipboardList size={30} className="text-navy-700" /></span>
-            <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">Already Submitted</h1>
+            <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">
+              {serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick' ? 'Exam Auto-Submitted' : 'Already Submitted'}
+            </h1>
             <p className="text-[14px] text-muted mb-6 leading-relaxed">
-              You have already submitted this exam.<br />You cannot retake it.
+              {submitReason === 'tab'
+                ? <>You switched away from the exam too many times, so it was submitted automatically.<br />You may continue or retry if you like.</>
+                : submitReason === 'timeout'
+                  ? <>Time ran out and your exam was submitted automatically.<br />You may retry if you like.</>
+                  : submitReason === 'kick'
+                    ? <>Your session was closed by the proctor, so your answers were submitted.<br />You may continue or retry if you like.</>
+                    : serverRetry
+                      ? <>Your instructor has granted you a retake.<br />You may continue or retry if you like.</>
+                      : <>You have already submitted this exam.<br />You cannot retake it.</>}
             </p>
             {pendingSubmit && (
               <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning mb-4">
                 <WifiOff size={14} /> Score not yet synced — will upload when connected.
+              </div>
+            )}
+            {(serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick') && !pendingSubmit && (
+              <div className="flex flex-col gap-2.5 mb-6">
+                {(submitReason === 'tab' || submitReason === 'kick' || serverRetry) && (
+                  <Button variant="outline" onClick={continueExam}>Continue Exam</Button>
+                )}
+                <Button onClick={retryExam}>Retry Exam</Button>
               </div>
             )}
             <Button onClick={() => window.location.href = '/'} icon={ArrowLeft} className="!px-10 !py-3.5">Back to Home</Button>
@@ -657,7 +775,7 @@ export default function Exam() {
               <div className="h-full bg-accent rounded transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
             </div>
           </div>
-          {!submitted && <Timer initialSeconds={totalSeconds} onExpire={handleSubmit} onTick={handleTimerTick} />}
+          {!submitted && <Timer initialSeconds={totalSeconds} onExpire={() => handleSubmit('timeout')} onTick={handleTimerTick} />}
         </div>
       </header>
 
@@ -693,7 +811,7 @@ export default function Exam() {
         confirmLabel="Yes, Submit"
         tone="primary"
         loading={submitting}
-        onConfirm={handleSubmit}
+        onConfirm={() => handleSubmit('manual')}
         onClose={() => setShowConfirm(false)}
       />
     </div>
