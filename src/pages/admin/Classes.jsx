@@ -480,6 +480,7 @@ function AttendanceTab({ classId, onChanged }) {
           <div className="flex gap-1.5 mb-3 items-center flex-wrap">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-success-bg text-success text-[12px] font-semibold">✓ {data.present} present</span>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-danger-bg text-danger text-[12px] font-semibold">✗ {data.absent} absent</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-info-bg text-info text-[12px] font-semibold" title="Auto-recorded from taking a class exam">Exam auto {data.students.filter(s => s.source === 'exam').length}</span>
             <div className="ml-auto flex gap-1.5">
               <Button size="sm" variant="soft" icon={CheckCircle} onClick={() => setAll('present')}>All Present</Button>
               <Button size="sm" variant="dangerSoft" icon={XCircle} onClick={() => setAll('absent')}>All Absent</Button>
@@ -494,14 +495,20 @@ function AttendanceTab({ classId, onChanged }) {
                 {data.students.map(s => {
                   const st = marks[s.student_id] || 'absent';
                   return (
-                    <div key={s.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] hover:bg-navy-50 transition-colors">
+                    <div key={s.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] hover:bg-navy-50 transition-colors min-w-0">
                       <span className="w-7 h-7 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center text-[11px] font-bold shrink-0">
                         {(s.student_name || '?').charAt(0).toUpperCase()}
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="block font-medium truncate">{s.student_name}</span>
-                        <span className="block text-[11px] text-muted font-mono">{s.student_id}{s.student_section ? ' · ' + s.student_section : ''}</span>
+                        <span className="block text-[11px] text-muted font-mono truncate">{s.student_id}{s.student_section ? ' · ' + s.student_section : ''}</span>
                       </span>
+                      {s.source === 'exam' && (
+                        <Badge tone="info" className="!text-[10px] !px-2 !py-0.5 shrink-0" title="Auto-recorded from taking the exam">Exam</Badge>
+                      )}
+                      {s.source === 'checkin' && (
+                        <Badge tone="purple" className="!text-[10px] !px-2 !py-0.5 shrink-0" title="Auto-recorded from QR check-in">Check-in</Badge>
+                      )}
                       <div className="flex gap-1 shrink-0">
                         {[['present', 'Present', 'text-success'], ['late', 'Late', 'text-warning'], ['absent', 'Absent', 'text-danger']].map(([val, label, cls]) => (
                           <button key={val} onClick={() => setMarks({ ...marks, [s.student_id]: val })}
