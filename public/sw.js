@@ -1,4 +1,4 @@
-const CACHE = 'exam-portal-v1';
+const CACHE = 'exam-portal-v2';
 const SHELL = ['/', '/index.html'];
 
 self.addEventListener('install', (event) => {
