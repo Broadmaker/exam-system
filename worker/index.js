@@ -227,6 +227,15 @@ app.post('/api/submit', async (c) => {
   ).bind(exam_id, student_name, student_section).first();
   if (existing) return c.json({ error: 'You have already submitted this exam.' }, 409);
 
+  if (exam.class_id) {
+    const enrolled = await db.prepare(
+      `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(exam.class_id, student_id).first();
+    if (!enrolled) {
+      return c.json({ error: 'You must be enrolled in this class to take this exam.' }, 403);
+    }
+  }
+
   const id = uuid();
   await db.prepare(
     `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken)
@@ -270,8 +279,17 @@ app.post('/api/exams/:id/session/start', async (c) => {
     return c.json({ error: 'Student ID, name and section are required.' }, 400);
   }
 
-  const exam = await db.prepare(`SELECT deadline, access_code FROM exams WHERE id = ?`).bind(examId).first();
+  const exam = await db.prepare(`SELECT deadline, access_code, class_id FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
+
+  if (exam.class_id) {
+    const enrolled = await db.prepare(
+      `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(exam.class_id, student_id).first();
+    if (!enrolled) {
+      return c.json({ error: 'You must be enrolled in this class to take this exam.' }, 403);
+    }
+  }
 
   if (exam.access_code && body.access_code !== exam.access_code) {
     return c.json({ error: 'Invalid access code. Ask your proctor for the correct code.' }, 403);
