@@ -295,3 +295,22 @@ export function matchesAnswer(studentAnswer, correctAnswer) {
 
   return sortFactors(s) === sortFactors(c);
 }
+
+// Assessment type metadata (Upscale.md §9) — shared across admin + student views.
+export const EXAM_TYPE_LABELS = {
+  quiz: 'Quiz', major_exam: 'Major Exam', long_exam: 'Long Exam', midterm: 'Midterm',
+  final: 'Final', diagnostic: 'Diagnostic', pretest: 'Pre-Test', posttest: 'Post-Test',
+  practice: 'Practice Test', assignment: 'Assignment', survey: 'Survey', custom: 'Custom',
+};
+
+export function examTypeLabel(t) {
+  return EXAM_TYPE_LABELS[t] || t || 'Exam';
+}
+
+// Lifecycle status colors/labels (Upscale.md §48).
+export const EXAM_STATUS_TONES = {
+  draft: 'neutral', scheduled: 'info', active: 'success', closed: 'danger', archived: 'neutral',
+};
+export const EXAM_STATUS_LABELS = {
+  draft: 'Draft', scheduled: 'Scheduled', active: 'Active', closed: 'Closed', archived: 'Archived',
+};

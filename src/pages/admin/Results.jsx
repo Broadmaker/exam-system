@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, StatCard, Card, Badge, Button, Table, EmptyState, Spinner, useToast } from '../../components/ui';
-import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat } from 'lucide-react';
+import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function Results() {
   return <AdminLayout title="Exam Results"><ResultsInner /></AdminLayout>;
@@ -20,6 +20,7 @@ function ResultsInner() {
   const examId = params.get('id');
   const [exam, setExam] = useState(null);
   const [subs, setSubs] = useState([]);
+  const [passingScore, setPassingScore] = useState(60);
   const [analytics, setAnalytics] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -30,11 +31,12 @@ function ResultsInner() {
     setLoading(true);
     const [examData, subsData, analyticsData] = await Promise.all([
       api.getExam(examId).catch(() => null),
-      api.getSubmissions(examId).catch(() => []),
+      api.getSubmissions(examId).catch(() => ({ passing_score: 60, results: [] })),
       api.getAnalytics(examId).catch(() => []),
     ]);
     setExam(examData);
-    setSubs(subsData);
+    setSubs(subsData.results || []);
+    if (subsData.passing_score !== undefined) setPassingScore(subsData.passing_score);
     setAnalytics(analyticsData);
     setLoading(false);
   };
@@ -55,6 +57,7 @@ function ResultsInner() {
   const best = total ? Math.max(...subs.map(r => r.score)) : 0;
   const worst = total ? Math.min(...subs.map(r => r.score)) : 0;
   const maxTotal = subs[0]?.total || 0;
+  const passingRate = total ? Math.round((subs.filter(r => (r.total ? (r.score / r.total) * 100 : 0) >= passingScore).length / total) * 100) : 0;
 
   const buckets = Array(10).fill(0);
   subs.forEach(r => {
@@ -68,15 +71,16 @@ function ResultsInner() {
     .sort((a, b) => b.score - a.score || a.time_taken - b.time_taken);
 
   const exportCSV = () => {
-    const header = 'Student,Section,Score,Total,Percentage,Tab Switches,Time (min),Status,Submitted';
+    const header = 'Student,Section,Score,Total,Percentage,Result,Tab Switches,Time (min),Status,Submitted';
     const rows = subs.map(r => {
       const pct = ((r.score / r.total) * 100).toFixed(1);
+      const passed = pct >= passingScore;
       const mins = Math.floor(r.time_taken / 60);
       const secs = r.time_taken % 60;
       const time = mins + ':' + String(secs).padStart(2, '0');
       const date = new Date(r.submitted_at + 'Z').toLocaleString('en-PH');
       const status = r.retry_allowed ? 'retry' : (r.reason === 'manual' ? 'submitted' : r.reason + '-auto');
-      return `"${r.student_name}","${r.student_section}",${r.score},${r.total},${pct},${r.tab_switches},"${time}","${status}","${date}"`;
+      return `"${r.student_name}","${r.student_section}",${r.score},${r.total},${pct},"${passed ? 'PASSED' : 'FAILED'}",${r.tab_switches},"${time}","${status}","${date}"`;
     }).join('\n');
     const blob = new Blob([header + '\n' + rows], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -93,7 +97,7 @@ function ResultsInner() {
       <PageHeader
         eyebrow="Exam Results"
         title={exam?.title ? `Results — ${exam.title}` : 'Exam Results'}
-        subtitle={`${subs.length} submission${subs.length !== 1 ? 's' : ''} recorded`}
+        subtitle={`${subs.length} submission${subs.length !== 1 ? 's' : ''} recorded · passing at ${passingScore}%`}
       />
 
       {/* Stats tiles */}
@@ -102,6 +106,7 @@ function ResultsInner() {
         <StatCard icon={BarChart3} value={total ? avg.toFixed(1) : '—'} label="Average Score" tone="green" suffix={total ? `/ ${maxTotal}` : ''} />
         <StatCard icon={Trophy} value={best} label="Highest Score" tone="accent" suffix={best ? `/ ${maxTotal}` : ''} />
         <StatCard icon={TrendingDown} value={total > 1 ? worst : '—'} label="Lowest Score" tone="red" suffix={worst ? `/ ${maxTotal}` : ''} />
+        <StatCard icon={CheckCircle2} value={passingRate} label="Passing Rate" suffix={total ? '%' : ''} tone={total ? (passingRate >= 60 ? 'green' : 'red') : 'navy'} />
       </div>
 
       {/* Per-question analytics */}
@@ -196,6 +201,19 @@ function ResultsInner() {
                 },
               },
               {
+                key: 'passed', header: 'Result',
+                render: r => {
+                  const pct = r.total ? (r.score / r.total) * 100 : 0;
+                  const passed = pct >= passingScore;
+                  return (
+                    <span className={`inline-flex items-center gap-1 font-semibold ${passed ? 'text-success' : 'text-danger'}`}>
+                      {passed ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                      {passed ? 'PASSED' : 'FAILED'}
+                    </span>
+                  );
+                },
+              },
+              {
                 key: 'tab', header: 'Tab Switches', align: 'center',
                 render: r => <span className={r.tab_switches > 0 ? 'text-warning font-semibold' : 'text-muted'}>{r.tab_switches}</span>,
               },
@@ -234,7 +252,7 @@ function ResultsInner() {
             data={filtered}
             footer={
               <tr>
-                <td colSpan={8} className="!text-[11px] !text-faint !py-2.5 !px-4 !bg-canvas">
+                <td colSpan={9} className="!text-[11px] !text-faint !py-2.5 !px-4 !bg-canvas">
                   Showing {filtered.length} of {subs.length} submission{subs.length !== 1 ? 's' : ''}
                 </td>
               </tr>

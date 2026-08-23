@@ -9,6 +9,12 @@ CREATE TABLE exams (
   access_code TEXT DEFAULT '',
   roster TEXT DEFAULT '[]',
   class_id TEXT DEFAULT '',
+  type TEXT NOT NULL DEFAULT 'major_exam',
+  -- New exams default to 'draft' here (fresh DB); the migration file defaults
+  -- existing rows to 'active' so they stay takeable after migrating.
+  status TEXT NOT NULL DEFAULT 'draft',
+  passing_score REAL NOT NULL DEFAULT 60,
+  start_at TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

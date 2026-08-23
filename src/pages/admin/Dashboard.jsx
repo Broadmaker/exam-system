@@ -1,15 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
+import { examTypeLabel, EXAM_STATUS_TONES, EXAM_STATUS_LABELS } from '../../utils';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, StatCard, Card, Badge, Button, ConfirmDialog, EmptyState, useToast } from '../../components/ui';
-import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp } from 'lucide-react';
+import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp, CopyPlus, CalendarClock } from 'lucide-react';
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [exams, setExams] = useState([]);
   const [classes, setClasses] = useState([]);
   const [students, setStudents] = useState([]);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [duplicating, setDuplicating] = useState(null);
   const toast = useToast();
 
   const load = useCallback(() => {
@@ -21,7 +25,7 @@ export default function Dashboard() {
   useEffect(() => { load(); }, [load]);
 
   const totalSubs = exams.reduce((s, e) => s + (e.submission_count || 0), 0);
-  const activeExams = exams.filter(e => !e.deadline || new Date(e.deadline).getTime() > Date.now()).length;
+  const activeExams = exams.filter(e => e.status === 'active').length;
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -41,6 +45,17 @@ export default function Dashboard() {
   const copyLink = (e) => {
     navigator.clipboard.writeText(window.location.origin + '/exam?id=' + e.id);
     toast.info('Exam link copied');
+  };
+
+  const doDuplicate = async (e) => {
+    setDuplicating(e.id);
+    try {
+      const data = await api.duplicateExam(e.id);
+      toast.success('Exam duplicated as draft');
+      load();
+      if (data?.id) navigate('/admin/create?id=' + data.id);
+    } catch (err) { toast.error(err.message); }
+    setDuplicating(null);
   };
 
   return (
@@ -106,12 +121,14 @@ export default function Dashboard() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-[15px] font-semibold text-navy-800 leading-tight">{e.title}</h3>
-                        <Badge tone="info">{e.question_count || 0} Q</Badge>
-                        <ExamStatus deadline={e.deadline} />
+                        {e.type ? <Badge tone="info">{examTypeLabel(e.type)}</Badge> : null}
+                        <ExamStatus exam={e} />
+                        <Badge tone="neutral">{e.question_count || 0} Q</Badge>
                       </div>
                       <div className="flex gap-4 text-[12px] text-muted mt-1.5 flex-wrap">
                         <span className="inline-flex items-center gap-1.5"><Clock size={12} /> {e.time_limit} min</span>
                         <span className="inline-flex items-center gap-1.5"><BarChart3 size={12} /> {e.submission_count || 0} submission{(e.submission_count || 0) !== 1 ? 's' : ''}</span>
+                        {e.deadline && <span className="inline-flex items-center gap-1.5"><CalendarClock size={12} /> Deadline {fmtDeadline(e.deadline)}</span>}
                       </div>
                     </div>
                   </div>
@@ -134,6 +151,8 @@ export default function Dashboard() {
                     <Button size="sm" variant="soft" title="Live proctoring" icon={Radio} to={"/admin/proctor?id=" + e.id} />
                     <Button size="sm" variant="soft" title="Edit" icon={Pencil} to={"/admin/create?id=" + e.id} />
                     <Button size="sm" variant="soft" title="Scores" icon={BarChart3} to={"/admin/results?id=" + e.id} />
+                    <Button size="sm" variant="soft" title="Duplicate" icon={CopyPlus} loading={duplicating === e.id}
+                      onClick={() => doDuplicate(e)} />
                     <Button size="sm" variant="dangerSoft" title="Delete" icon={Trash2} onClick={() => setDeleteTarget(e)} />
                   </div>
                 </div>
@@ -161,12 +180,16 @@ export default function Dashboard() {
   );
 }
 
-function ExamStatus({ deadline }) {
-  if (!deadline) return <Badge tone="neutral">No deadline</Badge>;
-  const expired = new Date(deadline).getTime() <= Date.now();
+function ExamStatus({ exam }) {
+  const status = exam?.status || 'active';
+  const iconFor = {
+    scheduled: <Clock size={10} />,
+    active: <Lock size={10} />,
+    closed: <Lock size={10} />,
+  };
   return (
-    <Badge tone={expired ? 'danger' : 'success'}>
-      <Lock size={10} /> {expired ? 'Expired' : 'Open until'} {fmtDeadline(deadline)}
+    <Badge tone={EXAM_STATUS_TONES[status] || 'neutral'}>
+      {iconFor[status]} {EXAM_STATUS_LABELS[status] || status}
     </Badge>
   );
 }

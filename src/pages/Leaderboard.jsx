@@ -31,7 +31,7 @@ export default function Leaderboard() {
     setLoading(true);
     try {
       const data = await api.getLeaderboard(examId);
-      setEntries(data);
+      setEntries(data.results || data || []);
     } catch (e) {}
     setLoading(false);
   }

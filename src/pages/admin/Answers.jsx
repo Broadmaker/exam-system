@@ -89,10 +89,10 @@ function AnswersInner() {
     setLoading(true);
     const [examData, subsData] = await Promise.all([
       api.getExam(examId).catch(() => null),
-      api.getSubmissions(examId).catch(() => []),
+      api.getSubmissions(examId).catch(() => ({ passing_score: 60, results: [] })),
     ]);
     setExam(examData);
-    setSubs(subsData);
+    setSubs(subsData.results || []);
     setLoading(false);
   };
   useEffect(() => { load(); }, [examId]);

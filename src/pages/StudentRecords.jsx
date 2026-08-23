@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
+import { examTypeLabel } from '../utils';
 import { Button, Card, Input, Badge, EmptyState, Spinner } from '../components/ui';
 import PublicLayout from '../components/PublicLayout';
 import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen } from 'lucide-react';
@@ -133,8 +134,9 @@ export default function StudentRecords() {
                       {klass.exam_results.map(r => (
                         <div key={r.exam_id} className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg bg-navy-50 text-[13px]">
                           <span className="flex-1 font-medium truncate">{r.title}</span>
+                          {r.type && <Badge tone="info">{examTypeLabel(r.type)}</Badge>}
                           <span className="font-mono text-[12px] text-muted shrink-0">{(r.time_taken / 60).toFixed(1)} min</span>
-                          <Badge tone={r.score / r.total >= 0.6 ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
+                          <Badge tone={r.passed ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
                           <span className="text-[11px] text-faint shrink-0">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}</span>
                         </div>
                       ))}
@@ -153,7 +155,8 @@ export default function StudentRecords() {
                   {data.exams.filter(e => !e.class_name).map(r => (
                     <div key={r.exam_id} className="flex items-center gap-3 px-3 py-2.5 border border-border rounded-lg bg-navy-50 text-[13px]">
                       <span className="flex-1 font-medium truncate">{r.title}</span>
-                      <Badge tone={r.score / r.total >= 0.6 ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
+                      {r.type && <Badge tone="info">{examTypeLabel(r.type)}</Badge>}
+                      <Badge tone={r.passed ? 'success' : 'danger'}>{r.score}/{r.total}</Badge>
                       <span className="text-[11px] text-faint shrink-0">{r.submitted_at ? new Date(r.submitted_at).toLocaleDateString() : ''}</span>
                     </div>
                   ))}

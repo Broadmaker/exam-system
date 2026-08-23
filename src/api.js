@@ -28,6 +28,7 @@ export const api = {
   createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body) }),
   updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body) }),
   deleteExam: (id) => request('/exams/' + id, { method: 'DELETE' }),
+  duplicateExam: (id) => request('/exams/' + id + '/duplicate', { method: 'POST' }),
   addQuestion: (examId, body) => request('/exams/' + examId + '/questions', { method: 'POST', body: JSON.stringify(body) }),
   deleteQuestion: (id) => request('/questions/' + id, { method: 'DELETE' }),
   updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body) }),

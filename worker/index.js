@@ -37,6 +37,14 @@ function adminCheck(c) {
   return auth === expected;
 }
 
+// Clamp the passing score (percent) to a sane 0–100 range; empty/NaN/non-numeric
+// (e.g. 'abc') falls back to 60. The form pre-validates, so this is a safety net.
+function clampPassing(v) {
+  if (v === undefined || v === null || v === '' || Number.isNaN(Number(v))) return 60;
+  const n = Number(v);
+  return Math.max(0, Math.min(100, n));
+}
+
 // ── EXAMS ──────────────────────────────────────────
 app.get('/api/exams', async (c) => {
   const db = c.env.DB;
@@ -53,10 +61,11 @@ app.post('/api/exams', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
   const id = uuid();
+  const passing = clampPassing(body.passing_score);
   await db.prepare(
-    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '').run();
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '').run();
   await log(db, 'exam_created', 'Created exam: ' + body.title);
   return c.json({ id }, 201);
 });
@@ -88,12 +97,40 @@ app.put('/api/exams/:id', async (c) => {
   const examId = c.req.param('id');
   const body = await c.req.json();
   const old = await db.prepare(`SELECT title FROM exams WHERE id = ?`).bind(examId).first();
+  const passing = clampPassing(body.passing_score);
   await db.prepare(
-    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, updated_at = datetime('now')
+    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, type = ?, status = ?, passing_score = ?, start_at = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', examId).run();
+  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', examId).run();
   await log(db, 'exam_updated', 'Updated: ' + (old?.title || examId));
   return c.json({ success: true });
+});
+
+// Duplicate an exam (Upscale.md §67): copies the exam row plus all its questions.
+// The copy is reset to draft, with no deadline and no scheduled start, so the
+// instructor can edit and republish it freely.
+app.post('/api/exams/:id/duplicate', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const src = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(c.req.param('id')).first();
+  if (!src) return c.json({ error: 'Exam not found' }, 404);
+  const newId = uuid();
+  const passing = clampPassing(src.passing_score);
+  await db.prepare(
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(newId, src.title + ' (copy)', src.description, src.time_limit, src.questions_per_set, src.show_answers, '', src.access_code, src.roster, src.class_id, src.type, 'draft', passing, '').run();
+  const { results: questions } = await db.prepare(
+    `SELECT part, text, type, choices, answer, explain, sort_order FROM questions WHERE exam_id = ?`
+  ).bind(c.req.param('id')).all();
+  for (const q of questions) {
+    await db.prepare(
+      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order).run();
+  }
+  await log(db, 'exam_duplicated', 'Duplicated: ' + src.title + ' → ' + src.title + ' (copy)');
+  return c.json({ id: newId }, 201);
 });
 
 app.delete('/api/exams/:id', async (c) => {
@@ -253,7 +290,30 @@ app.post('/api/submit', async (c) => {
   const body = await c.req.json();
   const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken, reason = 'manual' } = body;
 
-  const exam = await db.prepare(`SELECT deadline, class_id FROM exams WHERE id = ?`).bind(exam_id).first();
+  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at FROM exams WHERE id = ?`).bind(exam_id).first();
+  // Find any prior submission for this student so we can tell a fresh attempt
+  // (blocked by lifecycle) from a resumed mid-session finalization (allowed).
+  const existing = await db.prepare(
+    `SELECT id, reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+  ).bind(exam_id, student_name, student_section).first();
+  const isResumeFinalization = !!existing;
+
+  // Never accept FRESH submissions for exams that aren't open for new attempts:
+  // draft (never published), scheduled-but-not-open, closed, or archived. Resumed
+  // finalizations are the only exception: a student who already started (before
+  // the exam was drawn down) must be able to finish and keep their work. This
+  // mirrors the client-side lifecycle gate in Exam.jsx and /session/start.
+  if (exam && !isResumeFinalization) {
+    const notOpen = exam.status === 'draft' || exam.status === 'closed' || exam.status === 'archived' ||
+      (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > Date.now());
+    if (notOpen) {
+      const msg = exam.status === 'draft' ? 'This exam is not published yet.'
+        : exam.status === 'scheduled' ? 'This exam has not opened yet.'
+        : exam.status === 'closed' ? 'This exam has been closed by the instructor.'
+        : 'This exam has been archived and is no longer available.';
+      return c.json({ error: msg }, 403);
+    }
+  }
   if (exam?.deadline) {
     const deadlineMs = new Date(exam.deadline).getTime();
     const startedAt = Number(body.started_at);
@@ -263,9 +323,6 @@ app.post('/api/submit', async (c) => {
   }
 
   const safeReason = ['manual', 'timeout', 'tab', 'kick'].includes(reason) ? reason : 'manual';
-  const existing = await db.prepare(
-    `SELECT id, reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
-  ).bind(exam_id, student_name, student_section).first();
   // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
   // or the proctor explicitly granted a retry for this student.
   if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
@@ -334,8 +391,24 @@ app.post('/api/exams/:id/session/start', async (c) => {
     return c.json({ error: 'Student ID is required.' }, 400);
   }
 
-  const exam = await db.prepare(`SELECT deadline, access_code, class_id FROM exams WHERE id = ?`).bind(examId).first();
+  const exam = await db.prepare(`SELECT deadline, access_code, class_id, status, start_at FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
+
+  // Lifecycle gate (Upscale.md §48): only scheduled (when open) and active exams
+  // can be started. Draft / closed / archived exams are blocked server-side.
+  const now = Date.now();
+  if (exam.status === 'draft') {
+    return c.json({ error: 'This exam is not published yet. Please check back later.' }, 403);
+  }
+  if (exam.status === 'archived') {
+    return c.json({ error: 'This exam is archived and no longer available.' }, 403);
+  }
+  if (exam.status === 'closed') {
+    return c.json({ error: 'This exam has been closed by the instructor.' }, 403);
+  }
+  if (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > now) {
+    return c.json({ error: 'This exam opens at ' + new Date(exam.start_at).toLocaleString() + '.' }, 403);
+  }
 
   // For class-linked exams the name/section come from the class roster, so the
   // student only needs to enter their student ID.
@@ -403,6 +476,11 @@ app.post('/api/exams/:id/session/start', async (c) => {
   await log(db, 'session_start', `${enrolledName} (${student_id}) started ${examId}`);
   return c.json({ session_id: sessionId, student_name: enrolledName, student_section: enrolledSection }, 201);
 });
+
+// Heartbeat and end are intentionally NOT lifecycle-gated: a student who is
+// already mid-session must be able to keep heartbeating and finalize even if
+// the instructor closes/archives the exam while they are taking it. New access
+// is blocked upstream at /session/start.
 
 app.post('/api/exams/:id/session/heartbeat', async (c) => {
   const db = c.env.DB;
@@ -1053,13 +1131,18 @@ app.get('/api/student/:studentId', async (c) => {
     `SELECT class_id FROM enrollments WHERE student_id = ?`
   ).bind(studentId).all();
   const { results: subs } = await db.prepare(
-    `SELECT e.id as exam_id, e.title, e.time_limit, e.class_id, c.name as class_name, c.subject, c.section,
+    `SELECT e.id as exam_id, e.title, e.time_limit, e.class_id, e.type, e.status, e.passing_score,
+            c.name as class_name, c.subject, c.section,
             s.score, s.total, s.submitted_at, s.time_taken, s.tab_switches, s.student_name, s.student_section
      FROM submissions s
      JOIN exams e ON e.id = s.exam_id
      LEFT JOIN classes c ON c.id = e.class_id
      WHERE s.student_id = ? ORDER BY s.submitted_at DESC`
   ).bind(studentId).all();
+  const passedFor = (s) => {
+    const pct = s.total ? (s.score / s.total) * 100 : 0;
+    return pct >= Number(s.passing_score ?? 60);
+  };
 
   // Build class list: enrolled classes + classes with submissions.
   const classIds = new Set(enrollments.map(e => e.class_id));
@@ -1075,6 +1158,7 @@ app.get('/api/student/:studentId', async (c) => {
     const examResults = subs.filter(s => s.class_id === cid).map(s => ({
       exam_id: s.exam_id, title: s.title, score: s.score, total: s.total,
       submitted_at: s.submitted_at, time_taken: s.time_taken, tab_switches: s.tab_switches,
+      type: s.type, status: s.status, passing_score: s.passing_score, passed: passedFor(s),
     }));
     const presentDays = att.filter(a => a.status !== 'absent').length;
     classes.push({
@@ -1097,6 +1181,7 @@ app.get('/api/student/:studentId', async (c) => {
     exams: subs.map(s => ({
       exam_id: s.exam_id, title: s.title, class_name: s.class_name || s.subject || '', class_section: s.section || '',
       score: s.score, total: s.total, submitted_at: s.submitted_at, time_taken: s.time_taken, tab_switches: s.tab_switches,
+      type: s.type, status: s.status, passing_score: s.passing_score, passed: passedFor(s),
     })),
   });
 });
@@ -1104,34 +1189,52 @@ app.get('/api/student/:studentId', async (c) => {
 // ── LEADERBOARD ────────────────────────────────────
 app.get('/api/leaderboard/:examId', async (c) => {
   const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
+  const passing = exam ? Number(exam.passing_score) : 60;
   const { results } = await db.prepare(
     `SELECT student_name, student_section, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed
      FROM submissions WHERE exam_id = ?
      ORDER BY score DESC, time_taken ASC LIMIT 100`
-  ).bind(c.req.param('examId')).all();
-  return c.json(results);
+  ).bind(examId).all();
+  return c.json({
+    passing_score: passing,
+    results: results.map(r => {
+      const pct = r.total ? (r.score / r.total) * 100 : 0;
+      return { ...r, passed: pct >= passing };
+    }),
+  });
 });
 
 // ── SUBMISSIONS (admin) ────────────────────────────
 app.get('/api/submissions/:examId', async (c) => {
   const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
+  const passing = exam ? Number(exam.passing_score) : 60;
   const { results } = await db.prepare(
     `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC`
-  ).bind(c.req.param('examId')).all();
+  ).bind(examId).all();
 
   const { results: reviewRows } = await db.prepare(
     `SELECT submission_id, question_id, verdict FROM answer_reviews ar
      INNER JOIN submissions s ON s.id = ar.submission_id WHERE s.exam_id = ?`
-  ).bind(c.req.param('examId')).all();
+  ).bind(examId).all();
   const reviewsBySub = {};
   reviewRows.forEach(r => {
     reviewsBySub[r.submission_id] = reviewsBySub[r.submission_id] || {};
     reviewsBySub[r.submission_id][r.question_id] = r.verdict;
   });
 
-  return c.json(results.map(sub => ({ ...sub, reviews: reviewsBySub[sub.id] || {} })));
+  return c.json({
+    passing_score: passing,
+    results: results.map(sub => {
+      const pct = sub.total ? (sub.score / sub.total) * 100 : 0;
+      return { ...sub, passed: pct >= passing, reviews: reviewsBySub[sub.id] || {} };
+    }),
+  });
 });
 
 // ── ANALYTICS ───────────────────────────────────────

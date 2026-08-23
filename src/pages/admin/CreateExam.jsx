@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2 } from 'lucide-react';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2 } from 'lucide-react';
+import { EXAM_TYPE_LABELS } from '../../utils';
 
 export default function CreateExam() {
   const [params] = useSearchParams();
@@ -184,6 +185,10 @@ function CreateExamInner() {
 
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
+  const [examType, setExamType] = useState('major_exam');
+  const [status, setStatus] = useState('draft');
+  const [passingScore, setPassingScore] = useState('60');
+  const [startAt, setStartAt] = useState('');
   const [timeLimit, setTimeLimit] = useState(60);
   const [showAnswers, setShowAnswers] = useState(true);
   const [deadline, setDeadline] = useState('');
@@ -230,6 +235,10 @@ function CreateExamInner() {
     api.getExam(examId).then(data => {
       setTitle(data.title);
       setDesc(data.description || '');
+      setExamType(data.type || 'major_exam');
+      setStatus(data.status || 'draft');
+      setPassingScore(data.passing_score !== undefined ? String(data.passing_score) : '60');
+      setStartAt(data.start_at ? toLocalInput(data.start_at) : '');
       setTimeLimit(data.time_limit);
       setShowAnswers(data.show_answers !== 0);
       setDeadline(data.deadline ? toLocalInput(data.deadline) : '');
@@ -247,10 +256,14 @@ function CreateExamInner() {
       return { id: parts[0] || '', name: parts[1] || '', section: parts[2] || '' };
     });
     setSaving(true);
+    const trimmedPassing = String(passingScore).trim();
+    const numPassing = trimmedPassing === '' ? NaN : Number(trimmedPassing);
+    const effectivePassing = Number.isFinite(numPassing) ? numPassing : 60;
     const body = {
       title: title.trim(), description: desc.trim(), time_limit: timeLimit, show_answers: showAnswers,
       deadline: toIso(deadline), access_code: accessCode.trim().toUpperCase(), roster: parsedRoster,
       class_id: classId,
+      type: examType, status: status, passing_score: effectivePassing, start_at: toIso(startAt),
     };
     try {
       if (examId) {
@@ -383,6 +396,23 @@ function CreateExamInner() {
         <div className="flex flex-col gap-4">
           <Input label="Exam Title" icon={FileText} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. STAT 120 Midterm" />
           <TextArea label="Description (optional)" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief description of the exam" style={{ minHeight: 60, resize: 'vertical' }} />
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Select label="Assessment Type" value={examType} onChange={e => setExamType(e.target.value)}>
+              {Object.entries(EXAM_TYPE_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+            </Select>
+            <Select label="Status" value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="draft">Draft</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="active">Active</option>
+              <option value="closed">Closed</option>
+              <option value="archived">Archived</option>
+            </Select>
+            <Input label="Passing Score (%)" icon={BarChart2} type="number" value={passingScore} onChange={e => setPassingScore(e.target.value)} min={0} max={100} />
+            <Input label="Scheduled Open (optional, when status = Scheduled)" icon={CalendarClock} type="datetime-local" value={startAt} onChange={e => setStartAt(e.target.value)} />
+          </div>
+          {(status === 'scheduled' && startAt) && (
+            <p className="text-[11px] text-muted -mt-2">Students can't start until {new Date(startAt).toLocaleString()}.</p>
+          )}
           <div className="grid sm:grid-cols-2 gap-4">
             <Input label="Time Limit (minutes)" icon={Clock} type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))} min={1} />
             <Input label="Access Code (optional, for live check-in)" icon={Key} value={accessCode} onChange={e => setAccessCode(e.target.value)}

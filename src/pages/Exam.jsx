@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer } from '../utils';
+import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer, examTypeLabel } from '../utils';
 import ToastContainer, { toast } from '../components/Toast';
 import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
@@ -540,7 +540,7 @@ export default function Exam() {
     return <div className="min-h-screen bg-canvas flex items-center justify-center text-[18px] text-danger px-6 text-center">Error: {error}</div>;
   }
 
-  // ── Deadline Check ──
+  // ── Deadline / Lifecycle Check ──
   let resumedInProgress = false;
   try {
     const saved = JSON.parse(localStorage.getItem('exam_state_' + examId));
@@ -569,7 +569,36 @@ export default function Exam() {
     );
   }
 
-  // ── Gate Screen ──
+  // ── Lifecycle Status Gate ──
+  const status = examData?.status || 'active';
+  const isClosedStatus = status === 'draft' || status === 'archived' || status === 'closed' ||
+    (status === 'scheduled' && examData?.start_at && new Date(examData.start_at).getTime() > Date.now());
+  // Don't block students mid-session: they must be able to finish even if the
+  // instructor closes/archives the exam while they are taking it.
+  if (isClosedStatus && !started && !resumedInProgress) {
+    let title = 'Exam Not Available';
+    let body = 'This exam is not currently open for students.';
+    if (status === 'draft') { title = 'Exam Not Published'; body = 'This exam is a draft and has not been published yet.'; }
+    if (status === 'archived') { title = 'Exam Archived'; body = 'This exam has been archived and is no longer available.'; }
+    if (status === 'closed') { title = 'Exam Closed'; body = 'The instructor has closed this exam.'; }
+    if (status === 'scheduled') { title = 'Exam Not Open Yet'; body = examData?.start_at ? `This exam opens at ${new Date(examData.start_at).toLocaleString()}.` : 'This exam is scheduled and not open yet.'; }
+    return (
+      <PublicLayout>
+        <div className="flex-1 flex items-center justify-center px-5 py-8"
+          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
+          <div className="bg-surface rounded-[16px] max-w-[440px] w-full text-center shadow-modal px-8 py-10">
+            <span className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-4 ${status === 'scheduled' ? 'bg-info-bg' : 'bg-danger-bg'}`}>{status === 'scheduled' ? <ClipboardList size={30} className="text-info" /> : <Ban size={30} className="text-danger" />}</span>
+            <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">{title}</h1>
+            <p className="text-[14px] text-muted mb-2 leading-relaxed">{examData?.title}</p>
+            <p className="text-[14px] text-muted mb-6 leading-relaxed">
+              {body}<br />Please check back later or ask your instructor.
+            </p>
+            <Button onClick={() => window.location.href = '/'} icon={ArrowLeft} className="!px-10 !py-3.5">Back to Home</Button>
+          </div>
+        </div>
+      </PublicLayout>
+    );
+  }
   if (!started) {
     return (
       <PublicLayout>
@@ -583,6 +612,7 @@ export default function Exam() {
               <h1 className="text-[34px] font-bold leading-tight mb-3">{examData?.title}</h1>
               <p className="text-white/70 text-[15px] leading-relaxed mb-8">
                 {(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes
+                {examData?.type && <span className="block mt-1">· {examTypeLabel(examData.type)}</span>}
                 {examData?.deadline && <span className="block mt-1">Deadline: {new Date(examData.deadline).toLocaleString()}</span>}
               </p>
               <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-4 mb-8 text-[13px] text-white/80 leading-relaxed">
@@ -689,6 +719,7 @@ export default function Exam() {
   // ── Results Overlay ──
   if ((submitted || submitting) && results && !reviewMode) {
     const pct = ((results.total / results.totalQ) * 100).toFixed(1);
+    const passingPct = Number(examData?.passing_score ?? 60);
     const parts = [...new Set(questions.map(q => q.part))].sort();
     const qpp = Math.ceil(results.totalQ / parts.length);
     return (
@@ -711,6 +742,10 @@ export default function Exam() {
              results.total >= results.totalQ * 0.8 ? <><CheckCircle size={16} /> Very Good!</> :
              results.total >= results.totalQ * 0.7 ? <><Book size={16} /> Good.</> :
              results.total >= results.totalQ * 0.5 ? <><AlertTriangle size={16} /> Needs Improvement.</> : <><XCircle size={16} /> Below passing.</>}
+          </div>
+          <div className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[12px] font-bold mb-6 ${pct >= passingPct ? 'bg-success-bg text-success' : 'bg-danger-bg text-danger'}`}>
+            {pct >= passingPct ? <><CheckCircle size={13} /> PASSED</> : <><XCircle size={13} /> FAILED</>}
+            <span className="font-normal text-muted">· passing at {passingPct}%</span>
           </div>
           <div className="text-left border border-border rounded-[10px] overflow-hidden mb-6">
             <table className="w-full border-collapse text-[13px]">
