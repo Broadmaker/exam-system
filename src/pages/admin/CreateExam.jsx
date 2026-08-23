@@ -3,8 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2 } from 'lucide-react';
-import { EXAM_TYPE_LABELS } from '../../utils';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag } from 'lucide-react';
+import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags } from '../../utils';
 
 export default function CreateExam() {
   const [params] = useSearchParams();
@@ -154,10 +154,27 @@ function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onD
                 </div>
               </>
             )}
+            <div className="grid sm:grid-cols-2 gap-2.5">
+              <Select label="Difficulty" value={editState.difficulty} onChange={editActions.setDifficulty}>
+                <option value="">— None —</option>
+                {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+              </Select>
+              <Input label="Topic" value={editState.topic} onChange={editActions.setTopic} placeholder="e.g. Algebra" />
+              <Input label="Competency" value={editState.competency} onChange={editActions.setCompetency} placeholder="e.g. Solve linear equations" />
+              <Input label="Tags (comma-separated)" icon={Tag} value={editState.tags} onChange={editActions.setTags} placeholder="e.g. algebra, equation" />
+            </div>
           </div>
         ) : (
           <>
             <div className="text-[14px] leading-relaxed mb-2.5">{q.text}</div>
+            {(q.difficulty || q.topic || q.competency || parseTags(q.tags).length > 0) && (
+              <div className="flex flex-wrap items-center gap-1.5 mb-2">
+                {q.difficulty && <Badge tone={q.difficulty === 'hard' ? 'danger' : q.difficulty === 'easy' ? 'success' : 'warning'}>{DIFFICULTY_LABELS[q.difficulty] || q.difficulty}</Badge>}
+                {q.topic && <Badge tone="info">{q.topic}</Badge>}
+                {q.competency && <Badge tone="purple">{q.competency}</Badge>}
+                {parseTags(q.tags).map(t => <span key={t} className="inline-flex items-center gap-1 text-[11px] text-navy-700 bg-navy-50 border border-border rounded-full px-2 py-0.5"><Tag size={10} /> {t}</span>)}
+              </div>
+            )}
             {isFill ? (
               <div className="inline-flex items-center gap-1.5 text-[12px] text-navy-700 bg-navy-50 border border-border rounded-md px-2.5 py-1 mb-2">Answer: <strong className="font-mono">{q.answer}</strong></div>
             ) : (
@@ -206,13 +223,17 @@ function CreateExamInner() {
   const [qAnswer, setQAnswer] = useState('');
   const [qBlankAnswer, setQBlankAnswer] = useState('');
   const [qExplain, setQExplain] = useState('');
+  const [qDifficulty, setQDifficulty] = useState('');
+  const [qTopic, setQTopic] = useState('');
+  const [qCompetency, setQCompetency] = useState('');
+  const [qTags, setQTags] = useState('');
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
   const [editState, setEditState] = useState({
     part: 1, type: 'multiple_choice', text: '', choices: { A: '', B: '', C: '', D: '' },
-    answer: '', blankAnswer: '', explain: '',
+    answer: '', blankAnswer: '', explain: '', difficulty: '', topic: '', competency: '', tags: '',
   });
   const [editSaving, setEditSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
@@ -280,13 +301,14 @@ function CreateExamInner() {
   const addQuestion = async () => {
     if (!examId) { toast.error('Save the exam first'); return; }
     setAdding(true);
+    const meta = { difficulty: qDifficulty, topic: qTopic.trim(), competency: qCompetency.trim(), tags: splitTags(qTags) };
     try {
       if (qType === 'fill_blank') {
         if (!qText.trim() || !qBlankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
         await api.addQuestion(examId, {
           type: 'fill_blank', part: qPart, text: qText.trim(),
           choices: [], answer: qBlankAnswer.trim(),
-          explain: qExplain.trim(), sort_order: questions.length,
+          explain: qExplain.trim(), sort_order: questions.length, ...meta,
         });
         setQText(''); setQBlankAnswer(''); setQExplain('');
       } else {
@@ -296,10 +318,11 @@ function CreateExamInner() {
         await api.addQuestion(examId, {
           type: 'multiple_choice', part: qPart, text: qText.trim(),
           choices, answer: qAnswer.trim().toUpperCase(),
-          explain: qExplain.trim(), sort_order: questions.length,
+          explain: qExplain.trim(), sort_order: questions.length, ...meta,
         });
         setQText(''); setQChoices({ A: '', B: '', C: '', D: '' }); setQAnswer(''); setQExplain('');
       }
+      setQDifficulty(''); setQTopic(''); setQCompetency(''); setQTags('');
       toast.success('Question added');
       const data = await api.getExam(examId);
       setQuestions(data.questions || []);
@@ -319,6 +342,8 @@ function CreateExamInner() {
       answer: t === 'fill_blank' ? '' : q.answer,
       blankAnswer: t === 'fill_blank' ? (q.answer || '') : '',
       explain: q.explain || '',
+      difficulty: q.difficulty || '', topic: q.topic || '', competency: q.competency || '',
+      tags: parseTags(q.tags).join(', '),
     });
     setEditingId(q.id);
   };
@@ -331,16 +356,21 @@ function CreateExamInner() {
     setAnswer: (e) => setEditState(s => ({ ...s, answer: e.target.value })),
     setBlankAnswer: (e) => setEditState(s => ({ ...s, blankAnswer: e.target.value })),
     setExplain: (e) => setEditState(s => ({ ...s, explain: e.target.value })),
+    setDifficulty: (e) => setEditState(s => ({ ...s, difficulty: e.target.value })),
+    setTopic: (e) => setEditState(s => ({ ...s, topic: e.target.value })),
+    setCompetency: (e) => setEditState(s => ({ ...s, competency: e.target.value })),
+    setTags: (e) => setEditState(s => ({ ...s, tags: e.target.value })),
     cancel: () => { setEditingId(null); },
     save: async (q) => {
       setEditSaving(true);
       try {
+        const meta = { difficulty: editState.difficulty, topic: editState.topic.trim(), competency: editState.competency.trim(), tags: splitTags(editState.tags) };
         if (editState.type === 'fill_blank') {
           if (!editState.text.trim() || !editState.blankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
           await api.updateQuestion(editingId, {
             type: 'fill_blank', part: editState.part, text: editState.text.trim(),
             choices: [], answer: editState.blankAnswer.trim(),
-            explain: editState.explain.trim(), sort_order: q.sort_order || 0,
+            explain: editState.explain.trim(), sort_order: q.sort_order || 0, ...meta,
           });
         } else {
           const choices = ['A', 'B', 'C', 'D'].filter(k => editState.choices[k].trim()).map(k => ({ key: k, text: editState.choices[k].trim() }));
@@ -349,7 +379,7 @@ function CreateExamInner() {
           await api.updateQuestion(editingId, {
             type: 'multiple_choice', part: editState.part, text: editState.text.trim(),
             choices, answer: editState.answer.trim().toUpperCase(),
-            explain: editState.explain.trim(), sort_order: q.sort_order || 0,
+            explain: editState.explain.trim(), sort_order: q.sort_order || 0, ...meta,
           });
         }
         toast.success('Question updated');
@@ -479,6 +509,15 @@ function CreateExamInner() {
                 </div>
               </>
             )}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Select label="Difficulty" value={qDifficulty} onChange={e => setQDifficulty(e.target.value)}>
+                <option value="">— None —</option>
+                {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+              </Select>
+              <Input label="Topic" value={qTopic} onChange={e => setQTopic(e.target.value)} placeholder="e.g. Algebra" />
+              <Input label="Competency" value={qCompetency} onChange={e => setQCompetency(e.target.value)} placeholder="e.g. Solve linear equations" />
+              <Input label="Tags (comma-separated)" icon={Tag} value={qTags} onChange={e => setQTags(e.target.value)} placeholder="e.g. algebra, equation" />
+            </div>
             <div>
               <Button onClick={addQuestion} loading={adding} icon={Plus}>{adding ? 'Adding...' : 'Add Question'}</Button>
             </div>
@@ -613,6 +652,8 @@ function BankImportSection({ examId, onImported }) {
         part: q.part, text: q.text,
         choices: typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices,
         answer: q.answer, explain: q.explain || '',
+        difficulty: q.difficulty || '', topic: q.topic || '', competency: q.competency || '',
+        tags: parseTags(q.tags),
       }));
       await api.bulkImportQuestions(examId, formatted, 0);
       setOpen(false);

@@ -121,13 +121,13 @@ app.post('/api/exams/:id/duplicate', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(newId, src.title + ' (copy)', src.description, src.time_limit, src.questions_per_set, src.show_answers, '', src.access_code, src.roster, src.class_id, src.type, 'draft', passing, '').run();
   const { results: questions } = await db.prepare(
-    `SELECT part, text, type, choices, answer, explain, sort_order FROM questions WHERE exam_id = ?`
+    `SELECT part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags FROM questions WHERE exam_id = ?`
   ).bind(c.req.param('id')).all();
   for (const q of questions) {
     await db.prepare(
-      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order).run();
+      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order, q.difficulty || '', q.topic || '', q.competency || '', q.tags || '').run();
   }
   await log(db, 'exam_duplicated', 'Duplicated: ' + src.title + ' → ' + src.title + ' (copy)');
   return c.json({ id: newId }, 201);
@@ -189,9 +189,9 @@ app.post('/api/exams/:examId/questions', async (c) => {
   const id = uuid();
   const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, examId, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0).run();
+    `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, examId, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0, body.difficulty || '', body.topic || '', body.competency || '', JSON.stringify(body.tags || [])).run();
   return c.json({ id }, 201);
 });
 
@@ -200,8 +200,8 @@ app.put('/api/questions/:id', async (c) => {
   const body = await c.req.json();
   const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `UPDATE questions SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, sort_order = ? WHERE id = ?`
-  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0, c.req.param('id')).run();
+    `UPDATE questions SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, sort_order = ?, difficulty = ?, topic = ?, competency = ?, tags = ? WHERE id = ?`
+  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.sort_order || 0, body.difficulty || '', body.topic || '', body.competency || '', JSON.stringify(body.tags || []), c.req.param('id')).run();
   return c.json({ success: true });
 });
 
@@ -223,9 +223,9 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
     const id = uuid();
     const qType = q.type || 'multiple_choice';
     await db.prepare(
-      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, examId, q.part || 1, q.text, qType, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i).run();
+      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, examId, q.part || 1, q.text, qType, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i, q.difficulty || '', q.topic || '', q.competency || '', JSON.stringify(q.tags || [])).run();
     added.push(id);
   }
   await log(db, 'bulk_import', 'Imported ' + added.length + ' questions into exam ' + examId);
@@ -248,9 +248,9 @@ app.post('/api/bank', async (c) => {
   const id = uuid();
   const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `INSERT INTO question_bank (id, part, text, type, choices, answer, explain)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '').run();
+    `INSERT INTO question_bank (id, part, text, type, choices, answer, explain, difficulty, topic, competency, tags)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.difficulty || '', body.topic || '', body.competency || '', JSON.stringify(body.tags || [])).run();
   await log(db, 'bank_added', 'Added question to bank (part ' + body.part + ')');
   return c.json({ id }, 201);
 });
@@ -261,8 +261,8 @@ app.put('/api/bank/:id', async (c) => {
   const body = await c.req.json();
   const qType = body.type || 'multiple_choice';
   await db.prepare(
-    `UPDATE question_bank SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ? WHERE id = ?`
-  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', c.req.param('id')).run();
+    `UPDATE question_bank SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, difficulty = ?, topic = ?, competency = ?, tags = ? WHERE id = ?`
+  ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.difficulty || '', body.topic || '', body.competency || '', JSON.stringify(body.tags || []), c.req.param('id')).run();
   await log(db, 'bank_updated', 'Updated bank question ' + c.req.param('id'));
   return c.json({ success: true });
 });

@@ -314,3 +314,24 @@ export const EXAM_STATUS_TONES = {
 export const EXAM_STATUS_LABELS = {
   draft: 'Draft', scheduled: 'Scheduled', active: 'Active', closed: 'Closed', archived: 'Archived',
 };
+
+// Question metadata (Upscale.md §13) — difficulty labels + tag helpers.
+export const DIFFICULTY_LABELS = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+
+export function difficultyLabel(d) {
+  return DIFFICULTY_LABELS[d] || d || '';
+}
+
+// Split a comma-separated tag string into a trimmed, deduped array.
+export function splitTags(s) {
+  return Array.from(new Set(String(s || '').split(',').map(t => t.trim()).filter(Boolean)));
+}
+
+// Parse a tags field that may be a JSON array string, an actual array, or ''.
+export function parseTags(q) {
+  if (Array.isArray(q)) return q;
+  if (typeof q === 'string' && q) {
+    try { const a = JSON.parse(q); return Array.isArray(a) ? a : []; } catch { return []; }
+  }
+  return [];
+}

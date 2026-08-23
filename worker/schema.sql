@@ -29,6 +29,10 @@ CREATE TABLE questions (
   answer TEXT NOT NULL,
   explain TEXT DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0,
+  difficulty TEXT DEFAULT '',
+  topic TEXT DEFAULT '',
+  competency TEXT DEFAULT '',
+  tags TEXT DEFAULT '',
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
 );
 
@@ -58,6 +62,10 @@ CREATE TABLE question_bank (
   choices TEXT NOT NULL,
   answer TEXT NOT NULL,
   explain TEXT DEFAULT '',
+  difficulty TEXT DEFAULT '',
+  topic TEXT DEFAULT '',
+  competency TEXT DEFAULT '',
+  tags TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

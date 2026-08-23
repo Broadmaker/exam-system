@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
-import { Plus, Search, BookOpen, Lightbulb, Pencil, Trash2, X } from 'lucide-react';
+import { Plus, Search, BookOpen, Lightbulb, Pencil, Trash2, X, Tag } from 'lucide-react';
+import { DIFFICULTY_LABELS, difficultyLabel, parseTags, splitTags } from '../../utils';
 
 export default function QuestionBank() {
   return <AdminLayout title="Question Bank"><BankInner /></AdminLayout>;
@@ -46,6 +47,9 @@ function ChoiceRows({ choices, setChoices, ans, setAns }) {
 function BankInner() {
   const [questions, setQuestions] = useState([]);
   const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('');
+  const [filterDifficulty, setFilterDifficulty] = useState('');
+  const [filterTopic, setFilterTopic] = useState('');
   const toast = useToast();
 
   const emptyChoices = () => ['A', 'B', 'C', 'D'].map(k => ({ key: k, text: '' }));
@@ -57,6 +61,10 @@ function BankInner() {
   const [answer, setAnswer] = useState('');
   const [blankAnswer, setBlankAnswer] = useState('');
   const [explain, setExplain] = useState('');
+  const [difficulty, setDifficulty] = useState('');
+  const [topic, setTopic] = useState('');
+  const [competency, setCompetency] = useState('');
+  const [tags, setTags] = useState('');
   const [saving, setSaving] = useState(false);
 
   const [editingId, setEditingId] = useState(null);
@@ -67,6 +75,10 @@ function BankInner() {
   const [editAnswer, setEditAnswer] = useState('');
   const [editBlankAnswer, setEditBlankAnswer] = useState('');
   const [editExplain, setEditExplain] = useState('');
+  const [editDifficulty, setEditDifficulty] = useState('');
+  const [editTopic, setEditTopic] = useState('');
+  const [editCompetency, setEditCompetency] = useState('');
+  const [editTags, setEditTags] = useState('');
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -75,19 +87,22 @@ function BankInner() {
 
   const resetForm = () => {
     setPart(1); setQType('multiple_choice'); setText(''); setChoices(emptyChoices());
-    setAnswer(''); setBlankAnswer(''); setExplain(''); setShowForm(false);
+    setAnswer(''); setBlankAnswer(''); setExplain('');
+    setDifficulty(''); setTopic(''); setCompetency(''); setTags('');
+    setShowForm(false);
   };
 
   const addQuestion = async () => {
     setSaving(true);
     try {
+      const meta = { difficulty, topic: topic.trim(), competency: competency.trim(), tags: splitTags(tags) };
       if (qType === 'fill_blank') {
         if (!text.trim() || !blankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
-        await api.addBank({ type: 'fill_blank', part, text: text.trim(), choices: [], answer: blankAnswer.trim(), explain: explain.trim() });
+        await api.addBank({ type: 'fill_blank', part, text: text.trim(), choices: [], answer: blankAnswer.trim(), explain: explain.trim(), ...meta });
       } else {
         const ch = choices.filter(c => c.text.trim());
         if (!text.trim() || ch.length < 2 || !answer) { toast.error('Fill in question, at least 2 choices, and answer'); return; }
-        await api.addBank({ type: 'multiple_choice', part, text: text.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer, explain: explain.trim() });
+        await api.addBank({ type: 'multiple_choice', part, text: text.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer, explain: explain.trim(), ...meta });
       }
       toast.success('Question added to bank');
       resetForm();
@@ -111,19 +126,24 @@ function BankInner() {
       setEditAnswer(q.answer);
     }
     setEditExplain(q.explain || '');
+    setEditDifficulty(q.difficulty || '');
+    setEditTopic(q.topic || '');
+    setEditCompetency(q.competency || '');
+    setEditTags(parseTags(q.tags).join(', '));
     setEditingId(q.id);
   };
   const cancelEdit = () => setEditingId(null);
 
   const saveEdit = async () => {
     try {
+      const meta = { difficulty: editDifficulty, topic: editTopic.trim(), competency: editCompetency.trim(), tags: splitTags(editTags) };
       if (editType === 'fill_blank') {
         if (!editText.trim() || !editBlankAnswer.trim()) { toast.error('Fill in question text and the correct answer'); return; }
-        await api.updateBank(editingId, { type: 'fill_blank', part: editPart, text: editText.trim(), choices: [], answer: editBlankAnswer.trim(), explain: editExplain.trim() });
+        await api.updateBank(editingId, { type: 'fill_blank', part: editPart, text: editText.trim(), choices: [], answer: editBlankAnswer.trim(), explain: editExplain.trim(), ...meta });
       } else {
         const ch = editChoices.filter(c => c.text.trim());
         if (!editText.trim() || ch.length < 2 || !editAnswer) { toast.error('Fill in all fields'); return; }
-        await api.updateBank(editingId, { type: 'multiple_choice', part: editPart, text: editText.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer: editAnswer, explain: editExplain.trim() });
+        await api.updateBank(editingId, { type: 'multiple_choice', part: editPart, text: editText.trim(), choices: ch.map(c => ({ key: c.key, text: c.text.trim() })), answer: editAnswer, explain: editExplain.trim(), ...meta });
       }
       toast.success('Question updated');
       cancelEdit();
@@ -139,14 +159,36 @@ function BankInner() {
     setDeleting(false);
   };
 
-  const filtered = questions.filter(q => q.text.toLowerCase().includes(search.toLowerCase()));
+  const filtered = questions.filter(q => {
+    const s = search.toLowerCase();
+    const textMatch = !s || q.text.toLowerCase().includes(s);
+    const typeMatch = !filterType || (q.type || 'multiple_choice') === filterType;
+    const diffMatch = !filterDifficulty || (q.difficulty || '') === filterDifficulty;
+    const topicMatch = !filterTopic || (q.topic || '').toLowerCase().includes(filterTopic.toLowerCase());
+    return textMatch && typeMatch && diffMatch && topicMatch;
+  });
+
+  // Distinct topics present in the bank, for the filter dropdown.
+  const topics = useMemo(() => {
+    const set = new Set(questions.map(q => (q.topic || '').trim()).filter(Boolean));
+    return [...set].sort();
+  }, [questions]);
 
   const renderView = (q) => {
     const choices = typeof q.choices === 'string' ? JSON.parse(q.choices) : q.choices;
     const isFill = (q.type || 'multiple_choice') === 'fill_blank';
+    const diff = q.difficulty || '';
+    const tags = parseTags(q.tags);
     return (
       <>
         <div className="text-[14px] leading-relaxed mb-2.5">{q.text}</div>
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          {isFill && <Badge tone="neutral">Fill Blank</Badge>}
+          {diff && <Badge tone={diff === 'hard' ? 'danger' : diff === 'easy' ? 'success' : 'warning'}>{difficultyLabel(diff)}</Badge>}
+          {q.topic && <Badge tone="info">{q.topic}</Badge>}
+          {q.competency && <Badge tone="purple">{q.competency}</Badge>}
+          {tags.map(t => <span key={t} className="inline-flex items-center gap-1 text-[11px] text-navy-700 bg-navy-50 border border-border rounded-full px-2 py-0.5"><Tag size={10} /> {t}</span>)}
+        </div>
         {isFill ? (
           <div className="text-[12px] text-navy-700 mb-2">Answer: <strong>{q.answer}</strong></div>
         ) : (
@@ -179,6 +221,21 @@ function BankInner() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search questions..."
                 className="input !pl-9 !py-2 !text-[13px] min-w-[180px]" />
             </div>
+            <Select value={filterType} onChange={e => setFilterType(e.target.value)} className="!w-[140px]">
+              <option value="">All types</option>
+              <option value="multiple_choice">Multiple Choice</option>
+              <option value="fill_blank">Fill Blank</option>
+            </Select>
+            <Select value={filterDifficulty} onChange={e => setFilterDifficulty(e.target.value)} className="!w-[130px]">
+              <option value="">All difficulty</option>
+              {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+            </Select>
+            {topics.length > 0 && (
+              <Select value={filterTopic} onChange={e => setFilterTopic(e.target.value)} className="!w-[140px]">
+                <option value="">All topics</option>
+                {topics.map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            )}
             <Button onClick={() => setShowForm(!showForm)} icon={showForm ? X : Plus} variant={showForm ? 'outline' : 'primary'}>
               {showForm ? 'Cancel' : 'Add Question'}
             </Button>
@@ -211,6 +268,15 @@ function BankInner() {
                 </div>
               </>
             )}
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Select label="Difficulty" value={difficulty} onChange={e => setDifficulty(e.target.value)}>
+                <option value="">— None —</option>
+                {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+              </Select>
+              <Input label="Topic" value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Algebra" />
+              <Input label="Competency" value={competency} onChange={e => setCompetency(e.target.value)} placeholder="e.g. Solve linear equations" />
+              <Input label="Tags (comma-separated)" icon={Tag} value={tags} onChange={e => setTags(e.target.value)} placeholder="e.g. algebra, equation" />
+            </div>
             <div>
               <Button onClick={addQuestion} loading={saving} icon={Plus}>{saving ? 'Saving...' : 'Add to Bank'}</Button>
             </div>
@@ -268,6 +334,15 @@ function BankInner() {
                         </div>
                       </>
                     )}
+                    <div className="grid sm:grid-cols-2 gap-2.5">
+                      <Select value={editDifficulty} onChange={e => setEditDifficulty(e.target.value)}>
+                        <option value="">Difficulty —</option>
+                        {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+                      </Select>
+                      <Input value={editTopic} onChange={e => setEditTopic(e.target.value)} placeholder="Topic" />
+                      <Input value={editCompetency} onChange={e => setEditCompetency(e.target.value)} placeholder="Competency" />
+                      <Input icon={Tag} value={editTags} onChange={e => setEditTags(e.target.value)} placeholder="Tags (comma-separated)" />
+                    </div>
                   </div>
                 ) : (
                   renderView(q)
