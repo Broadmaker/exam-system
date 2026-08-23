@@ -76,7 +76,7 @@ app.get('/api/exams/:id', async (c) => {
   const exam = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
   const { results: questions } = await db.prepare(
-    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(examId).all();
 
   const isAdmin = adminCheck(c);
@@ -1212,7 +1212,8 @@ app.get('/api/student/:studentId', async (c) => {
   const { results: subs } = await db.prepare(
     `SELECT e.id as exam_id, e.title, e.time_limit, e.class_id, e.type, e.status, e.passing_score,
             c.name as class_name, c.subject, c.section,
-            s.score, s.total, s.submitted_at, s.time_taken, s.tab_switches, s.student_name, s.student_section
+            s.score, s.total, s.submitted_at, s.time_taken, s.tab_switches, s.student_name, s.student_section,
+            s.seed, s.answers
      FROM submissions s
      JOIN exams e ON e.id = s.exam_id
      LEFT JOIN classes c ON c.id = e.class_id
@@ -1252,11 +1253,76 @@ app.get('/api/student/:studentId', async (c) => {
     ? await db.prepare(`SELECT student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`).bind(enrollments[0].class_id, studentId).first()
     : null);
 
+  // ── Competency breakdown (Upscale.md §32, §65) ──
+  // Grade this student's per-question answers for every exam they took and
+  // bucket correct/incorrect by the question's competency tag (if any).
+  // Must mirror computeScore: questions are ordered, then seed-shuffled, and
+  // the choice seed uses the SHUFFLED question index (matching the client).
+  const competencyBuckets = {}; // competency -> { correct, total }
+  for (const s of subs) {
+    const qs = (await db.prepare(
+      `SELECT id, type, choices, answer, competency, sort_order FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
+    ).bind(s.exam_id).all()).results;
+    if (!qs.length) continue;
+    let submittedAnswers = {};
+    try {
+      submittedAnswers = (typeof s.answers === 'string' && s.answers) ? JSON.parse(s.answers) : (s.answers || {});
+    } catch { /* corrupt answers → treat as empty */ }
+    const studentSeed = Number(s.seed) || 0;
+    const shuffledQs = shuffleWithSeed(qs, studentSeed);
+    shuffledQs.forEach((q, idx) => {
+      const comp = (q.competency || '').trim();
+      if (!comp) return; // only competency-tagged questions contribute
+      let correct = false;
+      if ((q.type || 'multiple_choice') === 'fill_blank') {
+        correct = matchesAnswer(submittedAnswers[q.id] || '', q.answer);
+      } else {
+        const choices = parseChoices(q.choices);
+        const choiceSeed = studentSeed + idx * 7919;
+        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+          ...c, displayKey: String.fromCharCode(65 + ci),
+        }));
+        const chosen = shuffled.find(c => c.displayKey === submittedAnswers[q.id]);
+        correct = !!chosen && chosen.key === q.answer;
+      }
+      competencyBuckets[comp] = competencyBuckets[comp] || { correct: 0, total: 0 };
+      competencyBuckets[comp].total++;
+      if (correct) competencyBuckets[comp].correct++;
+    });
+  }
+  const competencies = Object.entries(competencyBuckets).map(([competency, v]) => ({
+    competency,
+    correct: v.correct,
+    total: v.total,
+    pct: v.total ? Math.round((v.correct / v.total) * 100) : 0,
+  })).sort((a, b) => a.pct - b.pct);
+
+  // ── Assessment timeline + trend (Upscale.md §34-35) ──
+  const timeline = subs.map(s => ({
+    exam_id: s.exam_id,
+    title: s.title,
+    type: s.type,
+    class_name: s.class_name || s.subject || '',
+    submitted_at: s.submitted_at,
+    score: s.score, total: s.total,
+    pct: s.total ? Math.round((s.score / s.total) * 100) : 0,
+    passed: passedFor(s),
+  })).sort((a, b) => {
+    const ta = a.submitted_at ? new Date(a.submitted_at).getTime() : 0;
+    const tb = b.submitted_at ? new Date(b.submitted_at).getTime() : 0;
+    return ta - tb;
+  });
+  // Most recent 10 assessments, oldest → newest, for a simple performance trend.
+  const trend = timeline.slice(-10).map(t => ({ label: t.title, pct: t.pct, submitted_at: t.submitted_at }));
+
   return c.json({
     student_id: studentId,
     student_name: profile?.student_name || '—',
     student_section: profile?.student_section || '',
     classes,
+    timeline,
+    trend,
+    competencies,
     exams: subs.map(s => ({
       exam_id: s.exam_id, title: s.title, class_name: s.class_name || s.subject || '', class_section: s.section || '',
       score: s.score, total: s.total, submitted_at: s.submitted_at, time_taken: s.time_taken, tab_switches: s.tab_switches,
@@ -1322,7 +1388,7 @@ app.get('/api/analytics/:examId', async (c) => {
   const examId = c.req.param('examId');
 
   const { results: questions } = await db.prepare(
-    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(examId).all();
 
   const { results: submissions } = await db.prepare(
@@ -1717,7 +1783,7 @@ app.post('/api/submissions/:id/review', async (c) => {
   if (!sub) return c.json({ error: 'Submission not found' }, 404);
 
   const { results: questions } = await db.prepare(
-    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(sub.exam_id).all();
 
   if (verdict === 'correct' || verdict === 'incorrect') {
@@ -1756,7 +1822,7 @@ app.post('/api/regrade/:examId', async (c) => {
   if (auth !== expected) return c.json({ error: 'Unauthorized' }, 401);
 
   const { results: questions } = await db.prepare(
-    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order`
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(examId).all();
 
   const { results: submissions } = await db.prepare(

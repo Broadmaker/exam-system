@@ -3,7 +3,7 @@ import { api } from '../api';
 import { examTypeLabel } from '../utils';
 import { Button, Card, Input, Badge, EmptyState, Spinner } from '../components/ui';
 import PublicLayout from '../components/PublicLayout';
-import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen } from 'lucide-react';
+import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen, TrendingUp, Target, History, XCircle } from 'lucide-react';
 
 export default function StudentRecords() {
   const [studentId, setStudentId] = useState('');
@@ -95,6 +95,76 @@ export default function StudentRecords() {
                 </div>
               </div>
             </div>
+
+            {/* Performance trend (Upscale.md §35) */}
+            {data.trend && data.trend.length > 1 && (
+              <Card className="!mb-4" title="Performance Trend" icon={TrendingUp}
+                actions={<span className="text-[11px] text-muted">Last {data.trend.length} assessments</span>}>
+                <div className="flex items-end gap-1.5 h-32 overflow-x-auto pb-1">
+                  {data.trend.map((t, i) => {
+                    const color = t.pct >= 60 ? 'bg-success' : t.pct >= 40 ? 'bg-accent' : 'bg-danger';
+                    return (
+                      <div key={i} className="flex flex-col items-center gap-1 min-w-[34px]" title={`${t.label}: ${t.pct}%`}>
+                        <span className="text-[10px] font-semibold text-navy-800">{t.pct}%</span>
+                        <div className={`w-6 rounded-t ${color}`} style={{ height: Math.max(4, (t.pct / 100) * 88) }} />
+                        <span className="text-[9px] text-faint max-w-[34px] truncate">
+                          {t.submitted_at ? new Date(t.submitted_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            )}
+
+            {/* Competency breakdown (Upscale.md §32, §65) */}
+            {data.competencies && data.competencies.length > 0 && (
+              <Card className="!mb-4" title="Competency Breakdown" icon={Target}>
+                <div className="flex flex-col gap-3">
+                  {data.competencies.map(c => (
+                    <div key={c.competency}>
+                      <div className="flex items-center justify-between text-[13px] mb-1">
+                        <span className="font-medium text-navy-800">{c.competency}</span>
+                        <span className="text-muted font-mono text-[12px]">{c.correct}/{c.total} ({c.pct}%)</span>
+                      </div>
+                      <div className="h-2 bg-border/50 rounded-full overflow-hidden">
+                        <div className={`h-full rounded ${c.pct >= 60 ? 'bg-success' : c.pct >= 40 ? 'bg-accent' : 'bg-danger'}`}
+                          style={{ width: c.pct + '%', minWidth: c.pct > 0 ? 3 : 0 }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* Assessment timeline (Upscale.md §34) */}
+            {data.timeline && data.timeline.length > 0 && (
+              <Card className="!mb-4" title="Assessment Timeline" icon={History}
+                actions={<span className="text-[11px] text-muted">{data.timeline.length} assessment{data.timeline.length !== 1 ? 's' : ''}</span>}>
+                <div className="flex flex-col">
+                  {data.timeline.map((t, i) => (
+                    <div key={i} className="flex items-center gap-3 px-1 py-2.5 border-b border-border last:border-0 text-[13px]">
+                      <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0">
+                        {t.passed ? <CheckCircle size={15} /> : <XCircle size={15} className="text-danger" />}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-navy-800 truncate">{t.title}</div>
+                        <div className="text-[11px] text-faint flex items-center gap-2 flex-wrap">
+                          {t.class_name && <span>{t.class_name}</span>}
+                          {t.type && <span>{examTypeLabel(t.type)}</span>}
+                          {t.submitted_at && <span>{new Date(t.submitted_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-bold">{t.pct}%</div>
+                        <div className="text-[11px] text-faint"><span className="font-mono">{t.score}/{t.total}</span></div>
+                      </div>
+                      <Badge tone={t.passed ? 'success' : 'danger'}>{t.passed ? 'PASSED' : 'FAILED'}</Badge>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
 
             {data.classes.map(klass => (
               <Card key={klass.class_id} className="!mb-4">
