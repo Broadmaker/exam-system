@@ -3,7 +3,7 @@ import { api } from '../api';
 import { examTypeLabel } from '../utils';
 import { Button, Card, Input, Badge, EmptyState, Spinner } from '../components/ui';
 import PublicLayout from '../components/PublicLayout';
-import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen, TrendingUp, Target, History, XCircle } from 'lucide-react';
+import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, CheckCircle, BookOpen, TrendingUp, Target, History, XCircle, ShieldCheck } from 'lucide-react';
 
 export default function StudentRecords() {
   const [studentId, setStudentId] = useState('');
@@ -30,30 +30,40 @@ export default function StudentRecords() {
 
   return (
     <PublicLayout>
-      <main className="max-w-[800px] mx-auto px-4 py-8 w-full flex-1">
-        <div className="flex items-center gap-2.5 mb-6">
-          <span className="w-10 h-10 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center"><GraduationCap size={20} /></span>
-          <div>
-            <h2 className="text-[20px] font-bold text-navy-800 leading-tight">Student Records</h2>
-            <p className="text-[12px] text-muted">View your exam results and attendance</p>
+      {/* Hero */}
+      <section className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #143a8a 45%, #1a4fad 100%)' }}>
+        <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: 'radial-gradient(700px 340px at 78% -8%, rgba(255,255,255,.14), transparent 60%), radial-gradient(520px 280px at 8% 108%, rgba(232,160,32,.18), transparent 60%)' }} />
+        <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+        <div className="relative max-w-[800px] mx-auto px-4 py-8 sm:py-10">
+          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/10 rounded-full px-3 py-1 text-[11px] font-semibold text-accent mb-4">
+            <ShieldCheck size={12} /> Records are tied to your Student ID
           </div>
-        </div>
+          <div className="flex items-start gap-3">
+            <span className="hidden sm:flex w-11 h-11 rounded-xl bg-white/10 border border-white/10 text-white items-center justify-center shrink-0"><GraduationCap size={20} /></span>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-white text-[26px] sm:text-[30px] font-bold leading-tight tracking-tight">Student Records</h1>
+              <p className="text-white/70 text-[13px] sm:text-[14px] leading-relaxed mt-1">View your exam results, attendance, and competency breakdown.</p>
+            </div>
+          </div>
 
-        <Card className="!mb-6">
-          <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
-            placeholder="e.g. 2019-12345" icon={Search} className="!font-mono !uppercase !tracking-wide"
-            onKeyDown={e => e.key === 'Enter' && look(e)} />
-          <div className="flex items-center gap-3 mt-3 flex-wrap">
-            <Button type="submit" icon={loading ? null : Search} onClick={look} loading={loading}>
+          <div className="mt-6 bg-surface rounded-[16px] shadow-modal border border-border p-4 sm:p-5 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+            <div className="flex-1">
+              <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
+                placeholder="e.g. 2019-12345" icon={Search} className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface"
+                onKeyDown={e => e.key === 'Enter' && look(e)} />
+            </div>
+            <Button onClick={look} loading={loading} icon={loading ? null : Search} className="!py-3 sm:!py-2.5 !text-[14px] shrink-0">
               {loading ? 'Searching…' : 'View Records'}
             </Button>
-            {error && <span className="text-[13px] text-danger">{error}</span>}
           </div>
-        </Card>
+          {error && <div className="mt-3 text-[12px] text-white bg-danger/90 border border-white/10 rounded-xl px-3.5 py-2.5 inline-flex items-center gap-2">{error}</div>}
+        </div>
+      </section>
 
+      <main className="max-w-[800px] mx-auto px-4 py-6 sm:py-8 w-full flex-1">
         {loading ? (
           <Spinner label="Loading records..." />
-        ) : data && (
+        ) : data ? (
           <div style={{ animation: 'fadeInUp .3s' }}>
             <Card className="!mb-4 !p-4 flex items-center gap-3 flex-wrap">
               <span className="w-11 h-11 rounded-full bg-navy-900 text-white flex items-center justify-center"><User size={20} /></span>
@@ -67,21 +77,21 @@ export default function StudentRecords() {
             </Card>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
-              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[12px] px-3.5 py-3.5 shadow-card">
                 <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><BookOpen size={15} /></span>
                 <div>
                   <div className="text-[11px] text-muted font-medium">Exams taken</div>
                   <div className="text-[16px] font-bold text-navy-800 leading-tight">{data.exams.length}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[12px] px-3.5 py-3.5 shadow-card">
                 <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><CheckCircle size={15} /></span>
                 <div>
                   <div className="text-[11px] text-muted font-medium">Classes</div>
                   <div className="text-[16px] font-bold text-navy-800 leading-tight">{data.classes.length}</div>
                 </div>
               </div>
-              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3 col-span-2 sm:col-span-1">
+              <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[12px] px-3.5 py-3.5 shadow-card col-span-2 sm:col-span-1">
                 <span className="w-8 h-8 rounded-lg bg-purple-bg text-purple flex items-center justify-center shrink-0"><CalendarCheck size={15} /></span>
                 <div>
                   <div className="text-[11px] text-muted font-medium">Attendance rate</div>
@@ -96,7 +106,7 @@ export default function StudentRecords() {
               </div>
             </div>
 
-            {/* Performance trend (Upscale.md §35) */}
+            {/* Performance trend */}
             {data.trend && data.trend.length > 1 && (
               <Card className="!mb-4" title="Performance Trend" icon={TrendingUp}
                 actions={<span className="text-[11px] text-muted">Last {data.trend.length} assessments</span>}>
@@ -117,7 +127,7 @@ export default function StudentRecords() {
               </Card>
             )}
 
-            {/* Competency breakdown (Upscale.md §32, §65) */}
+            {/* Competency breakdown */}
             {data.competencies && data.competencies.length > 0 && (
               <Card className="!mb-4" title="Competency Breakdown" icon={Target}>
                 <div className="flex flex-col gap-3">
@@ -137,7 +147,7 @@ export default function StudentRecords() {
               </Card>
             )}
 
-            {/* Assessment timeline (Upscale.md §34) */}
+            {/* Assessment timeline */}
             {data.timeline && data.timeline.length > 0 && (
               <Card className="!mb-4" title="Assessment Timeline" icon={History}
                 actions={<span className="text-[11px] text-muted">{data.timeline.length} assessment{data.timeline.length !== 1 ? 's' : ''}</span>}>
@@ -234,11 +244,9 @@ export default function StudentRecords() {
               </Card>
             )}
           </div>
-        )}
-
-        {!loading && !data && !error && (
+        ) : !error ? (
           <EmptyState icon={UserRound} title="Search your records" body="Enter your student ID above to see your exam results and attendance." />
-        )}
+        ) : null}
       </main>
     </PublicLayout>
   );

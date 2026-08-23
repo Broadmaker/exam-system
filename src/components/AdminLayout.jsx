@@ -47,9 +47,7 @@ function SidebarContent({ collapsed, onNavigate }) {
     <>
       {/* Brand */}
       <div className="px-4 pt-5 pb-4 border-b border-border flex items-center gap-2.5">
-        <div className="w-8 h-8 rounded-lg bg-navy-700 text-white flex items-center justify-center shrink-0 shadow-card">
-          <GraduationCap size={18} />
-        </div>
+        <img src="/product_brand_logo.png" alt="WMSU Exam System" className="w-8 h-8 rounded-lg object-contain bg-white border border-border p-0.5 shrink-0 shadow-sm" />
         {!collapsed && (
           <div className="min-w-0">
             <div className="text-[15px] font-bold text-navy-800 leading-tight truncate">Exam System</div>

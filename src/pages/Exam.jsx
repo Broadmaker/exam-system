@@ -602,35 +602,40 @@ export default function Exam() {
   if (!started) {
     return (
       <PublicLayout>
-        <div className="flex-1 flex items-stretch justify-center"
-          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #1a4fad 100%)' }}>
-          <div className="max-w-[1000px] mx-auto w-full px-4 py-10 grid lg:grid-cols-[1fr_480px] gap-8 items-center">
-            {/* Exam info panel */}
-            <div className="text-white hidden lg:block">
-              <span className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center mb-5"><ClipboardList size={24} className="text-accent" /></span>
-              <div className="text-[11px] font-mono tracking-[.14em] text-accent uppercase mb-2">{examId?.slice(0, 8)}</div>
-              <h1 className="text-[34px] font-bold leading-tight mb-3">{examData?.title}</h1>
-              <p className="text-white/70 text-[15px] leading-relaxed mb-8">
+        <div className="flex-1 flex items-stretch justify-center relative overflow-hidden"
+          style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #143a8a 45%, #1a4fad 100%)' }}>
+          <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: 'radial-gradient(700px 340px at 78% -8%, rgba(255,255,255,.14), transparent 60%), radial-gradient(520px 280px at 8% 108%, rgba(232,160,32,.18), transparent 60%)' }} />
+          <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+          <div className="relative max-w-[1000px] mx-auto w-full px-4 py-8 sm:py-10 grid lg:grid-cols-[1fr_480px] gap-6 lg:gap-8 items-start lg:items-center">
+            {/* Exam info panel — white hero like Home, always visible */}
+            <div className="text-white text-center lg:text-left">
+              <span className="hidden lg:inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/10 rounded-full px-3 py-1.5 text-[11px] font-semibold text-accent mb-4">
+                <ShieldCheck size={12} /> Secure, randomized exam
+              </span>
+              <span className="hidden lg:flex w-12 h-12 rounded-xl bg-white/10 items-center justify-center mb-5"><ClipboardList size={24} className="text-accent" /></span>
+              <div className="font-mono text-[11px] tracking-[.14em] text-accent uppercase">{examId?.slice(0, 8)}</div>
+              <h1 className="text-white text-[26px] sm:text-[30px] lg:text-[32px] font-bold leading-tight tracking-tight mt-1">{examData?.title}</h1>
+              <p className="text-white/70 text-[13px] sm:text-[14px] leading-relaxed mt-3 max-w-[380px] mx-auto lg:mx-0">
                 {(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes
-                {examData?.type && <span className="block mt-1">· {examTypeLabel(examData.type)}</span>}
-                {examData?.deadline && <span className="block mt-1">Deadline: {new Date(examData.deadline).toLocaleString()}</span>}
+                {examData?.type && <span className="block mt-1 text-white/60">· {examTypeLabel(examData.type)}</span>}
+                {examData?.deadline && <span className="block mt-1 text-white/60">Deadline: {new Date(examData.deadline).toLocaleString()}</span>}
               </p>
-              <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-4 mb-8 text-[13px] text-white/80 leading-relaxed">
+              <div className="hidden lg:block bg-white/5 border border-white/10 rounded-xl px-5 py-4 mt-6 text-[13px] text-white/80 leading-relaxed text-left">
                 <strong className="flex items-center gap-1.5 mb-2 text-white text-[11px] tracking-[.08em] uppercase"><ShieldCheck size={14} /> Exam Rules</strong>
                 Answer all items. Questions are randomized per student.<br />
                 You may not go back once the exam is submitted.<br />
                 <span className="inline-flex items-center gap-1.5 mt-1.5"><Ban size={13} className="text-warning" /> Locked to fullscreen — exiting counts as a violation.</span><br />
                 <span className="inline-flex items-center gap-1.5"><Ban size={13} className="text-warning" /> Leaving this tab 3 times auto-submits.</span>
               </div>
-              <div className="flex flex-col gap-2.5 max-w-[380px]">
-                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+              <div className="hidden lg:flex flex-col gap-2.5 max-w-[380px] mt-6">
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left">
                   <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><Shuffle size={16} /></span>
                   <div>
                     <div className="text-[13px] font-semibold">Randomized per student</div>
                     <div className="text-[11px] text-white/50">Order and choices are shuffled by your seed.</div>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left">
                   <span className="w-8 h-8 rounded-lg bg-warning-bg text-warning flex items-center justify-center shrink-0"><TimerIcon size={16} /></span>
                   <div>
                     <div className="text-[13px] font-semibold">{examData?.time_limit} minute limit</div>
@@ -641,15 +646,12 @@ export default function Exam() {
             </div>
 
             {/* Gate form */}
-            <div className="bg-surface rounded-[18px] w-full shadow-modal p-6 sm:p-8">
-              <div className="lg:hidden font-mono text-[11px] tracking-[.14em] text-navy-700 uppercase mb-2">{examId?.slice(0, 8)}</div>
-              <h1 className="lg:hidden text-[24px] font-semibold text-navy-800 mb-1.5">{examData?.title}</h1>
-              <p className="lg:hidden text-[13px] text-muted mb-6 leading-relaxed">{(examData?.questions?.length || 0)} items · {examData?.time_limit} minutes</p>
+            <div className="bg-surface rounded-[20px] w-full shadow-modal border border-border p-6 sm:p-8">
               <h2 className="text-[17px] font-bold text-navy-800 mb-1.5">Start the exam</h2>
               <p className="text-[13px] text-muted mb-6 leading-relaxed">Enter your details to begin. Keep your ID handy.</p>
 
               {offline && (
-                <div className="flex items-center gap-2 bg-warning-bg border-[1.5px] border-warning rounded-lg px-3.5 py-2.5 mb-5 text-[12px] text-warning">
+                <div className="flex items-center gap-2 bg-warning-bg border border-warning/15 rounded-xl px-3.5 py-2.5 mb-5 text-[12px] text-warning">
                   <WifiOff size={14} /> You are offline — your answers will be saved locally and submitted when connection restores.
                 </div>
               )}
@@ -664,7 +666,7 @@ export default function Exam() {
                           onChange={e => { setStudentId(e.target.value.toUpperCase()); setLookupState('idle'); }}
                           onBlur={lookupRoster}
                           placeholder="e.g. 2019-12345" autoComplete="off"
-                          className="input !font-mono !tracking-wide flex-1"
+                          className="input !font-mono !tracking-wide flex-1 !bg-canvas focus:!bg-surface"
                         />
                         <Button variant={lookupState === 'found' ? 'success' : 'outline'} size="md"
                           loading={lookupState === 'loading'} onClick={lookupRoster}
@@ -678,7 +680,7 @@ export default function Exam() {
                         </div>
                       )}
                       {lookupState === 'found' && rosterInfo && (
-                        <div className="bg-success-bg border border-success rounded-lg px-3.5 py-2.5 mt-2 text-[13px]">
+                        <div className="bg-success-bg border border-success/15 rounded-xl px-3.5 py-2.5 mt-2 text-[13px]">
                           <div className="font-semibold text-success">{rosterInfo.student_name}</div>
                           <div className="text-[12px] text-muted">{rosterInfo.student_id}{rosterInfo.student_section ? ' · ' + rosterInfo.student_section : ''}</div>
                         </div>
@@ -686,20 +688,20 @@ export default function Exam() {
                     </div>
                     {examData?.has_access_code && (
                       <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
-                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface" />
                     )}
                   </>
                 ) : (
                   <>
                     <Input label="Student ID Number" value={studentId} onChange={e => setStudentId(e.target.value)}
-                      placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !tracking-wide" />
+                      placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !tracking-wide !bg-canvas focus:!bg-surface" />
                     <Input label="Full Name (Last Name, First Name, M.I.)" value={name} onChange={e => setName(e.target.value)}
-                      placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
+                      placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" className="!bg-canvas focus:!bg-surface" />
                     <Input label="Section" value={section} onChange={e => setSection(e.target.value)}
-                      placeholder="e.g. BSCS 2-A" autoComplete="off" />
+                      placeholder="e.g. BSCS 2-A" autoComplete="off" className="!bg-canvas focus:!bg-surface" />
                     {examData?.has_access_code && (
                       <Input label="Access Code" value={accessCode} onChange={e => setAccessCode(e.target.value)}
-                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+                        placeholder="Ask your proctor for the code" autoComplete="off" className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface" />
                     )}
                   </>
                 )}
@@ -841,7 +843,7 @@ export default function Exam() {
 
   // ── Exam Screen ──
   return (
-    <div>
+    <div className="min-h-screen bg-canvas">
       <ToastContainer />
       {kicked && !submitted && (
         <div className="fixed inset-0 bg-[rgba(10,20,40,.94)] z-[400] flex items-center justify-center px-6 pt-safe pb-safe">
@@ -873,49 +875,111 @@ export default function Exam() {
         </div>
       )}
       {offline && (
-        <div className="bg-warning text-white px-4 py-2 text-center text-[12px] font-semibold flex items-center justify-center gap-1.5">
+        <div className="bg-warning text-white px-4 py-2.5 text-center text-[12px] font-semibold flex items-center justify-center gap-1.5 sticky top-0 z-[90]">
           <WifiOff size={14} /> You are offline — answers are saved locally. Connect to submit.
         </div>
       )}
-      <header className="bg-navy-900 text-white px-4 sm:px-6 pb-4 pt-safe flex items-center justify-between gap-4 sticky top-0 z-[100] shadow-card flex-wrap">
-        <div className="min-w-0">
-          <div className="font-mono text-[10px] tracking-[.12em] text-accent uppercase mb-0.5 truncate max-w-[180px]">
-            {examData?.title}
-          </div>
-          <div className="text-[15px] font-semibold">{name}</div>
-          <div className="text-[11px] text-white/50">{section}</div>
-        </div>
-        <div className="flex items-center gap-4 flex-wrap">
-          <div className="text-right">
-            <div className="text-[10px] text-white/50 mb-1">{answeredCount} / {totalQ} answered</div>
-            <div className="bg-white/15 rounded h-1.5 w-[120px] overflow-hidden">
-              <div className="h-full bg-accent rounded transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
+      <header className="sticky top-0 z-[100] bg-navy-900 text-white border-b border-white/10 shadow-card">
+        <div className="max-w-[860px] mx-auto px-4 sm:px-6 py-3 flex items-center gap-3 sm:gap-4">
+          <div className="flex-1 min-w-0 flex items-center gap-2.5">
+            <span className="hidden sm:flex w-8 h-8 rounded-lg bg-white/10 border border-white/10 items-center justify-center shrink-0">
+              <ClipboardList size={14} className="text-accent" />
+            </span>
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] tracking-[.12em] uppercase text-accent truncate leading-none">{examData?.title}</div>
+              <div className="text-[13px] font-semibold leading-tight truncate">{name} <span className="font-normal text-white/60 hidden sm:inline">· {section}</span></div>
+              <div className="text-[11px] text-white/50 sm:hidden truncate">{section}</div>
             </div>
           </div>
-          {!submitted && <Timer initialSeconds={totalSeconds} onExpire={() => handleSubmit('timeout')} onTick={handleTimerTick} />}
+          <div className="flex items-center gap-2.5 sm:gap-3 shrink-0">
+            {tabSwitches > 0 && (
+              <span className="hidden lg:inline-flex items-center gap-1 text-[11px] font-semibold bg-warning/15 text-warning border border-warning/20 rounded-full px-2.5 py-1">
+                <AlertTriangle size={11} /> {tabSwitches}/3
+              </span>
+            )}
+            <div className="hidden sm:block text-right">
+              <div className="text-[11px] font-medium text-white/70 leading-none">{answeredCount}/{totalQ}</div>
+              <div className="w-24 h-1.5 bg-white/15 rounded-full overflow-hidden mt-1.5">
+                <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
+              </div>
+            </div>
+            {!submitted && <Timer initialSeconds={totalSeconds} onExpire={() => handleSubmit('timeout')} onTick={handleTimerTick} />}
+          </div>
+        </div>
+        {/* Mobile progress */}
+        <div className="sm:hidden px-4 pb-3">
+          <div className="flex items-center justify-between text-[11px] text-white/60 mb-1.5">
+            <span>{answeredCount}/{totalQ} answered</span>
+            <span className="text-accent font-semibold">{totalQ ? Math.round((answeredCount / totalQ) * 100) : 0}%</span>
+          </div>
+          <div className="h-1.5 bg-white/15 rounded-full overflow-hidden">
+            <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
+          </div>
+          {tabSwitches > 0 && (
+            <div className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-warning">
+              <AlertTriangle size={11} /> {tabSwitches}/3 violations — next triggers auto-submit
+            </div>
+          )}
         </div>
       </header>
 
-      <main className="max-w-[860px] mx-auto px-4 py-6 pb-20">
-        {questions.map((q, i) => (
-          <QuestionCard
-            key={q.id}
-            question={q}
-            index={i}
-            seed={seed}
-            onAnswer={handleAnswer}
-            submitted={submitted || reviewMode}
-            chosenKey={answers[q.id]}
-            showAnswers={examData?.show_answers !== 0}
-          />
-        ))}
-        <div className="text-center mt-12">
-          {!submitted && !submitting && (
-            <Button className="!px-12 !py-4 !text-[16px]" onClick={() => setShowConfirm(true)}>Submit Exam</Button>
-          )}
-          {reviewMode && (
-            <Button variant="outline" icon={ArrowLeft} className="mt-3" onClick={() => setReviewMode(false)}>Back to Results</Button>
-          )}
+      {/* Question jump nav */}
+      {!reviewMode && (
+        <div className="max-w-[860px] mx-auto px-4 pt-3 sm:pt-4 sticky top-[57px] sm:top-[64px] z-[20] bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-2">
+            <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-faint shrink-0 mr-1">Jump:</span>
+            {questions.map((q, i) => {
+              const isAnswered = answeredSet.has(q.id);
+              const isCurrent = i === 0; // simple highlight first
+              return (
+                <button
+                  key={q.id}
+                  onClick={() => document.getElementById(`q-${q.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className={`shrink-0 w-8 h-8 rounded-full border text-[12px] font-bold transition-colors ${
+                    isAnswered ? 'bg-navy-700 text-white border-navy-700 shadow-sm' : 'bg-surface text-muted border-border hover:border-navy-700/30 hover:text-navy-800'
+                  }`}
+                  aria-label={`Go to question ${i + 1}`}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
+            <span className="ml-2 text-[11px] text-faint shrink-0">{answeredCount}/{totalQ} done</span>
+          </div>
+        </div>
+      )}
+
+      <main className="max-w-[860px] mx-auto px-4 py-6 pb-28">
+        <div className="flex flex-col gap-4">
+          {questions.map((q, i) => (
+            <div key={q.id} id={`q-${q.id}`} className="scroll-mt-28">
+              <QuestionCard
+                question={q}
+                index={i}
+                seed={seed}
+                onAnswer={handleAnswer}
+                submitted={submitted || reviewMode}
+                chosenKey={answers[q.id]}
+                showAnswers={examData?.show_answers !== 0}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-[16px] p-4 shadow-card sticky bottom-4 sm:static sm:mt-8 sm:rounded-[14px]">
+          <div className="text-[13px] text-muted">
+            <span className="font-semibold text-navy-800">{answeredCount}</span>/{totalQ} answered
+            {totalQ - answeredCount > 0 ? <span className="text-warning font-medium"> · {totalQ - answeredCount} unanswered</span> : <span className="text-success font-medium"> · All done</span>}
+            {tabSwitches > 0 && <span className="hidden sm:inline text-faint"> · {tabSwitches}/3 violations</span>}
+          </div>
+          <div className="flex gap-2">
+            {!submitted && !submitting && (
+              <Button className="!flex-1 sm:!flex-none !px-8 !py-3 !text-[15px]" onClick={() => setShowConfirm(true)}>Submit Exam</Button>
+            )}
+            {reviewMode && (
+              <Button variant="outline" icon={ArrowLeft} className="!flex-1 sm:!flex-none" onClick={() => setReviewMode(false)}>Back to Results</Button>
+            )}
+          </div>
         </div>
       </main>
 

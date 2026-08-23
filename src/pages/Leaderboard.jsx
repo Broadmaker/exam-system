@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { Button, Card, Select, EmptyState, Spinner, Badge } from '../components/ui';
 import PublicLayout from '../components/PublicLayout';
-import { Trophy, RefreshCw, Medal, Timer } from 'lucide-react';
+import { Trophy, RefreshCw, Medal, Timer, ShieldCheck } from 'lucide-react';
 
 export default function Leaderboard() {
   const [exams, setExams] = useState([]);
@@ -45,26 +45,42 @@ export default function Leaderboard() {
 
   return (
     <PublicLayout>
+      {/* Hero */}
+      <section className="relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #143a8a 45%, #1a4fad 100%)' }}>
+        <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: 'radial-gradient(700px 340px at 78% -8%, rgba(255,255,255,.14), transparent 60%), radial-gradient(520px 280px at 8% 108%, rgba(232,160,32,.18), transparent 60%)' }} />
+        <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,.6) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.6) 1px, transparent 1px)', backgroundSize: '32px 32px' }} />
+        <div className="relative max-w-[800px] mx-auto px-4 py-8 sm:py-10">
+          <div className="inline-flex items-center gap-2 bg-white/10 backdrop-blur border border-white/10 rounded-full px-3 py-1 text-[11px] font-semibold text-accent mb-4">
+            <ShieldCheck size={12} /> Live rankings update every 15 seconds
+          </div>
+          <div className="flex items-start gap-3">
+            <span className="hidden sm:flex w-11 h-11 rounded-xl bg-white/10 border border-white/10 text-white items-center justify-center shrink-0"><Trophy size={20} /></span>
+            <div className="flex-1 min-w-0">
+              <h1 className="text-white text-[26px] sm:text-[30px] font-bold leading-tight tracking-tight">Live Scoreboard</h1>
+              <p className="text-white/70 text-[13px] sm:text-[14px] leading-relaxed mt-1 truncate">{examTitle || 'Select an exam to view rankings'}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 bg-surface rounded-[16px] shadow-modal border border-border p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+              <div className="flex-1 min-w-0">
+                <label className="block text-[11px] font-semibold tracking-[.08em] uppercase text-muted mb-1.5">Exam</label>
+                <Select value={examId} onChange={e => setExamId(e.target.value)} placeholder="— Select an exam —">
+                  <option value="">— Select an exam —</option>
+                  {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
+                </Select>
+              </div>
+              <Button icon={RefreshCw} onClick={refresh} className="shrink-0 !py-3">Refresh</Button>
+            </div>
+            <div className="flex items-center gap-2 mt-3 text-[12px] text-muted">
+              <span className="inline-flex items-center gap-1.5 bg-canvas border border-border rounded-full px-2.5 py-1 text-[11px] font-medium"><Trophy size={12} /> {entries.length} participant{entries.length !== 1 ? 's' : ''}</span>
+              {examId && <span className="text-faint">Auto-refreshes · {entries.length ? 'live' : 'waiting for scores'}</span>}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <main className="max-w-[800px] mx-auto px-4 py-6 w-full flex-1">
-        <div className="flex items-center gap-2.5 mb-5">
-          <span className="w-9 h-9 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Trophy size={17} /></span>
-          <div className="min-w-0">
-            <h1 className="text-[19px] font-bold text-navy-800 leading-tight">Live Scoreboard</h1>
-            <p className="text-[12px] text-muted truncate">{examTitle || 'Select an exam to view rankings'}</p>
-          </div>
-        </div>
-
-        <div className="flex gap-3 mb-6 items-center flex-wrap">
-          <div className="relative flex-1 min-w-[220px]">
-            <Select value={examId} onChange={e => setExamId(e.target.value)} placeholder="— Select an exam —">
-              <option value="">— Select an exam —</option>
-              {exams.map(e => <option key={e.id} value={e.id}>{e.title}</option>)}
-            </Select>
-          </div>
-          <Button icon={RefreshCw} onClick={refresh}>Refresh</Button>
-          <span className="text-[13px] text-muted">{entries.length} participant(s)</span>
-        </div>
-
         {!examId ? (
           <EmptyState icon={Trophy} title="Select an exam" body="Pick an exam above to see the live scoreboard." />
         ) : loading && !entries.length ? (

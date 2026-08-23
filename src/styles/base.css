@@ -59,6 +59,16 @@
     to { opacity: 1; transform: scale(1); }
   }
 
+  /* ── Hide native password reveal (Edge/Chrome) to avoid duplicate eye ── */
+  input::-ms-reveal,
+  input::-ms-clear,
+  input::-webkit-credentials-auto-fill-button,
+  input::-webkit-contacts-auto-fill-button {
+    display: none !important;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
   /* ── Exam anti-cheat: disable selection and copy ── */
   body.exam-active {
     user-select: none;
