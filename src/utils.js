@@ -335,3 +335,26 @@ export function parseTags(q) {
   }
   return [];
 }
+
+// Build and download a CSV file from a header row + rows of arrays. Values are
+// escaped and quoted per RFC 4180. Triggered from the browser only.
+export function exportCSV(filename, header, rows) {
+  const escape = (v) => {
+    let s = String(v ?? '');
+    // Neutralize spreadsheet formula injection (Excel/Sheets evaluate cells that
+    // start with = + - @ or a leading tab).
+    if (/^[=+\-@\t]/.test(s)) s = "'" + s;
+    // Quote when the value contains a delimiter, quote, or line break.
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [header.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))];
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.csv') ? filename : filename + '.csv';
+  document.body.appendChild(a);
+  a.click();
+  // Defer the revoke so Safari finishes reading the blob before it's released.
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 0);
+}

@@ -921,6 +921,85 @@ app.get('/api/classes/:id', async (c) => {
   return c.json({ ...klass, enrollments, exams, sessions });
 });
 
+// ── GRADEBOOK (Upscale.md §40-41) ──────────────────
+// Returns a per-class matrix of students x exams. Each cell uses the student's
+// BEST score for that exam (students may retry). Also returns per-exam averages
+// and a per-student overall average (mean of exam percentages).
+app.get('/api/classes/:id/gradebook', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(c.req.param('id')).first();
+  if (!klass) return c.json({ error: 'Class not found' }, 404);
+
+  const { results: enrollments } = await db.prepare(
+    `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? ORDER BY student_name`
+  ).bind(klass.id).all();
+
+  const { results: exams } = await db.prepare(
+    `SELECT id, title, type, passing_score, time_limit, deadline FROM exams WHERE class_id = ? ORDER BY created_at ASC`
+  ).bind(klass.id).all();
+  const examIds = exams.map(e => e.id);
+
+  // Best score per (student_id, exam_id), plus each exam's max total.
+  let subs = [];
+  if (examIds.length) {
+    subs = (await db.prepare(
+      `SELECT student_id, exam_id, score, total
+       FROM submissions WHERE exam_id IN (${examIds.map(() => '?').join(',')})`
+    ).bind(...examIds).all()).results;
+  }
+
+  const best = {}; // `${student_id}::${exam_id}` -> {score,total}
+  const examMaxTotal = {}; // exam_id -> largest total seen
+  subs.forEach(s => {
+    if (!s.student_id) return;
+    const key = s.student_id + '::' + s.exam_id;
+    const pct = s.total ? s.score / s.total : 0;
+    const cur = best[key];
+    if (!cur || pct > (cur.total ? cur.score / cur.total : -1)) {
+      best[key] = { score: s.score, total: s.total };
+    }
+    if (!examMaxTotal[s.exam_id] || s.total > examMaxTotal[s.exam_id]) examMaxTotal[s.exam_id] = s.total;
+  });
+
+  const rows = enrollments.map(e => {
+    const cells = [];
+    let sumPct = 0, taken = 0;
+    for (const ex of exams) {
+      const cell = best[e.student_id + '::' + ex.id];
+      if (cell) {
+        const pct = cell.total ? (cell.score / cell.total) * 100 : 0;
+        sumPct += pct; taken++;
+        cells.push({ examId: ex.id, score: cell.score, total: cell.total, pct: +pct.toFixed(1) });
+      } else {
+        cells.push({ examId: ex.id, score: null, total: examMaxTotal[ex.id] || 0, pct: null });
+      }
+    }
+    return {
+      student_id: e.student_id, student_name: e.student_name, student_section: e.student_section,
+      average: taken ? +((sumPct / taken)).toFixed(1) : null,
+      cells,
+    };
+  });
+
+  // Per-exam average (mean of enrolled students' best pct where answered).
+  const examStats = exams.map(ex => {
+    const scored = rows.map(r => r.cells.find(c => c.examId === ex.id)).filter(c => c && c.pct !== null);
+    return {
+      id: ex.id, title: ex.title, type: ex.type, passing_score: ex.passing_score,
+      total: examMaxTotal[ex.id] || 0,
+      submitted: scored.length,
+      average: scored.length ? +((scored.reduce((a, c) => a + c.pct, 0) / scored.length)).toFixed(1) : null,
+    };
+  });
+
+  return c.json({
+    class: klass,
+    exams: examStats,
+    rows,
+  });
+});
+
 app.post('/api/classes/:id/enroll', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;

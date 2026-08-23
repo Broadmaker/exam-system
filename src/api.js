@@ -73,6 +73,7 @@ export const api = {
   updateClass: (id, body) => request('/classes/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   deleteClass: (id) => request('/classes/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
   getClass: (id) => request('/classes/' + id, { headers: { 'Authorization': adminPass() } }),
+  getClassGradebook: (classId) => request('/classes/' + classId + '/gradebook', { headers: { 'Authorization': adminPass() } }),
   enrollStudents: (classId, students) => request('/classes/' + classId + '/enroll', { method: 'POST', body: JSON.stringify({ students }), headers: { 'Authorization': adminPass() } }),
   removeStudent: (classId, studentId) => request('/classes/' + classId + '/enroll/' + encodeURIComponent(studentId), { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
   updateStudent: (classId, studentId, body) => request('/classes/' + classId + '/enroll/' + encodeURIComponent(studentId), { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),

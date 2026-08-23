@@ -10,7 +10,10 @@ import {
   Users, Plus, Pencil, Trash2, ArrowLeft, CalendarCheck, ClipboardList,
   X, Search, UserPlus, BookOpen, Save, History, Download, Copy,
   QrCode, Link2, Eye, School, User, Key, ArrowRight, CheckCircle, XCircle, Info, UserCheck,
+  BarChart3,
 } from 'lucide-react';
+
+import { exportCSV } from '../../utils';
 
 export default function Classes() {
   const [classes, setClasses] = useState([]);
@@ -215,6 +218,7 @@ function ClassDetail({ klass, onBack, onChanged }) {
         <TabBtn active={tab === 'history'} onClick={() => setTab('history')} icon={<History size={14} />} label="Attendance History" />
         <TabBtn active={tab === 'checkins'} onClick={() => setTab('checkins')} icon={<QrCode size={14} />} label={`Check-in Sessions (${data?.sessions?.length || 0})`} />
         <TabBtn active={tab === 'exams'} onClick={() => setTab('exams')} icon={<ClipboardList size={14} />} label={`Exams (${data?.exams?.length || 0})`} />
+        <TabBtn active={tab === 'gradebook'} onClick={() => setTab('gradebook')} icon={<BarChart3 size={14} />} label="Gradebook" />
       </div>
 
       {loading ? (
@@ -227,8 +231,10 @@ function ClassDetail({ klass, onBack, onChanged }) {
         <HistoryTab classId={klass.id} />
       ) : tab === 'checkins' ? (
         <CheckinSessionsTab classId={klass.id} sessions={data.sessions || []} onChanged={load} />
-      ) : (
+      ) : tab === 'exams' ? (
         <ExamsTab classId={klass.id} exams={data.exams} />
+      ) : (
+        <GradebookTab classId={klass.id} />
       )}
     </>
   );
@@ -846,6 +852,117 @@ function ExamsTab({ classId, exams }) {
             );
           })}
         </div>
+      )}
+    </Card>
+  );
+}
+function GradebookTab({ classId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setLoading(true); setError('');
+    api.getClassGradebook(classId)
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => { setError(e.message); setLoading(false); });
+  }, [classId]);
+
+  const cellTone = (pct) => {
+    if (pct === null) return 'bg-canvas text-faint';
+    if (pct >= 60) return 'bg-success-bg text-success';
+    if (pct >= 40) return 'bg-warning-bg text-warning';
+    return 'bg-danger-bg text-danger';
+  };
+
+  const avgTone = (avg) => avg === null ? '' : (avg >= 60 ? 'text-success' : 'text-danger');
+
+  const exportGradebook = () => {
+    if (!data) return;
+    const header = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`), 'Average (%)'];
+    // Use the class name if available.
+    const fname = (data.class?.name || `class-${classId}`) + '-gradebook';
+    const rows = data.rows.map(r => [
+      r.student_id, r.student_name, r.student_section,
+      ...r.cells.map(c => (c.pct === null ? '' : c.pct)),
+      (r.average === null ? '' : r.average),
+    ]);
+    exportCSV(fname, header, rows);
+  };
+
+  if (loading) return <Spinner label="Loading gradebook..." />;
+  if (error) return <EmptyState icon={BarChart3} title="Couldn't load gradebook" body={error} />;
+
+  return (
+    <Card title="Gradebook" icon={BarChart3}
+      actions={
+        data.rows.length > 0 && data.exams.length > 0 ? (
+          <Button size="sm" variant="outline" icon={Download} onClick={exportGradebook}>Export CSV</Button>
+        ) : null
+      }>
+      {!data.exams.length ? (
+        <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class to populate the gradebook." compact />
+      ) : !data.rows.length ? (
+        <EmptyState icon={Users} title="No students enrolled" body="Enroll students to build the gradebook." compact />
+      ) : (
+        <div className="overflow-auto">
+          <table className="w-full border-collapse text-[13px]">
+            <thead>
+              <tr className="bg-navy-900 text-white">
+                <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-navy-900">Student</th>
+                {data.exams.map(e => (
+                  <th key={e.id} className="px-3 py-2 font-semibold min-w-[110px]" title={e.title}>{e.title}</th>
+                ))}
+                <th className="px-3 py-2 font-semibold">Avg (%)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.rows.map(r => (
+                <tr key={r.student_id} className="border-t border-border">
+                  <td className="sticky left-0 bg-surface px-3 py-2">
+                    <div className="font-semibold text-navy-800">{r.student_name}</div>
+                    <div className="text-[11px] text-faint">{r.student_id}{r.student_section ? ' · ' + r.student_section : ''}</div>
+                  </td>
+                  {r.cells.map(c => (
+                    <td key={c.examId} className="px-2 py-2 text-center">
+                      <span className={`inline-block px-2.5 py-1 rounded-md font-semibold ${cellTone(c.pct)}`}>
+                        {c.pct === null ? '—' : `${c.score}/${c.total}`}
+                      </span>
+                      {c.pct !== null && <div className="text-[10px] text-faint mt-0.5">{c.pct}%</div>}
+                    </td>
+                  ))}
+                  <td className={`px-3 py-2 text-center font-bold ${avgTone(r.average)}`}>
+                    {r.average === null ? '—' : r.average + '%'}
+                  </td>
+                </tr>
+              ))}
+              <tr className="border-t border-border bg-navy-50">
+                <td className="sticky left-0 bg-navy-50 px-3 py-2 font-semibold text-navy-800">Class average</td>
+                {data.exams.map(e => (
+                  <td key={e.id} className="px-3 py-2 text-center">
+                    {e.average === null ? <span className="text-faint">—</span> : (
+                      <span className="font-semibold text-navy-800">{e.average}%</span>
+                    )}
+                    <div className="text-[10px] text-faint">{e.submitted}/{data.rows.length} took</div>
+                  </td>
+                ))}
+                {/* Overall class average across exams */}
+                <td className="px-3 py-2 text-center">
+                  {(() => {
+                    const avgs = data.exams.map(e => e.average).filter(a => a !== null);
+                    const overall = avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length * 10) / 10 : null;
+                    return overall === null ? <span className="text-faint">—</span> : <span className={`font-bold ${overall >= 60 ? 'text-success' : 'text-danger'}`}>{overall}%</span>;
+                  })()}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+      {data.exams.length > 0 && data.rows.length > 0 && (
+        <p className="text-[11px] text-faint mt-3">
+          Scores show each student's best attempt per exam as a percent. Cell color: green ≥60%, amber 40–59%, red &lt;40%. Average is the mean of all taken exams.
+        </p>
       )}
     </Card>
   );
