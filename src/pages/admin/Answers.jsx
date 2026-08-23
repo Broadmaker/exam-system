@@ -247,20 +247,35 @@ function AnswersInner() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, rowIdx) => (
+                {filtered.map((r, rowIdx) => {
+                  const reviewedCount = r.cells.filter(c => c.reviewed).length;
+                  return (
                   <tr key={r.sub.id} onClick={() => setOpenSub(r.sub.id)} className="cursor-pointer">
                     <td style={{ position: 'sticky', left: 0, zIndex: 1, minWidth: 180, background: rowIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-navy-50)', borderRight: '1px solid var(--color-border)' }}>
-                      <div className="font-semibold text-navy-800">{r.sub.student_name}</div>
-                      <div className="text-[11px] text-faint mt-0.5">{r.sub.student_section} · {r.sub.score}/{r.sub.total}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-navy-800 truncate">{r.sub.student_name}</span>
+                        {reviewedCount > 0 && (
+                          <span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold shrink-0" title={`${reviewedCount} answer${reviewedCount !== 1 ? 's' : ''} manually reviewed`}>
+                            <CheckCircle size={10} /> {reviewedCount}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-faint mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        <span>{r.sub.student_section} · {r.sub.score}/{r.sub.total}</span>
+                        {reviewedCount > 0 && <span className="text-warning font-semibold">· reviewed</span>}
+                      </div>
                     </td>
                     {r.cells.map((cell, ci) => {
                       const col = cell.correct ? 'bg-success-bg text-success'
                         : cell.chosen === null ? 'bg-navy-50 text-faint'
                         : 'bg-danger-bg text-danger';
                       return (
-                        <td key={ci} title={cellText(cell)} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 92, maxWidth: 170, verticalAlign: 'top' }}>
-                          <div className={`flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] min-h-[26px] font-mono ${col}`}
+                        <td key={ci} title={`${cellText(cell)}${cell.reviewed ? ' · manually reviewed (' + cell.verdict + ')' : ''}`} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 92, maxWidth: 170, verticalAlign: 'top' }}>
+                          <div className={`relative flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] min-h-[26px] font-mono ${col}`}
                             style={{ outline: cell.reviewed ? (cell.correct ? '1.5px solid var(--color-success)' : '1.5px solid var(--color-danger)') : 'none' }}>
+                            {cell.reviewed && (
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-warning border-2 border-surface shadow-sm" title={`Manually marked ${cell.verdict}`} />
+                            )}
                             {cell.type === 'fill_blank' ? (
                               <span className="truncate max-w-[140px]">{cell.chosen || '—'}</span>
                             ) : (
@@ -274,14 +289,17 @@ function AnswersInner() {
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
-            <div className="flex items-center gap-2 px-4 py-2.5 text-[11px] text-muted border-t border-border bg-canvas">
+            <div className="flex items-center gap-2 px-4 py-2.5 text-[11px] text-muted border-t border-border bg-canvas flex-wrap">
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-success-bg border border-success inline-block" /> Correct</span>
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-danger-bg border border-danger inline-block" /> Wrong</span>
               <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-navy-50 border border-border inline-block" /> Unanswered</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-surface border border-border inline-block" /> Manual review outline</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-surface border-2 border-warning inline-block" /> Manual review</span>
+              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-warning border-2 border-surface shadow-sm inline-block" /> Reviewed cell</span>
+              <span className="inline-flex items-center gap-1"><span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold"><CheckCircle size={10} /> n</span> Reviewed count</span>
               <span className="ml-auto hidden sm:inline">Click a row for full details and review controls.</span>
             </div>
           </div>
