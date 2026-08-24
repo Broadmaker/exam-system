@@ -925,6 +925,7 @@ app.get('/api/classes/:id', async (c) => {
 // Returns a per-class matrix of students x exams. Each cell uses the student's
 // BEST score for that exam (students may retry). Also returns per-exam averages
 // and a per-student overall average (mean of exam percentages).
+// When weighted categories are configured (§41), also returns weighted averages.
 app.get('/api/classes/:id/gradebook', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
@@ -939,6 +940,19 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     `SELECT id, title, type, passing_score, time_limit, deadline FROM exams WHERE class_id = ? ORDER BY created_at ASC`
   ).bind(klass.id).all();
   const examIds = exams.map(e => e.id);
+
+  // Grade categories (weighted) — may be empty (fallback to simple average).
+  let categories = [];
+  try {
+    const { results: catRows } = await db.prepare(
+      `SELECT id, name, weight, types, sort_order FROM class_grade_categories WHERE class_id = ? ORDER BY sort_order ASC, created_at ASC`
+    ).bind(klass.id).all();
+    categories = (catRows || []).map(r => {
+      let types = [];
+      try { types = typeof r.types === 'string' ? JSON.parse(r.types) : (r.types || []); } catch { types = []; }
+      return { id: r.id, name: r.name, weight: Number(r.weight) || 0, types: Array.isArray(types) ? types : [], sort_order: r.sort_order };
+    });
+  } catch {}
 
   // Best score per (student_id, exam_id), plus each exam's max total.
   let subs = [];
@@ -962,6 +976,17 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     if (!examMaxTotal[s.exam_id] || s.total > examMaxTotal[s.exam_id]) examMaxTotal[s.exam_id] = s.total;
   });
 
+  // Map exam type → categories that include it (first match wins for weighting; exams
+  // without a category are uncategorized and only count toward simple average).
+  const examToCat = {};
+  exams.forEach(ex => {
+    const found = categories.find(cat => cat.types.includes(ex.type));
+    if (found) examToCat[ex.id] = found.id;
+  });
+  // Only categories that actually have at least one exam in this class contribute to total weight.
+  const activeCategories = categories.filter(cat => exams.some(ex => cat.types.includes(ex.type)));
+  const totalActiveWeight = activeCategories.reduce((a, cat) => a + (Number(cat.weight) || 0), 0);
+
   const rows = enrollments.map(e => {
     const cells = [];
     let sumPct = 0, taken = 0;
@@ -975,9 +1000,35 @@ app.get('/api/classes/:id/gradebook', async (c) => {
         cells.push({ examId: ex.id, score: null, total: examMaxTotal[ex.id] || 0, pct: null });
       }
     }
+    const average = taken ? +((sumPct / taken)).toFixed(1) : null;
+
+    // Per-category averages + weighted grade (§41).
+    let categoryAverages = [];
+    let weightedAverage = null;
+    if (activeCategories.length && totalActiveWeight > 0) {
+      let weightedSum = 0;
+      categoryAverages = activeCategories.map(cat => {
+        const catExams = exams.filter(ex => cat.types.includes(ex.type));
+        const pcts = catExams.map(ex => {
+          const cell = best[e.student_id + '::' + ex.id];
+          if (!cell) return null;
+          return cell.total ? (cell.score / cell.total) * 100 : 0;
+        }).filter(v => v !== null);
+        // If student took nothing in this category, treat as 0 (penalize missing work).
+        // This keeps weighted total out of 100% even when skipping — matches LMS convention.
+        const catAvg = pcts.length ? +((pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1)) : 0;
+        const takenInCat = pcts.length;
+        weightedSum += catAvg * (Number(cat.weight) || 0);
+        return { categoryId: cat.id, name: cat.name, weight: Number(cat.weight) || 0, average: catAvg, taken: takenInCat, total: catExams.length };
+      });
+      weightedAverage = +(weightedSum / totalActiveWeight).toFixed(1);
+    }
+
     return {
       student_id: e.student_id, student_name: e.student_name, student_section: e.student_section,
-      average: taken ? +((sumPct / taken)).toFixed(1) : null,
+      average,
+      weightedAverage,
+      categoryAverages,
       cells,
     };
   });
@@ -993,11 +1044,86 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     };
   });
 
+  // Per-category class averages (mean of student category averages).
+  const categoryStats = activeCategories.map(cat => {
+    const vals = rows.map(r => {
+      const ca = (r.categoryAverages || []).find(x => x.categoryId === cat.id);
+      return ca ? ca.average : null;
+    }).filter(v => v !== null);
+    return {
+      id: cat.id, name: cat.name, weight: cat.weight, types: cat.types,
+      examCount: exams.filter(ex => cat.types.includes(ex.type)).length,
+      average: vals.length ? +((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : null,
+    };
+  });
+
   return c.json({
     class: klass,
     exams: examStats,
     rows,
+    categories,
+    activeCategories: categoryStats,
+    totalWeight: totalActiveWeight,
   });
+});
+
+// ── GRADE CATEGORIES (Upscale.md §41) ────────────
+app.get('/api/classes/:id/grade-categories', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const classId = c.req.param('id');
+  const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(classId).first();
+  if (!klass) return c.json({ error: 'Class not found' }, 404);
+  let results = [];
+  try {
+    results = (await db.prepare(`SELECT id, name, weight, types, sort_order, created_at FROM class_grade_categories WHERE class_id = ? ORDER BY sort_order ASC, created_at ASC`).bind(classId).all()).results || [];
+  } catch { results = []; }
+  const parsed = results.map(r => {
+    let types = [];
+    try { types = typeof r.types === 'string' ? JSON.parse(r.types) : (r.types || []); } catch { types = []; }
+    return { id: r.id, name: r.name, weight: Number(r.weight) || 0, types: Array.isArray(types) ? types : [], sort_order: r.sort_order, created_at: r.created_at };
+  });
+  return c.json(parsed);
+});
+
+app.put('/api/classes/:id/grade-categories', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const classId = c.req.param('id');
+  const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(classId).first();
+  if (!klass) return c.json({ error: 'Class not found' }, 404);
+  const body = await c.req.json();
+  const incoming = Array.isArray(body.categories) ? body.categories : (Array.isArray(body) ? body : []);
+  // Validate.
+  if (incoming.length > 20) return c.json({ error: 'Too many categories (max 20).' }, 400);
+  const cleaned = [];
+  const seenTypes = new Set();
+  for (let i = 0; i < incoming.length; i++) {
+    const raw = incoming[i];
+    const name = String(raw.name || '').trim();
+    if (!name) return c.json({ error: `Category #${i + 1}: name is required.` }, 400);
+    if (name.length > 50) return c.json({ error: `Category "${name}": name must be ≤50 characters.` }, 400);
+    const weight = Number(raw.weight);
+    if (!Number.isFinite(weight) || weight < 0 || weight > 100) return c.json({ error: `Category "${name}": weight must be 0–100.` }, 400);
+    const types = Array.isArray(raw.types) ? raw.types.map(t => String(t).trim()).filter(Boolean) : [];
+    if (!types.length) return c.json({ error: `Category "${name}": pick at least one assessment type.` }, 400);
+    // Prevent overlapping types (one exam type should belong to one category)
+    for (const t of types) {
+      if (seenTypes.has(t)) return c.json({ error: `Assessment type "${t}" is used in more than one category — each type must belong to only one category.` }, 400);
+      seenTypes.add(t);
+    }
+    cleaned.push({ id: raw.id && String(raw.id).trim() ? String(raw.id).trim() : uuid(), name, weight, types, sort_order: Number.isFinite(Number(raw.sort_order)) ? Number(raw.sort_order) : i });
+  }
+  // Replace atomically via batch to avoid partial writes if an INSERT fails.
+  const stmts = [];
+  stmts.push(db.prepare(`DELETE FROM class_grade_categories WHERE class_id = ?`).bind(classId));
+  for (const cat of cleaned) {
+    stmts.push(db.prepare(`INSERT INTO class_grade_categories (id, class_id, name, weight, types, sort_order) VALUES (?, ?, ?, ?, ?, ?)`).bind(cat.id, classId, cat.name, cat.weight, JSON.stringify(cat.types), cat.sort_order));
+  }
+  // D1 batch is atomic (all or none within a transaction).
+  if (stmts.length) await db.batch(stmts);
+  await log(db, 'grade_categories', `Updated ${cleaned.length} grade categor${cleaned.length === 1 ? 'y' : 'ies'} for class ${classId}`);
+  return c.json({ success: true, count: cleaned.length });
 });
 
 app.post('/api/classes/:id/enroll', async (c) => {

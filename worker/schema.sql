@@ -170,6 +170,17 @@ CREATE TABLE class_attendance (
   UNIQUE (class_id, date, student_id)
 );
 
+CREATE TABLE class_grade_categories (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 0,
+  types TEXT NOT NULL DEFAULT '[]',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE
+);
+
 CREATE INDEX idx_questions_exam ON questions(exam_id);
 CREATE INDEX idx_submissions_exam ON submissions(exam_id);
 CREATE UNIQUE INDEX idx_submissions_unique ON submissions(exam_id, student_name, student_section);
@@ -182,3 +193,4 @@ CREATE INDEX idx_checkins_session ON checkins(session_id);
 CREATE INDEX idx_enrollments_class ON enrollments(class_id);
 CREATE INDEX idx_class_attendance_class ON class_attendance(class_id, date);
 CREATE INDEX idx_exams_class ON exams(class_id);
+CREATE INDEX idx_grade_categories_class ON class_grade_categories(class_id);

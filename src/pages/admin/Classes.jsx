@@ -10,10 +10,10 @@ import {
   Users, Plus, Pencil, Trash2, ArrowLeft, CalendarCheck, ClipboardList,
   X, Search, UserPlus, BookOpen, Save, History, Download, Copy,
   QrCode, Link2, Eye, School, User, Key, ArrowRight, CheckCircle, XCircle, Info, UserCheck,
-  BarChart3,
+  BarChart3, Settings, Scale, Layers, AlertTriangle,
 } from 'lucide-react';
 
-import { exportCSV } from '../../utils';
+import { exportCSV, EXAM_TYPE_LABELS } from '../../utils';
 
 export default function Classes() {
   const [classes, setClasses] = useState([]);
@@ -860,13 +860,17 @@ function GradebookTab({ classId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showCatModal, setShowCatModal] = useState(false);
+  const toast = useToast();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     setLoading(true); setError('');
     api.getClassGradebook(classId)
       .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(e.message); setLoading(false); });
   }, [classId]);
+
+  useEffect(() => { load(); }, [load]);
 
   const cellTone = (pct) => {
     if (pct === null) return 'bg-canvas text-faint';
@@ -874,19 +878,26 @@ function GradebookTab({ classId }) {
     if (pct >= 40) return 'bg-warning-bg text-warning';
     return 'bg-danger-bg text-danger';
   };
-
   const avgTone = (avg) => avg === null ? '' : (avg >= 60 ? 'text-success' : 'text-danger');
+  const weightedTone = (avg) => avg === null ? '' : (avg >= 60 ? 'text-success' : avg >= 40 ? 'text-warning' : 'text-danger');
+
+  const hasWeighted = !!(data?.categories?.length && (data?.totalWeight || 0) > 0);
+  const categories = data?.categories || [];
+  const activeCategories = data?.activeCategories || [];
 
   const exportGradebook = () => {
     if (!data) return;
-    const header = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`), 'Average (%)'];
-    // Use the class name if available.
+    const baseHeader = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`)];
+    const header = hasWeighted
+      ? [...baseHeader, 'Average (%)', 'Weighted (%)', ...activeCategories.map(c => `${c.name} (${c.weight}%)`)]
+      : [...baseHeader, 'Average (%)'];
     const fname = (data.class?.name || `class-${classId}`) + '-gradebook';
-    const rows = data.rows.map(r => [
-      r.student_id, r.student_name, r.student_section,
-      ...r.cells.map(c => (c.pct === null ? '' : c.pct)),
-      (r.average === null ? '' : r.average),
-    ]);
+    const rows = data.rows.map(r => {
+      const base = [r.student_id, r.student_name, r.student_section, ...r.cells.map(c => (c.pct === null ? '' : c.pct)), (r.average === null ? '' : r.average)];
+      if (!hasWeighted) return base;
+      const catVals = (r.categoryAverages || []).map(ca => ca.average);
+      return [...base, (r.weightedAverage === null ? '' : r.weightedAverage), ...catVals];
+    });
     exportCSV(fname, header, rows);
   };
 
@@ -894,76 +905,234 @@ function GradebookTab({ classId }) {
   if (error) return <EmptyState icon={BarChart3} title="Couldn't load gradebook" body={error} />;
 
   return (
-    <Card title="Gradebook" icon={BarChart3}
-      actions={
-        data.rows.length > 0 && data.exams.length > 0 ? (
-          <Button size="sm" variant="outline" icon={Download} onClick={exportGradebook}>Export CSV</Button>
-        ) : null
-      }>
-      {!data.exams.length ? (
-        <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class to populate the gradebook." compact />
-      ) : !data.rows.length ? (
-        <EmptyState icon={Users} title="No students enrolled" body="Enroll students to build the gradebook." compact />
-      ) : (
-        <div className="overflow-auto">
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr className="bg-navy-900 text-white">
-                <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-navy-900">Student</th>
-                {data.exams.map(e => (
-                  <th key={e.id} className="px-3 py-2 font-semibold min-w-[110px]" title={e.title}>{e.title}</th>
+    <>
+      <Card title="Gradebook" icon={BarChart3}
+        actions={
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="soft" icon={Settings} onClick={() => setShowCatModal(true)}>Grade Categories</Button>
+            {data.rows.length > 0 && data.exams.length > 0 && (
+              <Button size="sm" variant="outline" icon={Download} onClick={exportGradebook}>Export CSV</Button>
+            )}
+          </div>
+        }>
+        {/* Category summary bar */}
+        {categories.length > 0 ? (
+          <div className="mb-4 rounded-lg border border-border bg-canvas/40 px-3.5 py-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="w-7 h-7 rounded-md bg-navy-700 text-white flex items-center justify-center shrink-0"><Scale size={13} /></span>
+              <span className="text-[13px] font-semibold text-navy-800">Grade Categories</span>
+              <Badge tone={hasWeighted ? 'success' : 'neutral'} className="!text-[11px]">
+                {categories.length} categor{categories.length === 1 ? 'y' : 'ies'} · {data.totalWeight}% total
+              </Badge>
+              {data.totalWeight !== 100 && data.totalWeight > 0 && (
+                <Badge tone="warning" className="!text-[11px] gap-1"><AlertTriangle size={10} /> Weights sum to {data.totalWeight}% — aim for 100%</Badge>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {categories.map(cat => {
+                const active = activeCategories.find(a => a.id === cat.id);
+                const examCount = active ? active.examCount : 0;
+                return (
+                  <span key={cat.id} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${active ? 'bg-navy-900 text-white border-navy-900' : 'bg-surface text-muted border-border'}`}>
+                    <Layers size={11} /> {cat.name} <span className="opacity-70">{cat.weight}%</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${active ? 'bg-white/15' : 'bg-navy-50'}`}>{examCount} exam{examCount !== 1 ? 's' : ''}</span>
+                    {active?.average !== null && active?.average !== undefined && (
+                      <span className={`font-bold ${active.average >= 60 ? 'text-success' : 'text-warning'}`}>{active.average}% avg</span>
+                    )}
+                    {!active && <span className="text-faint">(no exams yet)</span>}
+                  </span>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-faint mt-2 flex flex-wrap gap-x-3">
+              {categories.map(cat => (
+                <span key={cat.id}>{cat.name}: <strong className="text-navy-800">{cat.types.length ? cat.types.map(t => EXAM_TYPE_LABELS[t] || t).join(', ') : '— no types —'}</strong></span>
+              ))}
+            </div>
+            {hasWeighted && <p className="text-[11px] text-faint mt-2">Weighted grade = Σ (category average × weight) ÷ {data.totalWeight}%. Missing work in a category counts as 0% for that category. Ungrouped exams (types not in any category) only affect the simple average.</p>}
+          </div>
+        ) : (
+          <div className="mb-4 rounded-lg border border-dashed border-border bg-canvas/30 px-3.5 py-3 flex items-center gap-3">
+            <span className="w-7 h-7 rounded-md bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Scale size={13} /></span>
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-semibold text-navy-800">Weighted grades not configured</div>
+              <div className="text-[11px] text-muted">Add categories like <em>Quizzes 20%, Major Exams 30%, Final 30%</em> to enable weighted averages per <strong>Upscale §41</strong>.</div>
+            </div>
+            <Button size="sm" variant="soft" icon={Plus} onClick={() => setShowCatModal(true)}>Configure</Button>
+          </div>
+        )}
+
+        {!data.exams.length ? (
+          <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class to populate the gradebook." compact />
+        ) : !data.rows.length ? (
+          <EmptyState icon={Users} title="No students enrolled" body="Enroll students to build the gradebook." compact />
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full border-collapse text-[13px]">
+              <thead>
+                <tr className="bg-navy-900 text-white">
+                  <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-navy-900 z-10">Student</th>
+                  {data.exams.map(e => (
+                    <th key={e.id} className="px-3 py-2 font-semibold min-w-[110px]" title={`${e.title} · ${EXAM_TYPE_LABELS[e.type] || e.type}`}>{e.title}<span className="block text-[10px] font-normal opacity-70">{EXAM_TYPE_LABELS[e.type] || e.type}</span></th>
+                  ))}
+                  <th className="px-3 py-2 font-semibold">Avg</th>
+                  {hasWeighted && <th className="px-3 py-2 font-semibold bg-navy-800">Weighted</th>}
+                  {hasWeighted && activeCategories.map(c => (
+                    <th key={c.id} className="px-2 py-2 font-semibold text-[11px] bg-navy-800 min-w-[84px]" title={`${c.name} ${c.weight}%`}>{c.name}<span className="block text-[10px] font-normal opacity-70">{c.weight}%</span></th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.rows.map(r => (
+                  <tr key={r.student_id} className="border-t border-border">
+                    <td className="sticky left-0 bg-surface px-3 py-2 z-10">
+                      <div className="font-semibold text-navy-800">{r.student_name}</div>
+                      <div className="text-[11px] text-faint">{r.student_id}{r.student_section ? ' · ' + r.student_section : ''}</div>
+                    </td>
+                    {r.cells.map(c => (
+                      <td key={c.examId} className="px-2 py-2 text-center">
+                        <span className={`inline-block px-2.5 py-1 rounded-md font-semibold ${cellTone(c.pct)}`}>
+                          {c.pct === null ? '—' : `${c.score}/${c.total}`}
+                        </span>
+                        {c.pct !== null && <div className="text-[10px] text-faint mt-0.5">{c.pct}%</div>}
+                      </td>
+                    ))}
+                    <td className={`px-3 py-2 text-center font-bold ${avgTone(r.average)}`}>
+                      {r.average === null ? '—' : r.average + '%'}
+                    </td>
+                    {hasWeighted && (
+                      <td className={`px-3 py-2 text-center font-bold ${weightedTone(r.weightedAverage)}`}>
+                        {r.weightedAverage === null ? '—' : r.weightedAverage + '%'}
+                      </td>
+                    )}
+                    {hasWeighted && (r.categoryAverages || []).map(ca => (
+                      <td key={ca.categoryId} className={`px-2 py-2 text-center font-semibold ${weightedTone(ca.average)}`}>
+                        {ca.average}%<div className="text-[10px] text-faint font-normal">{ca.taken}/{ca.total}</div>
+                      </td>
+                    ))}
+                  </tr>
                 ))}
-                <th className="px-3 py-2 font-semibold">Avg (%)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map(r => (
-                <tr key={r.student_id} className="border-t border-border">
-                  <td className="sticky left-0 bg-surface px-3 py-2">
-                    <div className="font-semibold text-navy-800">{r.student_name}</div>
-                    <div className="text-[11px] text-faint">{r.student_id}{r.student_section ? ' · ' + r.student_section : ''}</div>
-                  </td>
-                  {r.cells.map(c => (
-                    <td key={c.examId} className="px-2 py-2 text-center">
-                      <span className={`inline-block px-2.5 py-1 rounded-md font-semibold ${cellTone(c.pct)}`}>
-                        {c.pct === null ? '—' : `${c.score}/${c.total}`}
-                      </span>
-                      {c.pct !== null && <div className="text-[10px] text-faint mt-0.5">{c.pct}%</div>}
+                <tr className="border-t border-border bg-navy-50">
+                  <td className="sticky left-0 bg-navy-50 px-3 py-2 font-semibold text-navy-800 z-10">Class average</td>
+                  {data.exams.map(e => (
+                    <td key={e.id} className="px-3 py-2 text-center">
+                      {e.average === null ? <span className="text-faint">—</span> : (
+                        <span className="font-semibold text-navy-800">{e.average}%</span>
+                      )}
+                      <div className="text-[10px] text-faint">{e.submitted}/{data.rows.length} took</div>
                     </td>
                   ))}
-                  <td className={`px-3 py-2 text-center font-bold ${avgTone(r.average)}`}>
-                    {r.average === null ? '—' : r.average + '%'}
+                  <td className="px-3 py-2 text-center">
+                    {(() => {
+                      const avgs = data.exams.map(e => e.average).filter(a => a !== null);
+                      const overall = avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length * 10) / 10 : null;
+                      return overall === null ? <span className="text-faint">—</span> : <span className={`font-bold ${overall >= 60 ? 'text-success' : 'text-danger'}`}>{overall}%</span>;
+                    })()}
                   </td>
+                  {hasWeighted && (
+                    <td className="px-3 py-2 text-center">
+                      {(() => {
+                        const wAvgs = data.rows.map(r => r.weightedAverage).filter(v => v !== null);
+                        const overallW = wAvgs.length ? Math.round(wAvgs.reduce((a, b) => a + b, 0) / wAvgs.length * 10) / 10 : null;
+                        return overallW === null ? <span className="text-faint">—</span> : <span className={`font-bold ${overallW >= 60 ? 'text-success' : 'text-danger'}`}>{overallW}%</span>;
+                      })()}
+                    </td>
+                  )}
+                  {hasWeighted && activeCategories.map(c => (
+                    <td key={c.id} className="px-2 py-2 text-center">
+                      {c.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${c.average >= 60 ? 'text-success' : 'text-warning'}`}>{c.average}%</span>}
+                    </td>
+                  ))}
                 </tr>
-              ))}
-              <tr className="border-t border-border bg-navy-50">
-                <td className="sticky left-0 bg-navy-50 px-3 py-2 font-semibold text-navy-800">Class average</td>
-                {data.exams.map(e => (
-                  <td key={e.id} className="px-3 py-2 text-center">
-                    {e.average === null ? <span className="text-faint">—</span> : (
-                      <span className="font-semibold text-navy-800">{e.average}%</span>
-                    )}
-                    <div className="text-[10px] text-faint">{e.submitted}/{data.rows.length} took</div>
-                  </td>
-                ))}
-                {/* Overall class average across exams */}
-                <td className="px-3 py-2 text-center">
-                  {(() => {
-                    const avgs = data.exams.map(e => e.average).filter(a => a !== null);
-                    const overall = avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length * 10) / 10 : null;
-                    return overall === null ? <span className="text-faint">—</span> : <span className={`font-bold ${overall >= 60 ? 'text-success' : 'text-danger'}`}>{overall}%</span>;
-                  })()}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
+        )}
+        {data.exams.length > 0 && data.rows.length > 0 && (
+          <p className="text-[11px] text-faint mt-3">
+            {hasWeighted ? <>Weighted grade shown when categories configured. Simple average = mean of taken exams. Weighted = Σ (category avg × weight ÷ {data.totalWeight}%). Green ≥60%, amber 40–59%, red &lt;40%.</> : <>Scores show best attempt per exam. Green ≥60%, amber 40–59%, red &lt;40%. Simple average = mean of taken exams.</>}
+          </p>
+        )}
+      </Card>
+      <GradeCategoriesModal open={showCatModal} onClose={() => setShowCatModal(false)} classId={classId} initial={categories} onSaved={() => { setShowCatModal(false); toast.success('Grade categories saved'); load(); }} />
+    </>
+  );
+}
+
+function GradeCategoriesModal({ open, onClose, classId, initial, onSaved }) {
+  const [cats, setCats] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (open) {
+      setCats(initial.length ? initial.map((c, i) => ({ ...c, sort_order: i })) : [{ id: '', name: 'Quizzes', weight: 20, types: ['quiz'], sort_order: 0 }, { id: '', name: 'Major Exams', weight: 30, types: ['major_exam'], sort_order: 1 }, { id: '', name: 'Final Exam', weight: 30, types: ['final'], sort_order: 2 }].slice(0, initial.length ? initial.length : 2));
+    }
+  }, [open, initial]);
+
+  const totalWeight = cats.reduce((a, c) => a + (Number(c.weight) || 0), 0);
+  const typeOptions = Object.entries(EXAM_TYPE_LABELS);
+
+  const add = () => setCats([...cats, { id: '', name: '', weight: 10, types: [], sort_order: cats.length }]);
+  const remove = (idx) => setCats(cats.filter((_, i) => i !== idx));
+  const update = (idx, patch) => setCats(cats.map((c, i) => i === idx ? { ...c, ...patch } : c));
+  const toggleType = (idx, t) => {
+    const cur = cats[idx].types || [];
+    const next = cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t];
+    update(idx, { types: next });
+  };
+
+  const save = async () => {
+    if (!cats.length) { toast.error('Add at least one category'); return; }
+    for (const c of cats) if (!c.name.trim()) { toast.error('All categories need a name'); return; }
+    if (cats.some(c => !Array.isArray(c.types) || c.types.length === 0)) { toast.error('Each category must include at least one assessment type'); return; }
+    // Warn but allow total != 100
+    setSaving(true);
+    try {
+      await api.saveGradeCategories(classId, cats.map((c, i) => ({ id: c.id || undefined, name: c.name.trim(), weight: Number(c.weight) || 0, types: c.types, sort_order: i })));
+      onSaved();
+    } catch (e) { toast.error(e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Grade Categories" icon={Settings} size="lg"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} loading={saving} onClick={save}>Save Categories</Button></>}>
+      <div className="flex flex-col gap-4">
+        <div className={`rounded-lg border px-3 py-2.5 text-[12px] flex items-start gap-2 ${totalWeight === 100 ? 'bg-success-bg border-success/20 text-success' : totalWeight > 100 ? 'bg-danger-bg border-danger/20 text-danger' : 'bg-warning-bg border-warning/20 text-warning'}`}>
+          <Scale size={14} className="shrink-0 mt-0.5" />
+          <span>Total weight: <strong>{totalWeight}%</strong> {totalWeight === 100 ? '✓ sums to 100% — good!' : totalWeight > 100 ? '— over 100%, reduce some weights.' : '— under 100%. Weighted grades will be out of ' + totalWeight + '% until you reach 100%.'}</span>
         </div>
-      )}
-      {data.exams.length > 0 && data.rows.length > 0 && (
-        <p className="text-[11px] text-faint mt-3">
-          Scores show each student's best attempt per exam as a percent. Cell color: green ≥60%, amber 40–59%, red &lt;40%. Average is the mean of all taken exams.
-        </p>
-      )}
-    </Card>
+        <p className="text-[11px] text-faint">Map each assessment <strong>type</strong> (Upscale §9) to a category. The gradebook groups exams by type and computes weighted averages. Example: <em>Quizzes 20% = all type Quiz exams averaged, then ×20%.</em> Types not in any category only count toward the simple average.</p>
+        <div className="flex flex-col gap-3">
+          {cats.map((cat, idx) => (
+            <div key={idx} className="rounded-xl border border-border bg-canvas/40 p-3.5">
+              <div className="grid sm:grid-cols-[1fr_110px_auto] gap-2.5 items-end">
+                <Input label={`Category #${idx + 1} Name`} value={cat.name} onChange={e => update(idx, { name: e.target.value })} placeholder="e.g. Quizzes" />
+                <Input label="Weight %" type="number" min={0} max={100} value={String(cat.weight)} onChange={e => update(idx, { weight: Number(e.target.value) })} />
+                <Button size="sm" variant="dangerSoft" icon={Trash2} onClick={() => remove(idx)} className="sm:mb-0.5">Remove</Button>
+              </div>
+              <div className="mt-3">
+                <div className="text-[11px] font-semibold text-navy-800 mb-1.5">Assessment types in this category</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {typeOptions.map(([key, label]) => {
+                    const active = (cat.types || []).includes(key);
+                    return (
+                      <button key={key} onClick={() => toggleType(idx, key)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors cursor-pointer ${active ? 'bg-navy-900 text-white border-navy-900' : 'bg-surface text-muted border-border hover:border-navy-200'}`}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {!cat.types?.length && <p className="text-[11px] text-danger mt-1.5">Pick at least one type.</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+        <Button size="sm" variant="soft" icon={Plus} onClick={add}>Add Category</Button>
+        <p className="text-[11px] text-faint">Tip: Common setup — Quizzes 20%, Major Exams 30%, Assignments 20%, Final 30% (weights must total 100% for a true final grade).</p>
+      </div>
+    </Modal>
   );
 }
