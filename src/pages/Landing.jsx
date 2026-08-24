@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus, ArrowRight, Search, ShieldCheck, BarChart3, Clock3, Layers, QrCode } from 'lucide-react';
+import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus, ArrowRight, Search, ShieldCheck, BarChart3, Clock3, Layers, QrCode, Bell } from 'lucide-react';
 import PublicLayout from '../components/PublicLayout';
 import { Button } from '../components/ui';
 
@@ -17,7 +17,7 @@ export default function Landing() {
     { to: '/checkin', label: 'Attendance Check-in', desc: 'Scan the QR or enter the code your instructor shares.', icon: CalendarCheck, tone: 'bg-success-bg text-success' },
     { to: '/enroll', label: 'Enroll in a Class', desc: 'Join your class with the code from your instructor.', icon: UserPlus, tone: 'bg-navy-100 text-navy-700' },
     { to: '/leaderboard', label: 'Live Scoreboard', desc: 'See rankings update in real time after exams.', icon: Trophy, tone: 'bg-warning-bg text-warning' },
-    { to: '/records', label: 'Student Records', desc: 'Scores, sections, and attendance history in one place.', icon: GraduationCap, tone: 'bg-purple-bg text-purple' },
+    { to: '/notifications', label: 'Notifications', desc: 'New exams, grade updates & announcements.', icon: Bell, tone: 'bg-info-bg text-info' },
   ];
 
   return (

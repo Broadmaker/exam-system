@@ -31,6 +31,133 @@ async function log(db, action, details = '') {
   } catch {}
 }
 
+// ── NOTIFICATIONS (Upscale.md §42-43, §72) ─────
+const NOTIF_TYPES = new Set(['assessment_published','assessment_reminder','assessment_submitted','result_published','grade_changed','attendance_recorded','announcement']);
+
+async function createNotification(db, { class_id = '', student_id = '', title, body = '', type = 'announcement', exam_id = '' }) {
+  if (!title || !String(title).trim()) return null;
+  const t = NOTIF_TYPES.has(type) ? type : 'announcement';
+  const id = uuid();
+  try {
+    await db.prepare(`INSERT INTO notifications (id, class_id, student_id, title, body, type, exam_id) VALUES (?, ?, ?, ?, ?, ?, ?)`).bind(id, class_id || '', (student_id || '').toUpperCase(), String(title).trim(), String(body || ''), t, exam_id || '').run();
+    return id;
+  } catch { return null; }
+}
+
+// ── WEB PUSH (Real Push) ─────────────────────────
+function b64urlEncode(bytes) {
+  let str = '';
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  for (let i = 0; i < arr.length; i++) str += String.fromCharCode(arr[i]);
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/,'');
+}
+function b64urlDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function b64urlDecodeToString(str) {
+  const bytes = b64urlDecode(str);
+  return new TextDecoder().decode(bytes);
+}
+async function vapidJwtForEndpoint(endpoint, env) {
+  const vapidPublic = env.VAPID_PUBLIC_KEY || '';
+  const vapidPrivate = env.VAPID_PRIVATE_KEY || '';
+  const vapidSubject = env.VAPID_SUBJECT || 'mailto:admin@wmsu.edu.ph';
+  if (!vapidPublic || !vapidPrivate) throw new Error('VAPID keys not configured');
+  // Decode public to get x,y
+  const pubRaw = b64urlDecode(vapidPublic);
+  if (pubRaw.length !== 65 || pubRaw[0] !== 0x04) throw new Error('Invalid VAPID public key');
+  const x = b64urlEncode(pubRaw.slice(1,33));
+  const y = b64urlEncode(pubRaw.slice(33,65));
+  const jwk = { kty:'EC', crv:'P-256', x, y, d: vapidPrivate };
+  const header = b64urlEncode(new TextEncoder().encode(JSON.stringify({ typ:'JWT', alg:'ES256' })));
+  const aud = new URL(endpoint).origin;
+  const exp = Math.floor(Date.now()/1000) + 12*3600;
+  const payload = b64urlEncode(new TextEncoder().encode(JSON.stringify({ aud, exp, sub: vapidSubject })));
+  const data = new TextEncoder().encode(header + '.' + payload);
+  const key = await crypto.subtle.importKey('jwk', jwk, { name:'ECDSA', namedCurve:'P-256' }, false, ['sign']);
+  const sigBuf = await crypto.subtle.sign({ name:'ECDSA', hash:'SHA-256' }, key, data);
+  // WebCrypto returns raw r||s 64 bytes; need to handle DER fallback (some impl returns DER)
+  let sigBytes = new Uint8Array(sigBuf);
+  // If DER (starts with 0x30), convert to raw
+  if (sigBytes[0] === 0x30) {
+    // Simple DER parse: 0x30 len 0x02 rLen r ... 0x02 sLen s
+    let off = 2;
+    if (sigBytes[1] & 0x80) off += (sigBytes[1] & 0x7f) + 1;
+    const rLen = sigBytes[off+1];
+    const r = sigBytes.slice(off+2, off+2+rLen);
+    off = off+2+rLen;
+    const sLen = sigBytes[off+1];
+    const s = sigBytes.slice(off+2, off+2+sLen);
+    const raw = new Uint8Array(64);
+    raw.set(r.slice(-32), 32 - Math.min(32, r.length));
+    raw.set(s.slice(-32), 64 - Math.min(32, s.length));
+    sigBytes = raw;
+  }
+  const sig = b64urlEncode(sigBytes);
+  return header + '.' + payload + '.' + sig;
+}
+
+async function sendPushToSubscription(sub, env, payloadForLog) {
+  const endpoint = sub.endpoint;
+  const vapidPublic = env.VAPID_PUBLIC_KEY || '';
+  let headers = { 'TTL': '86400' };
+  try {
+    const jwt = await vapidJwtForEndpoint(endpoint, env);
+    headers['Authorization'] = `vapid t=${jwt}, k=${vapidPublic}`;
+  } catch (e) {
+    // If VAPID not configured, skip push
+    return { ok:false, reason:'vapid_error' };
+  }
+  // Empty tickle push — SW fetches notifications
+  try {
+    const res = await fetch(endpoint, { method:'POST', headers, body: '' });
+    if (res.status === 404 || res.status === 410) return { ok:false, status: res.status, gone:true };
+    return { ok: res.ok, status: res.status };
+  } catch (e) {
+    return { ok:false, error: String(e) };
+  }
+}
+
+async function triggerPushForNotification(db, { class_id, student_id, title, body, type }) {
+  const env = { VAPID_PUBLIC_KEY: '', VAPID_PRIVATE_KEY: '', VAPID_SUBJECT: '' };
+  // env will be injected per-request via c.env; this helper is called with db only,
+  // so we store VAPID in DB? Instead caller passes env; fallback: try to read from global
+  // For now, we fetch subscriptions and let the route handler do the actual send.
+  // This helper is a no-op when called from createNotification without env — real send is done in route handlers where c.env is available.
+  return;
+}
+async function triggerPushWithEnv(db, env, { class_id, student_id }) {
+  let subs = [];
+  if (student_id) {
+    const { results } = await db.prepare(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE student_id = ?`).bind(student_id.toUpperCase()).all();
+    subs = results || [];
+  } else if (class_id) {
+    const { results: enrolls } = await db.prepare(`SELECT student_id FROM enrollments WHERE class_id = ?`).bind(class_id).all();
+    const ids = enrolls.map(r=>r.student_id).filter(Boolean);
+    if (ids.length) {
+      const { results } = await db.prepare(`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE student_id IN (${ids.map(()=>'?').join(',')})`).bind(...ids).all();
+      subs = results || [];
+    }
+  } else {
+    const { results } = await db.prepare(`SELECT endpoint, p256dh, auth FROM push_subscriptions LIMIT 200`).all();
+    subs = results || [];
+  }
+  let sent = 0, gone = 0;
+  for (const s of subs) {
+    const r = await sendPushToSubscription(s, env);
+    if (r.ok) sent++;
+    if (r.gone) {
+      try { await db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(s.endpoint).run(); gone++; } catch {}
+    }
+  }
+  return { sent, gone, total: subs.length };
+}
+
 function adminCheck(c) {
   const auth = c.req.header('Authorization');
   const expected = c.env.VITE_ADMIN_PASSWORD || 'admin123';
@@ -67,6 +194,12 @@ app.post('/api/exams', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '').run();
   await log(db, 'exam_created', 'Created exam: ' + body.title);
+  // Auto-notify class when a non-draft exam is created + real push
+  const s = body.status || 'draft';
+  if (s === 'active' || s === 'scheduled' || s === 'published') {
+    await createNotification(db, { class_id: body.class_id || '', title: `New ${body.type || 'exam'}: ${body.title}`, body: body.description || `An assessment has been published${body.start_at ? ' — opens ' + body.start_at : ''}.`, type: 'assessment_published', exam_id: id });
+    try { c.executionCtx?.waitUntil?.(triggerPushWithEnv(db, c.env, { class_id: body.class_id || '' }).catch(()=>{})); } catch {}
+  }
   return c.json({ id }, 201);
 });
 
@@ -96,13 +229,21 @@ app.put('/api/exams/:id', async (c) => {
   const db = c.env.DB;
   const examId = c.req.param('id');
   const body = await c.req.json();
-  const old = await db.prepare(`SELECT title FROM exams WHERE id = ?`).bind(examId).first();
+  const old = await db.prepare(`SELECT title, status FROM exams WHERE id = ?`).bind(examId).first();
   const passing = clampPassing(body.passing_score);
   await db.prepare(
     `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, type = ?, status = ?, passing_score = ?, start_at = ?, updated_at = datetime('now')
      WHERE id = ?`
   ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', examId).run();
   await log(db, 'exam_updated', 'Updated: ' + (old?.title || examId));
+  // Notify on publish/activate transition (draft→active/scheduled/published) + real push
+  const prev = old?.status || 'draft';
+  const next = body.status || 'draft';
+  const isPublish = prev === 'draft' && (next === 'active' || next === 'scheduled' || next === 'published');
+  if (isPublish) {
+    await createNotification(db, { class_id: body.class_id || '', title: `Assessment published: ${body.title}`, body: `Status is now ${next}${body.start_at ? ' — opens ' + body.start_at : ''}.`, type: 'assessment_published', exam_id: examId });
+    try { c.executionCtx?.waitUntil?.(triggerPushWithEnv(db, c.env, { class_id: body.class_id || '' }).catch(()=>{})); } catch {}
+  }
   return c.json({ success: true });
 });
 
@@ -1126,6 +1267,177 @@ app.put('/api/classes/:id/grade-categories', async (c) => {
   return c.json({ success: true, count: cleaned.length });
 });
 
+// ── NOTIFICATIONS (Upscale.md §42-43, §72) ──────
+app.post('/api/notifications', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const title = String(body.title || '').trim();
+  const notifBody = String(body.body || '').trim();
+  const type = String(body.type || 'announcement').trim();
+  const class_id = String(body.class_id || '').trim();
+  const student_id = String(body.student_id || '').trim().toUpperCase();
+  const exam_id = String(body.exam_id || '').trim();
+  if (!title) return c.json({ error: 'Title is required.' }, 400);
+  if (title.length > 120) return c.json({ error: 'Title must be ≤120 characters.' }, 400);
+  if (notifBody.length > 1000) return c.json({ error: 'Body must be ≤1000 characters.' }, 400);
+  if (type && !NOTIF_TYPES.has(type)) return c.json({ error: 'Invalid type.' }, 400);
+  if (class_id) {
+    const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(class_id).first();
+    if (!klass) return c.json({ error: 'Class not found.' }, 404);
+  }
+  const id = await createNotification(db, { class_id, student_id, title, body: notifBody, type, exam_id });
+  await log(db, 'notification_created', `${type}: ${title}` + (class_id ? ` for class ${class_id}` : student_id ? ` for ${student_id}` : ''));
+  // Real Web Push (non-blocking)
+  try { c.executionCtx?.waitUntil?.(triggerPushWithEnv(db, c.env, { class_id, student_id }).catch(()=>{})); } catch { try { await triggerPushWithEnv(db, c.env, { class_id, student_id }); } catch {} }
+  return c.json({ id }, 201);
+});
+
+app.get('/api/push/vapid-public-key', async (c) => {
+  const key = c.env.VAPID_PUBLIC_KEY || c.env.VITE_VAPID_PUBLIC_KEY || '';
+  return c.json({ publicKey: key });
+});
+
+app.post('/api/push/subscribe', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const student_id = String(body.student_id || '').trim().toUpperCase();
+  const sub = body.subscription;
+  if (!student_id) return c.json({ error: 'student_id required' }, 400);
+  if (!sub || !sub.endpoint) return c.json({ error: 'subscription.endpoint required' }, 400);
+  const endpoint = String(sub.endpoint);
+  const p256dh = String(sub.keys?.p256dh || sub.p256dh || '');
+  const auth = String(sub.keys?.auth || sub.auth || '');
+  const expirationTime = sub.expirationTime ? String(sub.expirationTime) : '';
+  const id = uuid();
+  try {
+    await db.prepare(`INSERT INTO push_subscriptions (id, student_id, endpoint, p256dh, auth, expiration_time) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(student_id, endpoint) DO UPDATE SET p256dh=excluded.p256dh, auth=excluded.auth, expiration_time=excluded.expiration_time`).bind(id, student_id, endpoint, p256dh, auth, expirationTime).run();
+  } catch (e) {
+    // Fallback if ON CONFLICT not supported for this SQLite version
+    await db.prepare(`DELETE FROM push_subscriptions WHERE student_id = ? AND endpoint = ?`).bind(student_id, endpoint).run();
+    await db.prepare(`INSERT INTO push_subscriptions (id, student_id, endpoint, p256dh, auth, expiration_time) VALUES (?, ?, ?, ?, ?, ?)`).bind(id, student_id, endpoint, p256dh, auth, expirationTime).run();
+  }
+  return c.json({ success: true });
+});
+
+app.post('/api/push/unsubscribe', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const student_id = String(body.student_id || '').trim().toUpperCase();
+  const endpoint = String(body.endpoint || body.subscription?.endpoint || '');
+  if (!student_id || !endpoint) return c.json({ error: 'student_id and endpoint required' }, 400);
+  await db.prepare(`DELETE FROM push_subscriptions WHERE student_id = ? AND endpoint = ?`).bind(student_id, endpoint).run();
+  return c.json({ success: true });
+});
+
+app.post('/api/push/test', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const body = await c.req.json().catch(()=>({}));
+  const student_id = String(body.student_id || '').trim().toUpperCase();
+  const class_id = String(body.class_id || '').trim();
+  if (!student_id && !class_id) return c.json({ error: 'Provide student_id or class_id' }, 400);
+  const result = await triggerPushWithEnv(db, c.env, { student_id, class_id });
+  return c.json(result);
+});
+
+app.get('/api/notifications', async (c) => {
+  const db = c.env.DB;
+  const q = c.req.query();
+  const student_id = String(q.student_id || '').trim().toUpperCase();
+  const class_id = String(q.class_id || '').trim();
+  const type = String(q.type || '').trim();
+  const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 100);
+  const isAdmin = adminCheck(c);
+
+  // Student view: needs student_id to see personal + class broadcasts
+  if (student_id) {
+    // Find classes this student is enrolled in
+    const { results: enrolls } = await db.prepare(`SELECT class_id FROM enrollments WHERE student_id = ?`).bind(student_id).all();
+    const classIds = enrolls.map(r => r.class_id).filter(Boolean);
+    const placeholders = classIds.length ? `,${classIds.map(() => '?').join(',')}` : '';
+    let sql = `SELECT n.*, CASE WHEN nr.read_at IS NOT NULL THEN 1 ELSE 0 END as is_read FROM notifications n LEFT JOIN notification_reads nr ON nr.notification_id = n.id AND nr.student_id = ? WHERE (n.student_id = ? OR (n.student_id = '' AND n.class_id = '') OR (n.student_id = '' AND n.class_id IN ('__none__'${placeholders})))`;
+    const binds = [student_id, student_id, ...classIds];
+    if (type && NOTIF_TYPES.has(type)) { sql += ` AND n.type = ?`; binds.push(type); }
+    sql += ` ORDER BY n.created_at DESC LIMIT ?`;
+    binds.push(limit);
+    const { results } = await db.prepare(sql).bind(...binds).all();
+    return c.json(results);
+  }
+
+  // Admin / class-filtered view (requires admin)
+  if (class_id) {
+    if (!isAdmin) return c.json({ error: 'Unauthorized' }, 401);
+    let sql = `SELECT * FROM notifications WHERE class_id = ?`;
+    const binds = [class_id];
+    if (type && NOTIF_TYPES.has(type)) { sql += ` AND type = ?`; binds.push(type); }
+    sql += ` ORDER BY created_at DESC LIMIT ?`;
+    binds.push(limit);
+    const { results } = await db.prepare(sql).bind(...binds).all();
+    return c.json(results);
+  }
+
+  // Global admin list
+  if (!isAdmin) return c.json({ error: 'Student ID is required. Add ?student_id=YOUR_ID to see your notifications.' }, 400);
+  let sqlG = `SELECT * FROM notifications`;
+  const bindsG = [];
+  if (type && NOTIF_TYPES.has(type)) { sqlG += ` WHERE type = ?`; bindsG.push(type); }
+  sqlG += ` ORDER BY created_at DESC LIMIT ?`;
+  bindsG.push(limit);
+  const { results } = await db.prepare(sqlG).bind(...bindsG).all();
+  return c.json(results);
+});
+
+app.get('/api/notifications/unread-count', async (c) => {
+  const db = c.env.DB;
+  const student_id = String(c.req.query('student_id') || '').trim().toUpperCase();
+  if (!student_id) return c.json({ error: 'student_id required' }, 400);
+  const { results: enrolls } = await db.prepare(`SELECT class_id FROM enrollments WHERE student_id = ?`).bind(student_id).all();
+  const classIds = enrolls.map(r => r.class_id).filter(Boolean);
+  const placeholders = classIds.length ? `,${classIds.map(() => '?').join(',')}` : '';
+  const sql = `SELECT COUNT(*) as cnt FROM notifications n LEFT JOIN notification_reads nr ON nr.notification_id = n.id AND nr.student_id = ? WHERE (n.student_id = ? OR n.student_id = '' AND (n.class_id = '' OR n.class_id IN ('__none__'${placeholders}))) AND nr.read_at IS NULL`;
+  const binds = [student_id, student_id, ...classIds];
+  const row = await db.prepare(sql).bind(...binds).first();
+  return c.json({ count: row?.cnt || 0 });
+});
+
+app.post('/api/notifications/:id/read', async (c) => {
+  const db = c.env.DB;
+  const nid = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const student_id = String(body.student_id || c.req.query('student_id') || '').trim().toUpperCase();
+  if (!student_id) return c.json({ error: 'student_id required' }, 400);
+  const notif = await db.prepare(`SELECT id FROM notifications WHERE id = ?`).bind(nid).first();
+  if (!notif) return c.json({ error: 'Notification not found' }, 404);
+  await db.prepare(`INSERT OR IGNORE INTO notification_reads (notification_id, student_id) VALUES (?, ?)`).bind(nid, student_id).run();
+  return c.json({ success: true });
+});
+
+app.post('/api/notifications/read-all', async (c) => {
+  const db = c.env.DB;
+  const body = await c.req.json().catch(() => ({}));
+  const student_id = String(body.student_id || '').trim().toUpperCase();
+  if (!student_id) return c.json({ error: 'student_id required' }, 400);
+  const { results: enrolls } = await db.prepare(`SELECT class_id FROM enrollments WHERE student_id = ?`).bind(student_id).all();
+  const classIds = enrolls.map(r => r.class_id).filter(Boolean);
+  const placeholders = classIds.length ? `,${classIds.map(() => '?').join(',')}` : '';
+  const sql = `SELECT id FROM notifications WHERE (student_id = ? OR student_id = '' AND (class_id = '' OR class_id IN ('__none__'${placeholders})))`;
+  const binds = [student_id, ...classIds];
+  const { results } = await db.prepare(sql).bind(...binds).all();
+  for (const r of results) {
+    await db.prepare(`INSERT OR IGNORE INTO notification_reads (notification_id, student_id) VALUES (?, ?)`).bind(r.id, student_id).run();
+  }
+  return c.json({ success: true, count: results.length });
+});
+
+app.delete('/api/notifications/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(c.req.param('id')).run();
+  await log(db, 'notification_deleted', `Deleted notification ${c.req.param('id')}`);
+  return c.json({ success: true });
+});
+
 app.post('/api/classes/:id/enroll', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
@@ -1934,6 +2246,12 @@ app.post('/api/submissions/:id/review', async (c) => {
   const { correctCount } = computeScore(questions, sub, overrides);
   await db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, subId).run();
   await log(db, 'submission_reviewed', `Manual review on ${sub.student_name}: Q ${question_id} → ${verdict || 'auto'}`);
+  // Notify student of grade change (Upscale §42 grade_changed)
+  const examForNotif = await db.prepare(`SELECT title, class_id FROM exams WHERE id = ?`).bind(sub.exam_id).first();
+  if (sub.student_id) {
+    await createNotification(db, { class_id: examForNotif?.class_id || '', student_id: sub.student_id, title: `Grade updated: ${examForNotif?.title || 'Assessment'}`, body: `Your score is now ${correctCount}/${sub.total} — review was ${verdict || 'cleared'}.`, type: 'grade_changed', exam_id: sub.exam_id });
+    try { c.executionCtx?.waitUntil?.(triggerPushWithEnv(db, c.env, { student_id: sub.student_id }).catch(()=>{})); } catch {}
+  }
 
   return c.json({ id: subId, score: correctCount, total: sub.total, question_id, verdict: verdict || null });
 });

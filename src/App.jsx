@@ -17,6 +17,8 @@ import ActivityLog from './pages/admin/ActivityLog';
 import Proctor from './pages/admin/Proctor';
 import Classes from './pages/admin/Classes';
 import StudentRecords from './pages/StudentRecords';
+import Notifications from './pages/Notifications';
+import AdminNotifications from './pages/admin/Notifications';
 
 export default function App() {
   return (
@@ -28,6 +30,7 @@ export default function App() {
         <Route path="/checkin" element={<Checkin />} />
         <Route path="/enroll" element={<StudentEnroll />} />
         <Route path="/records" element={<StudentRecords />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/admin" element={<Dashboard />} />
         <Route path="/admin/create" element={<CreateExam />} />
         <Route path="/admin/results" element={<Results />} />
@@ -38,6 +41,7 @@ export default function App() {
         <Route path="/admin/logs" element={<ActivityLog />} />
         <Route path="/admin/proctor" element={<Proctor />} />
         <Route path="/admin/classes" element={<Classes />} />
+        <Route path="/admin/notifications" element={<AdminNotifications />} />
       </Routes>
       <FloatingInstall />
     </ToastProvider>

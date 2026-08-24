@@ -4,7 +4,7 @@ import AuthGate from './AuthGate';
 import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, Users, BookOpen, Eye, RotateCcw, Radio, Clock, LogOut,
-  Menu, X, ChevronLeft, GraduationCap, PanelLeftClose, PanelLeftOpen, ShieldCheck,
+  Menu, X, ChevronLeft, GraduationCap, PanelLeftClose, PanelLeftOpen, ShieldCheck, Bell,
 } from 'lucide-react';
 
 const navGroups = [
@@ -32,6 +32,7 @@ const navGroups = [
     label: 'Monitoring',
     items: [
       { to: '/admin/proctor', label: 'Live Proctoring', icon: Radio },
+      { to: '/admin/notifications', label: 'Notifications', icon: Bell },
     ],
   },
   {

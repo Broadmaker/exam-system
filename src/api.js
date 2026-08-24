@@ -86,6 +86,23 @@ export const api = {
   getClassAttendanceHistory: (classId) => request('/classes/' + classId + '/attendance/history', { headers: { 'Authorization': adminPass() } }),
   // Student records portal
   getStudentRecords: (studentId) => request('/student/' + encodeURIComponent(studentId)),
+  // Notifications (§42-43)
+  listNotifications: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('/notifications' + (qs ? '?' + qs : ''));
+  },
+  listAdminNotifications: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return request('/notifications' + (qs ? '?' + qs : ''), { headers: { 'Authorization': adminPass() } });
+  },
+  createNotification: (body) => request('/notifications', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteNotification: (id) => request('/notifications/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  getUnreadCount: (studentId) => request('/notifications/unread-count?student_id=' + encodeURIComponent(studentId)),
+  markRead: (id, studentId) => request('/notifications/' + id + '/read', { method: 'POST', body: JSON.stringify({ student_id: studentId }) }),
+  markAllRead: (studentId) => request('/notifications/read-all', { method: 'POST', body: JSON.stringify({ student_id: studentId }) }),
+  getVapidPublicKey: () => request('/push/vapid-public-key'),
+  pushSubscribe: (studentId, subscription) => request('/push/subscribe', { method: 'POST', body: JSON.stringify({ student_id: studentId, subscription }) }),
+  pushUnsubscribe: (studentId, endpoint) => request('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ student_id: studentId, endpoint }) }),
   // Class self-enrollment (student-facing)
   lookupClassCode: (code) => request('/classes/code/' + encodeURIComponent(code)),
   enrollByCode: (body) => request('/classes/enroll', { method: 'POST', body: JSON.stringify(body) }),

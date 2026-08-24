@@ -194,3 +194,41 @@ CREATE INDEX idx_enrollments_class ON enrollments(class_id);
 CREATE INDEX idx_class_attendance_class ON class_attendance(class_id, date);
 CREATE INDEX idx_exams_class ON exams(class_id);
 CREATE INDEX idx_grade_categories_class ON class_grade_categories(class_id);
+
+CREATE TABLE notifications (
+  id TEXT PRIMARY KEY,
+  class_id TEXT NOT NULL DEFAULT '',
+  student_id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL,
+  body TEXT NOT NULL DEFAULT '',
+  type TEXT NOT NULL DEFAULT 'announcement',
+  exam_id TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE notification_reads (
+  notification_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  read_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (notification_id, student_id),
+  FOREIGN KEY (notification_id) REFERENCES notifications(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_notifications_class ON notifications(class_id);
+CREATE INDEX idx_notifications_student ON notifications(student_id);
+CREATE INDEX idx_notifications_created ON notifications(created_at DESC);
+CREATE INDEX idx_notifications_type ON notifications(type);
+CREATE INDEX idx_notification_reads_student ON notification_reads(student_id);
+
+CREATE TABLE push_subscriptions (
+  id TEXT PRIMARY KEY,
+  student_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL,
+  p256dh TEXT NOT NULL DEFAULT '',
+  auth TEXT NOT NULL DEFAULT '',
+  expiration_time TEXT DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(student_id, endpoint)
+);
+CREATE INDEX idx_push_subs_student ON push_subscriptions(student_id);
+CREATE INDEX idx_push_subs_endpoint ON push_subscriptions(endpoint);

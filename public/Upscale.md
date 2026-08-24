@@ -139,8 +139,8 @@
 | 39 | Attendance Analytics | 🚧 PARTIAL | Present/late/absent counts; full rate charts pending |
 | 40 | Gradebook | ✅ DONE | `GET /classes/:id/gradebook` `worker/index.js:928` |
 | 41 | Grade Categories | ✅ DONE | **2026-08-24** Weighted categories `class_grade_categories` `worker/schema.sql:187` `worker/index.js:1089` |
-| 42 | Notifications | ⏳ TODO | No notification service yet |
-| 43 | Notification Center | ⏳ TODO | Depends on §42 |
+| 42 | Notifications | ✅ DONE | **2026-08-24** `notifications` + `notification_reads` `worker/schema.sql:196` `migration_notifications.sql` `worker/index.js:26` auto on publish/grade |
+| 43 | Notification Center | ✅ DONE | **2026-08-24** Public `/notifications` + admin `/admin/notifications` `src/pages/Notifications.jsx` `src/pages/admin/Notifications.jsx` |
 | 44 | Reports | 🚧 PARTIAL | CSV export `src/utils.js:341`; PDF/Excel pending |
 | 45 | Import / Export | 🚧 PARTIAL | CSV import roster/questions done; Excel/PDF pending |
 | 46 | Audit Logs | ✅ DONE | `activity_log` + `GET /logs` `worker/index.js:279` |
@@ -169,7 +169,7 @@
 | 69 | AI Features — Future | ⏳ TODO | Future |
 | 70 | AI Question Generation Workflow | ⏳ TODO | Future |
 | 71 | Proctoring — Future | 🚧 PARTIAL | Basic heartbeat/kick `worker/index.js:440`; webcam pending |
-| 72 | Notification Architecture | ⏳ TODO | Future |
+| 72 | Notification Architecture | ✅ DONE | **2026-08-24** Event→Service→User via `createNotification()` hooks on `POST /exams` & review |
 | 73 | API Architecture | ✅ DONE | Hono ~50 routes `worker/index.js:1` |
 | 74 | Important Backend Services | 🚧 PARTIAL | Monolithic Hono; service split pending |
 | 75 | Recommended Core Flow | ✅ DONE | ASSESS→RECORD→GRADE→ANALYZE |

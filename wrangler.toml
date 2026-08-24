@@ -1,0 +1,19 @@
+name = "exam-system"
+main = "worker/index.js"
+compatibility_date = "2026-08-24"
+compatibility_flags = ["nodejs_compat"]
+assets = { directory = "dist", not_found_handling = "single-page-application" }
+
+[vars]
+VITE_ADMIN_PASSWORD = "wmsu_123"
+VAPID_PUBLIC_KEY = "BBFq3Yg0rjPgCRXaB_L6Gl2vD8-iwvCh3zekOG26RWZBZRVdw1KfK7Pu1rv77lb7p5dxCLC01Ek5FqeVjOf6jqE"
+VAPID_PRIVATE_KEY = "_XBuWJWXXEcc5SNJ9_M-4p8ourb-DaAHC2_a68Mk4xg"
+VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "exam-db"
+database_id = "8d3aeb60-107e-41df-a235-ae63391afe94" # Set this after creating the D1 database
