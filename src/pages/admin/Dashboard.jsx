@@ -228,7 +228,7 @@ export default function Dashboard() {
         <PageHeader
           eyebrow="Exams"
           title="All Exams"
-          subtitle={`${filteredExams.length} of ${exams.length} exam${exams.length !== 1 ? 's' : ''}${hasActiveFilters ? ' (filtered)' : ''}${filteredExams.length > PAGE_SIZE ? ` · page ${page}/${totalPages}` : ''}`}
+          subtitle={`${filteredExams.length} of ${exams.length} exam${exams.length !== 1 ? 's' : ''}${hasActiveFilters ? ' (filtered)' : ''}`}
           actions={
             <div className="flex gap-2">
               {hasActiveFilters && <Button size="sm" variant="outline" icon={X} onClick={clearFilters}>Clear filters</Button>}
