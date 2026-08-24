@@ -175,12 +175,34 @@ export default function Exam() {
 
   // When the student has already submitted, check with the server whether a
   // retry is currently allowed (auto-submitted, or granted by the proctor).
+  // PWA-friendly: polls + checks on focus/visibility so "Allow Retry" appears without hard refresh.
   useEffect(() => {
     if (!submitted || !name || !studentId) return;
-    api.getRetryStatus(examId, studentId.trim().toUpperCase(), name.trim(), section.trim())
-      .then(r => setServerRetry(!!r.allowed))
-      .catch(() => setServerRetry(false));
+    let cancelled = false;
+    const check = () => {
+      if (cancelled || document.hidden) return;
+      api.getRetryStatus(examId, studentId.trim().toUpperCase(), name.trim(), section.trim())
+        .then(r => { if (!cancelled) setServerRetry(!!r.allowed); })
+        .catch(() => { if (!cancelled) setServerRetry(false); });
+    };
+    check();
+    const t = setInterval(check, 15000);
+    const onVis = () => { if (!document.hidden) check(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', check);
+    return () => { cancelled = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', check); };
   }, [submitted, examId, name, section, studentId]);
+
+  const checkRetryNow = useCallback(() => {
+    if (!examId || !studentId) return;
+    api.getRetryStatus(examId, studentId.trim().toUpperCase(), name.trim(), section.trim())
+      .then(r => {
+        setServerRetry(!!r.allowed);
+        if (r.allowed) toast('Retake granted', 'Your instructor has allowed you to retry. Tap Retry Exam.');
+        else toast('Not yet allowed', 'Your instructor has not granted a retake. Please wait.');
+      })
+      .catch(() => toast('Cannot check', 'Could not reach the server. Check your connection.'));
+  }, [examId, studentId, name, section]);
 
   // Heartbeat: keeps the live session alive and detects admin kicks.
   useEffect(() => {
@@ -832,6 +854,12 @@ export default function Exam() {
                   <Button variant="outline" onClick={continueExam}>Continue Exam</Button>
                 )}
                 <Button onClick={retryExam}>Retry Exam</Button>
+              </div>
+            )}
+            {!serverRetry && submitReason !== 'tab' && submitReason !== 'timeout' && submitReason !== 'kick' && !pendingSubmit && (
+              <div className="flex flex-col gap-2.5 mb-6">
+                <p className="text-[11px] text-faint leading-relaxed">If your instructor just allowed a retake, tap to check — no hard refresh needed.</p>
+                <Button variant="outline" onClick={checkRetryNow}>Check for retake permission</Button>
               </div>
             )}
             <Button onClick={() => window.location.href = '/'} icon={ArrowLeft} className="!px-10 !py-3.5">Back to Home</Button>

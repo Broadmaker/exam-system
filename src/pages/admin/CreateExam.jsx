@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast, Modal, Spinner } from '../../components/ui';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag, Save, Copy } from 'lucide-react';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag, Save, Copy, ArrowLeft } from 'lucide-react';
 import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags } from '../../utils';
 
 export default function CreateExam() {
@@ -227,6 +227,7 @@ function CreateExamInner() {
   const [qTopic, setQTopic] = useState('');
   const [qCompetency, setQCompetency] = useState('');
   const [qTags, setQTags] = useState('');
+  const [showQMeta, setShowQMeta] = useState(false);
   const [saving, setSaving] = useState(false);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -436,80 +437,111 @@ function CreateExamInner() {
 
   const refreshQuestions = () => { api.getExam(examId).then(d => setQuestions(d.questions || [])); };
 
+  const navigate = useNavigate();
   return (
     <main className="max-w-[860px] mx-auto px-4 py-6">
+      <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
       <PageHeader
         eyebrow="Exams"
         title={examId ? 'Edit Exam' : 'Create Exam'}
         subtitle={examId ? 'Update exam details, add or edit questions.' : 'Set up your exam details first.'}
-        icon={FileText}
       />
 
-      {/* Exam Details */}
-      <Card>
-        <SectionTitle icon={FileText}>Exam Details</SectionTitle>
-        {classId && (
-          <div className="flex items-start gap-2 text-[12px] text-muted bg-navy-50 border border-navy-100 rounded-lg px-3 py-2 mb-4">
-            <GraduationCap size={15} className="text-navy-700 shrink-0 mt-0.5" />
-            <span>Linked to a class — the roster below is filled from its enrollments and submissions auto-mark students <strong className="text-navy-800">present</strong> for attendance records.</span>
+      {/* Exam Details — Professional grouped layout */}
+      <Card className="!p-0 overflow-hidden">
+        <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-border bg-gradient-to-r from-navy-50 to-surface">
+          <div className="flex items-center gap-2.5">
+            <span className="w-8 h-8 rounded-lg bg-navy-700 text-white flex items-center justify-center shrink-0"><FileText size={16} /></span>
+            <div>
+              <h2 className="text-[15px] font-semibold text-navy-800 leading-tight">Exam Details</h2>
+              <p className="text-[12px] text-muted">Configure the basics first — you can add questions after saving.</p>
+            </div>
+            <Badge tone="info" className="ml-auto">{examId ? 'Edit' : 'New'}</Badge>
           </div>
-        )}
-        <div className="flex flex-col gap-4">
-          <Input label="Exam Title" icon={FileText} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. STAT 120 Midterm" />
-          <TextArea label="Description (optional)" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief description of the exam" style={{ minHeight: 60, resize: 'vertical' }} />
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Select label="Assessment Type" value={examType} onChange={e => setExamType(e.target.value)}>
-              {Object.entries(EXAM_TYPE_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
-            </Select>
-            <Select label="Status" value={status} onChange={e => setStatus(e.target.value)}>
-              <option value="draft">Draft</option>
-              <option value="scheduled">Scheduled</option>
-              <option value="active">Active</option>
-              <option value="closed">Closed</option>
-              <option value="archived">Archived</option>
-            </Select>
-            <Input label="Passing Score (%)" icon={BarChart2} type="number" value={passingScore} onChange={e => setPassingScore(e.target.value)} min={0} max={100} />
-            <Input label="Scheduled Open (optional, when status = Scheduled)" icon={CalendarClock} type="datetime-local" value={startAt} onChange={e => setStartAt(e.target.value)} />
-          </div>
-          {(status === 'scheduled' && startAt) && (
-            <p className="text-[11px] text-muted -mt-2">Students can't start until {new Date(startAt).toLocaleString()}.</p>
+          {classId && (
+            <div className="flex items-start gap-2 text-[12px] text-navy-700 bg-navy-100/60 border border-navy-100 rounded-lg px-3 py-2 mt-3">
+              <GraduationCap size={15} className="shrink-0 mt-0.5" />
+              <span>Linked to <strong>{classes.find(c=>c.id===classId)?.name || 'class'}</strong> — roster auto-filled from enrollments; submissions auto-mark <strong>present</strong>.</span>
+            </div>
           )}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Input label="Time Limit (minutes)" icon={Clock} type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))} min={1} />
-            <Input label="Access Code (optional, for live check-in)" icon={Key} value={accessCode} onChange={e => setAccessCode(e.target.value)}
-              placeholder="e.g. MIDTERM25" className="!font-mono !tracking-[.08em] !uppercase" />
-          </div>
-          <div>
-            <Input label="Deadline (optional)" icon={CalendarClock} type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} className="!max-w-[280px]" />
-            {deadline && (
-              <div className="text-[11px] text-muted mt-1 flex items-center gap-2">
-                Students can no longer access or submit after this time.
-                <Button size="sm" variant="outline" onClick={() => setDeadline('')} icon={X}>Remove</Button>
+        </div>
+
+        <div className="px-5 sm:px-6 py-5 flex flex-col gap-6">
+          {/* Group 1: Identity */}
+          <div className="bg-canvas/40 border border-border rounded-xl p-4">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><FileText size={12} /> Identity</div>
+            <div className="flex flex-col gap-4">
+              <Input label="Exam Title *" icon={FileText} value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. STAT 120 — Midterm" hint={`${title.length}/80 characters`} />
+              <TextArea label="Description" hint="Shown on the student gate. Keep it concise." value={desc} onChange={e => setDesc(e.target.value)} placeholder="Brief overview, instructions, or coverage..." style={{ minHeight: 72, resize: 'vertical' }} />
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Select label="Assessment Type" hint="Drives gradebook categories." value={examType} onChange={e => setExamType(e.target.value)}>
+                  {Object.entries(EXAM_TYPE_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+                </Select>
+                <div>
+                  <Select label="Status" value={status} onChange={e => setStatus(e.target.value)}>
+                    <option value="draft">Draft — not visible</option>
+                    <option value="scheduled">Scheduled — opens later</option>
+                    <option value="active">Active — open now</option>
+                    <option value="closed">Closed — no new starts</option>
+                    <option value="archived">Archived</option>
+                  </Select>
+                  <div className="mt-1.5"><Badge tone={status==='active'?'success':status==='draft'?'neutral':status==='scheduled'?'info':'danger'}>{status}</Badge></div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
-          <div>
-            <Select label="Class (optional — links exam to a class for records & auto-attendance)" value={classId} onChange={e => setClassId(e.target.value)} className="!max-w-[360px]">
-              <option value="">— No class —</option>
-              {classes.map(k => <option key={k.id} value={k.id}>{k.name}{k.section ? ' · ' + k.section : ''}</option>)}
+
+          {/* Group 2: Scoring & Timing */}
+          <div className="bg-canvas/40 border border-border rounded-xl p-4">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><BarChart2 size={12} /> Scoring & Timing</div>
+            <div className="grid sm:grid-cols-3 gap-4">
+              <Input label="Passing Score %" icon={BarChart2} type="number" value={passingScore} onChange={e => setPassingScore(e.target.value)} min={0} max={100} hint="0–100, default 60" />
+              <Input label="Time Limit (min)" icon={Clock} type="number" value={timeLimit} onChange={e => setTimeLimit(Number(e.target.value))} min={1} hint="Per attempt." />
+              <Input label="Access Code" icon={Key} value={accessCode} onChange={e => setAccessCode(e.target.value)} placeholder="MIDTERM25" className="!font-mono !tracking-[.08em] !uppercase" hint="Optional live check-in." />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4 mt-4">
+              <div>
+                <Input label="Scheduled Open" icon={CalendarClock} type="datetime-local" value={startAt} onChange={e => setStartAt(e.target.value)} hint={status!=='scheduled' ? 'Only when Status = Scheduled.' : ''} />
+                {status==='scheduled' && startAt && <p className="text-[11px] text-info mt-1">Opens {new Date(startAt).toLocaleString()}.</p>}
+              </div>
+              <div>
+                <Input label="Deadline" icon={CalendarClock} type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} />
+                {deadline ? (
+                  <div className="text-[11px] text-muted mt-1 flex items-center gap-2">
+                    Closes {new Date(deadline).toLocaleString()}.
+                    <Button size="sm" variant="ghost" onClick={() => setDeadline('')} icon={X} className="!px-1.5">Clear</Button>
+                  </div>
+                ) : <p className="text-[11px] text-faint mt-1">No deadline — stays open until closed.</p>}
+              </div>
+            </div>
+          </div>
+
+          {/* Group 3: Class & Roster */}
+          <div className="bg-canvas/40 border border-border rounded-xl p-4">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><GraduationCap size={12} /> Class & Roster</div>
+            <Select label="Class" value={classId} onChange={e => setClassId(e.target.value)} hint="Links records & auto-marks present on submit.">
+              <option value="">— No class (standalone exam) —</option>
+              {classes.map(k => <option key={k.id} value={k.id}>{k.name}{k.section ? ' · ' + k.section : ''} · {k.student_count || 0} students</option>)}
             </Select>
-            {classId && (
-              <p className="text-[11px] text-muted mt-1">
-                The roster below was filled from this class's enrollments. Submissions automatically mark students <strong>present</strong> that day.
-              </p>
-            )}
+            <div className="mt-4">
+              <TextArea label="Roster" value={roster} onChange={e => setRoster(e.target.value)}
+                placeholder={'One per line: Student ID, Full Name, Section\n2019-12345, Dela Cruz, Juan A., BSCS 2-A\n2019-23456, Santos, Maria B., BSCS 2-A'}
+                hint={`${roster.split('\n').filter(l=>l.trim()).length} students listed · absent if never starts`}
+                className="!font-mono !text-[13px]" style={{ minHeight: 110, resize: 'vertical' }} />
+            </div>
           </div>
-          <TextArea label="Class Roster (optional, for attendance & absentee reports)" value={roster} onChange={e => setRoster(e.target.value)}
-            placeholder={'One student per line: Student ID, Full Name, Section\nExample:\n2019-12345, Dela Cruz, Juan A., BSCS 2-A\n2019-23456, Santos, Maria B., BSCS 2-A'}
-            className="!font-mono !text-[13px]" style={{ minHeight: 110, resize: 'vertical' }} />
-          <p className="text-[11px] text-muted -mt-2 flex items-center gap-1.5"><Users size={12} className="text-navy-700" /> Students in the roster who never start the exam appear as <strong>absent</strong> in the Attendance report.</p>
-          <div className="flex items-center justify-between gap-3 border border-border rounded-lg px-3.5 py-3 bg-canvas/60">
-            <Toggle checked={showAnswers} onChange={setShowAnswers} label="Show correct answers to students after submission" />
+
+          {/* Preferences */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border border-border rounded-xl px-4 py-3 bg-navy-50/50">
+            <Toggle checked={showAnswers} onChange={setShowAnswers} label="Show correct answers after submission" />
+            <span className="text-[11px] text-faint">Students see score + breakdown.</span>
           </div>
-          <div className="flex gap-2 pt-1 flex-wrap">
-            <Button onClick={saveExam} loading={saving} icon={FileText}>{saving ? 'Saving...' : examId ? 'Update Exam' : 'Save Exam'}</Button>
-            {examId && <Button variant="soft" icon={Save} onClick={() => setShowTplModal(true)}>Save as Template</Button>}
-            {!examId && templates.length > 0 && <Button variant="soft" icon={Copy} onClick={() => setShowUseTplModal(true)}>Create from Template ({templates.length})</Button>}
+
+          <div className="flex gap-2 flex-wrap pt-1 sticky bottom-4 bg-surface/90 backdrop-blur border border-border rounded-xl px-3 py-2.5 shadow-pop sm:static sm:bg-transparent sm:border-0 sm:p-0 sm:shadow-none">
+            <Button onClick={saveExam} loading={saving} icon={Save} className="!px-6">{saving ? 'Saving...' : examId ? 'Update Exam' : 'Create Exam'}</Button>
+            {examId && <Button variant="outline" icon={Copy} onClick={() => setShowTplModal(true)}>Save as Template</Button>}
+            {!examId && templates.length > 0 && <Button variant="outline" icon={Copy} onClick={() => setShowUseTplModal(true)}>Use Template ({templates.length})</Button>}
+            <span className="text-[11px] text-faint self-center ml-1">* Required</span>
           </div>
         </div>
       </Card>
@@ -530,85 +562,149 @@ function CreateExamInner() {
         <p className="text-[11px] text-faint mt-2">Creates a new draft exam from the template with all its questions copied.</p>
       </Modal>
 
-      {/* Add Question */}
+      {/* Add Question — Professional grouped */}
       {examId && (
-        <Card className="!mt-6">
-          <SectionTitle icon={HelpCircle} count={`${questions.length} question${questions.length !== 1 ? 's' : ''} total`}>Add Question</SectionTitle>
-          <div className="flex flex-col gap-4">
-            <div className="grid sm:grid-cols-[auto_1fr] gap-4 items-end">
-              <Input label="Part" icon={ListChecks} type="number" value={qPart} onChange={e => setQPart(Number(e.target.value))} min={1} className="!w-24" />
+        <Card className="!mt-6 !p-0 overflow-hidden">
+          <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-border bg-gradient-to-r from-navy-50 to-surface">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-navy-700 text-white flex items-center justify-center shrink-0"><HelpCircle size={16} /></span>
               <div>
-                <span className="label">Question Type</span>
-                <TypeToggle value={qType} onChange={setQType} />
+                <h2 className="text-[15px] font-semibold text-navy-800 leading-tight">Add Question</h2>
+                <p className="text-[12px] text-muted">{questions.length} question{questions.length !== 1 ? 's' : ''} total · grouped by part</p>
+              </div>
+              <Badge tone="info" className="ml-auto">{questions.length}</Badge>
+            </div>
+          </div>
+          <div className="px-5 sm:px-6 py-5 flex flex-col gap-5">
+            {/* Setup */}
+            <div className="bg-canvas/40 border border-border rounded-xl p-4">
+              <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><ListChecks size={12} /> Setup</div>
+              <div className="grid sm:grid-cols-[110px_1fr] gap-4 items-end">
+                <Input label="Part" type="number" value={qPart} onChange={e => setQPart(Number(e.target.value))} min={1} hint="Section" />
+                <div>
+                  <span className="label">Question Type</span>
+                  <TypeToggle value={qType} onChange={setQType} />
+                  <p className="text-[11px] text-faint mt-1">{qType === 'fill_blank' ? 'Free text · flexible matching.' : '4 choices · one correct.'}</p>
+                </div>
               </div>
             </div>
-            <TextArea label="Question Text (use {'{{DATA:1,2,3}}'} for datasets)" value={qText} onChange={e => setQText(e.target.value)} style={{ minHeight: 70, resize: 'vertical' }} />
-            {qType === 'fill_blank' ? (
-              <Input label="Correct Answer" icon={Key} value={qBlankAnswer} onChange={e => setQBlankAnswer(e.target.value)} placeholder="e.g. 42"
-                hint='Matching is flexible: case-insensitive, ignores spacing, accepts equivalent math. Examples: "x = 2" ≈ "2"; "1/2" ≈ "0.5"; "(x-1)(x+2)" ≈ "x² + x - 2".' />
-            ) : (
-              <>
-                <ChoiceRows values={qChoices} setValue={(k, v) => setQChoices(c => ({ ...c, [k]: v }))} answer={qAnswer} setAnswer={setQAnswer} />
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <Select label="Correct Answer" value={qAnswer} onChange={e => setQAnswer(e.target.value)}>
-                    <option value="" disabled>— Select —</option>
-                    {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
-                  </Select>
-                  <Input label="Explanation (optional)" icon={Lightbulb} value={qExplain} onChange={e => setQExplain(e.target.value)} placeholder="Shown after submission" />
+
+            {/* Content */}
+            <div className="bg-canvas/40 border border-border rounded-xl p-4">
+              <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3">Question</div>
+              <TextArea label="Question Text" value={qText} onChange={e => setQText(e.target.value)} placeholder="Enter the question…   Hint: use {{DATA:1,2,3}} for randomized datasets" style={{ minHeight: 80, resize: 'vertical' }} hint="Supports datasets · keep it concise for students." />
+            </div>
+
+            {/* Answer */}
+            <div className="bg-canvas/40 border border-border rounded-xl p-4">
+              <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><Key size={12} /> Answer</div>
+              {qType === 'fill_blank' ? (
+                <Input label="Correct Answer" icon={Key} value={qBlankAnswer} onChange={e => setQBlankAnswer(e.target.value)} placeholder="e.g. 42"
+                  hint='Flexible: "x = 2" ≈ "2"; "1/2" ≈ "0.5"; "(x-1)(x+2)" ≈ "x² + x - 2".' />
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <ChoiceRows values={qChoices} setValue={(k, v) => setQChoices(c => ({ ...c, [k]: v }))} answer={qAnswer} setAnswer={setQAnswer} />
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <Select label="Correct Answer *" value={qAnswer} onChange={e => setQAnswer(e.target.value)} hint="Click a letter chip above.">
+                      <option value="" disabled>— Select —</option>
+                      {['A', 'B', 'C', 'D'].map(k => <option key={k} value={k}>{k}</option>)}
+                    </Select>
+                    <Input label="Explanation" icon={Lightbulb} value={qExplain} onChange={e => setQExplain(e.target.value)} placeholder="Shown after submission" hint="Optional." />
+                  </div>
                 </div>
-              </>
+              )}
+            </div>
+
+            {/* Metadata — collapsed by default */}
+            <div className="bg-canvas/40 border border-border rounded-xl overflow-hidden">
+              <button type="button" onClick={() => setShowQMeta(v => !v)} className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-navy-50/50 transition-colors">
+                <span className="text-[11px] font-bold tracking-[.08em] uppercase text-faint flex items-center gap-2"><Tag size={12} /> Metadata <span className="font-normal normal-case tracking-normal text-faint">· optional · powers analytics</span></span>
+                <span className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${showQMeta ? 'bg-navy-700 text-white border-navy-700' : 'bg-surface text-muted border-border'}`}>{showQMeta ? 'Hide' : 'Show'}</span>
+              </button>
+              {showQMeta && (
+                <div className="px-4 pb-4 grid sm:grid-cols-2 lg:grid-cols-4 gap-4 border-t border-border pt-4">
+                  <Select label="Difficulty" value={qDifficulty} onChange={e => setQDifficulty(e.target.value)}>
+                    <option value="">— None —</option>
+                    {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
+                  </Select>
+                  <Input label="Topic" value={qTopic} onChange={e => setQTopic(e.target.value)} placeholder="Algebra" />
+                  <Input label="Competency" value={qCompetency} onChange={e => setQCompetency(e.target.value)} placeholder="Solve linear equations" />
+                  <Input label="Tags" icon={Tag} value={qTags} onChange={e => setQTags(e.target.value)} placeholder="algebra, equation" />
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={addQuestion} loading={adding} icon={Plus} className="!px-6">{adding ? 'Adding…' : 'Add Question'}</Button>
+              <span className="text-[11px] text-faint self-center">Part {qPart} · {qType === 'fill_blank' ? 'Fill blank' : 'Multiple choice'}</span>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Import — Professional */}
+      {examId && (
+        <Card className="!mt-6 !p-0 overflow-hidden">
+          <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-border bg-gradient-to-r from-navy-50 to-surface">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-navy-700 text-white flex items-center justify-center shrink-0"><Upload size={16} /></span>
+              <div>
+                <h2 className="text-[15px] font-semibold text-navy-800 leading-tight">Import Questions</h2>
+                <p className="text-[12px] text-muted">Bulk JSON or pick from your Question Bank</p>
+              </div>
+              <Badge tone="info" className="ml-auto">Bulk · Bank</Badge>
+            </div>
+          </div>
+          <div className="px-5 sm:px-6 py-5 flex flex-col gap-4">
+            <div className="bg-canvas/40 border border-border rounded-xl p-4">
+              <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><Upload size={12} /> Bulk JSON</div>
+              <BulkImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported!'); }} />
+            </div>
+            <div className="flex items-center gap-3 text-[11px] text-faint">
+              <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
+            </div>
+            <div className="bg-canvas/40 border border-border rounded-xl p-4">
+              <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-3 flex items-center gap-2"><Library size={12} /> Question Bank</div>
+              <BankImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported from bank!'); }} />
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Questions List — Professional */}
+      {examId && (
+        <Card className="!mt-6 !p-0 overflow-hidden">
+          <div className="px-5 sm:px-6 pt-5 pb-4 border-b border-border bg-gradient-to-r from-navy-50 to-surface">
+            <div className="flex items-center gap-2.5">
+              <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><FileText size={16} /></span>
+              <div>
+                <h2 className="text-[15px] font-semibold text-navy-800 leading-tight">Questions</h2>
+                <p className="text-[12px] text-muted">{questions.length} total · {[...new Set(questions.map(q=>q.part))].length} part{[...new Set(questions.map(q=>q.part))].length!==1?'s':''} · drag to reorder in future</p>
+              </div>
+              <Badge tone="info" className="ml-auto">{questions.length}</Badge>
+            </div>
+          </div>
+          <div className="px-5 sm:px-6 py-5">
+            {!questions.length ? (
+              <EmptyState icon={Inbox} title="No questions yet" body="Add your first question above — or import from Bulk/Bank." compact />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {questions.map((q, i) => (
+                  <QuestionCard
+                    key={q.id}
+                    q={q}
+                    index={i}
+                    isEditing={editingId === q.id}
+                    editState={editState}
+                    editActions={editActions}
+                    editSaving={editSaving}
+                    onEdit={startEdit}
+                    onDelete={(id) => setDeleteTarget(id)}
+                  />
+                ))}
+              </div>
             )}
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Select label="Difficulty" value={qDifficulty} onChange={e => setQDifficulty(e.target.value)}>
-                <option value="">— None —</option>
-                {Object.entries(DIFFICULTY_LABELS).map(([v, lbl]) => <option key={v} value={v}>{lbl}</option>)}
-              </Select>
-              <Input label="Topic" value={qTopic} onChange={e => setQTopic(e.target.value)} placeholder="e.g. Algebra" />
-              <Input label="Competency" value={qCompetency} onChange={e => setQCompetency(e.target.value)} placeholder="e.g. Solve linear equations" />
-              <Input label="Tags (comma-separated)" icon={Tag} value={qTags} onChange={e => setQTags(e.target.value)} placeholder="e.g. algebra, equation" />
-            </div>
-            <div>
-              <Button onClick={addQuestion} loading={adding} icon={Plus}>{adding ? 'Adding...' : 'Add Question'}</Button>
-            </div>
           </div>
-        </Card>
-      )}
-
-      {/* Import */}
-      {examId && (
-        <Card className="!mt-6">
-          <SectionTitle icon={Upload} count="Bulk JSON · Question Bank">Import Questions</SectionTitle>
-          <BulkImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported!'); }} />
-          <div className="my-3 flex items-center gap-3 text-[11px] text-faint">
-            <span className="h-px flex-1 bg-border" /> or <span className="h-px flex-1 bg-border" />
-          </div>
-          <BankImportSection examId={examId} onImported={() => { refreshQuestions(); toast.success('Questions imported from bank!'); }} />
-        </Card>
-      )}
-
-      {/* Questions List */}
-      {examId && (
-        <Card className="!mt-6">
-          <SectionTitle icon={FileText} count={`${questions.length} question${questions.length !== 1 ? 's' : ''}`}>Questions</SectionTitle>
-          {!questions.length ? (
-            <EmptyState icon={Inbox} title="No questions yet" body="Add your first question above." compact />
-          ) : (
-            <div className="flex flex-col gap-2.5">
-              {questions.map((q, i) => (
-                <QuestionCard
-                  key={q.id}
-                  q={q}
-                  index={i}
-                  isEditing={editingId === q.id}
-                  editState={editState}
-                  editActions={editActions}
-                  editSaving={editSaving}
-                  onEdit={startEdit}
-                  onDelete={(id) => setDeleteTarget(id)}
-                />
-              ))}
-            </div>
-          )}
         </Card>
       )}
 
