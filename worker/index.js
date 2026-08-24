@@ -1305,9 +1305,13 @@ app.post('/api/push/subscribe', async (c) => {
   const sub = body.subscription;
   if (!student_id) return c.json({ error: 'student_id required' }, 400);
   if (!sub || !sub.endpoint) return c.json({ error: 'subscription.endpoint required' }, 400);
-  const endpoint = String(sub.endpoint);
-  const p256dh = String(sub.keys?.p256dh || sub.p256dh || '');
-  const auth = String(sub.keys?.auth || sub.auth || '');
+  // Validate student exists (enrolled or has prior submission/push or enrolled globally)
+  const exists = await db.prepare(`SELECT student_id FROM enrollments WHERE student_id = ? UNION SELECT student_id FROM submissions WHERE student_id = ? UNION SELECT student_id FROM push_subscriptions WHERE student_id = ? LIMIT 1`).bind(student_id, student_id, student_id).first();
+  if (!exists) return c.json({ error: 'Student ID not found — not enrolled in any class. Check with your instructor or enroll at /enroll first.' }, 404);
+  if (!/^.+$/.test(String(sub.endpoint)) || !String(sub.endpoint).startsWith('https://')) return c.json({ error: 'Invalid subscription endpoint — must be https://' }, 400);
+  const endpoint = String(sub.endpoint).slice(0, 500);
+  const p256dh = String(sub.keys?.p256dh || sub.p256dh || '').slice(0, 200);
+  const auth = String(sub.keys?.auth || sub.auth || '').slice(0, 200);
   const expirationTime = sub.expirationTime ? String(sub.expirationTime) : '';
   const id = uuid();
   try {
@@ -1317,6 +1321,7 @@ app.post('/api/push/subscribe', async (c) => {
     await db.prepare(`DELETE FROM push_subscriptions WHERE student_id = ? AND endpoint = ?`).bind(student_id, endpoint).run();
     await db.prepare(`INSERT INTO push_subscriptions (id, student_id, endpoint, p256dh, auth, expiration_time) VALUES (?, ?, ?, ?, ?, ?)`).bind(id, student_id, endpoint, p256dh, auth, expirationTime).run();
   }
+  await log(db, 'push_subscribed', `Push subscribed for ${student_id}`);
   return c.json({ success: true });
 });
 
