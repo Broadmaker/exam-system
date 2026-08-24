@@ -103,6 +103,13 @@ export const api = {
   getVapidPublicKey: () => request('/push/vapid-public-key'),
   pushSubscribe: (studentId, subscription) => request('/push/subscribe', { method: 'POST', body: JSON.stringify({ student_id: studentId, subscription }) }),
   pushUnsubscribe: (studentId, endpoint) => request('/push/unsubscribe', { method: 'POST', body: JSON.stringify({ student_id: studentId, endpoint }) }),
+  // Exam Templates (§66)
+  listTemplates: () => request('/templates', { headers: { 'Authorization': adminPass() } }),
+  getTemplate: (id) => request('/templates/' + id, { headers: { 'Authorization': adminPass() } }),
+  createTemplate: (body) => request('/templates', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  updateTemplate: (id, body) => request('/templates/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteTemplate: (id) => request('/templates/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  useTemplate: (id, body={}) => request('/templates/' + id + '/use', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   // Class self-enrollment (student-facing)
   lookupClassCode: (code) => request('/classes/code/' + encodeURIComponent(code)),
   enrollByCode: (body) => request('/classes/enroll', { method: 'POST', body: JSON.stringify(body) }),

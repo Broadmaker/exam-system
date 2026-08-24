@@ -1443,6 +1443,108 @@ app.delete('/api/notifications/:id', async (c) => {
   return c.json({ success: true });
 });
 
+// ── EXAM TEMPLATES (Upscale.md §66) ────────────
+app.get('/api/templates', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const { results } = await db.prepare(
+    `SELECT t.*, (SELECT COUNT(*) FROM exam_template_questions q WHERE q.template_id = t.id) as question_count FROM exam_templates t ORDER BY t.updated_at DESC`
+  ).all();
+  return c.json(results);
+});
+
+app.get('/api/templates/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const tpl = await db.prepare(`SELECT * FROM exam_templates WHERE id = ?`).bind(c.req.param('id')).first();
+  if (!tpl) return c.json({ error: 'Template not found' }, 404);
+  const { results: questions } = await db.prepare(`SELECT * FROM exam_template_questions WHERE template_id = ? ORDER BY sort_order, id`).bind(tpl.id).all();
+  return c.json({ ...tpl, questions });
+});
+
+app.post('/api/templates', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const body = await c.req.json();
+  const title = String(body.title || '').trim();
+  if (!title) return c.json({ error: 'Template title is required' }, 400);
+  if (title.length > 80) return c.json({ error: 'Title must be ≤80 characters' }, 400);
+  const id = uuid();
+  const passing = clampPassing(body.passing_score);
+  await db.prepare(
+    `INSERT INTO exam_templates (id, title, description, type, time_limit, questions_per_set, show_answers, passing_score, class_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, title, String(body.description || ''), body.type || 'major_exam', Number(body.time_limit) || 60, Number(body.questions_per_set) || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, passing, body.class_id || '').run();
+
+  // Source questions: either cloning an existing exam (exam_id), or inline questions array
+  let sourceQs = [];
+  if (body.exam_id) {
+    const { results } = await db.prepare(`SELECT part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags FROM questions WHERE exam_id = ? ORDER BY sort_order, id`).bind(body.exam_id).all();
+    sourceQs = results || [];
+  } else if (Array.isArray(body.questions) && body.questions.length) {
+    sourceQs = body.questions;
+  }
+
+  for (let i = 0; i < sourceQs.length; i++) {
+    const q = sourceQs[i];
+    await db.prepare(
+      `INSERT INTO exam_template_questions (id, template_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uuid(), id, q.part || 1, q.text, q.type || 'multiple_choice', typeof q.choices === 'string' ? q.choices : JSON.stringify(q.choices || []), q.answer || '', q.explain || '', q.sort_order !== undefined ? q.sort_order : i, q.difficulty || '', q.topic || '', q.competency || '', typeof q.tags === 'string' ? q.tags : JSON.stringify(q.tags || [] )).run();
+  }
+
+  await log(db, 'template_created', `Created template: ${title} (${sourceQs.length} Qs)`);
+  return c.json({ id, question_count: sourceQs.length }, 201);
+});
+
+app.put('/api/templates/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const tplId = c.req.param('id');
+  const body = await c.req.json();
+  const title = String(body.title || '').trim();
+  if (!title) return c.json({ error: 'Title is required' }, 400);
+  const passing = clampPassing(body.passing_score);
+  await db.prepare(
+    `UPDATE exam_templates SET title = ?, description = ?, type = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, passing_score = ?, class_id = ?, updated_at = datetime('now') WHERE id = ?`
+  ).bind(title, String(body.description || ''), body.type || 'major_exam', Number(body.time_limit) || 60, Number(body.questions_per_set) || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, passing, body.class_id || '', tplId).run();
+  await log(db, 'template_updated', `Updated template ${tplId}`);
+  return c.json({ success: true });
+});
+
+app.delete('/api/templates/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  await db.prepare(`DELETE FROM exam_templates WHERE id = ?`).bind(c.req.param('id')).run();
+  await log(db, 'template_deleted', `Deleted template ${c.req.param('id')}`);
+  return c.json({ success: true });
+});
+
+app.post('/api/templates/:id/use', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const tplId = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const tpl = await db.prepare(`SELECT * FROM exam_templates WHERE id = ?`).bind(tplId).first();
+  if (!tpl) return c.json({ error: 'Template not found' }, 404);
+  const newId = uuid();
+  const title = body.title ? String(body.title).trim() : tpl.title + ' (from template)';
+  const class_id = body.class_id !== undefined ? String(body.class_id) : tpl.class_id;
+  await db.prepare(
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(newId, title, tpl.description || '', tpl.time_limit, tpl.questions_per_set, tpl.show_answers, '', '', '[]', class_id || '', tpl.type || 'major_exam', 'draft', tpl.passing_score, '').run();
+  const { results: tQs } = await db.prepare(`SELECT part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags FROM exam_template_questions WHERE template_id = ? ORDER BY sort_order, id`).bind(tplId).all();
+  for (const q of tQs) {
+    await db.prepare(
+      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order, q.difficulty || '', q.topic || '', q.competency || '', q.tags || '').run();
+  }
+  await log(db, 'template_used', `Used template ${tpl.title} → exam ${title}`);
+  return c.json({ id: newId, question_count: tQs.length }, 201);
+});
+
 app.post('/api/classes/:id/enroll', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;

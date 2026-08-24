@@ -4,7 +4,7 @@ import AuthGate from './AuthGate';
 import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, Users, BookOpen, Eye, RotateCcw, Radio, Clock, LogOut,
-  Menu, X, ChevronLeft, GraduationCap, PanelLeftClose, PanelLeftOpen, ShieldCheck, Bell,
+  Menu, X, ChevronLeft, GraduationCap, PanelLeftClose, PanelLeftOpen, ShieldCheck, Bell, Library,
 } from 'lucide-react';
 
 const navGroups = [
@@ -24,6 +24,7 @@ const navGroups = [
     label: 'Exams',
     items: [
       { to: '/admin/bank', label: 'Question Bank', icon: BookOpen },
+      { to: '/admin/templates', label: 'Exam Templates', icon: Library },
       { to: '/admin/answers', label: 'Student Answers', icon: Eye },
       { to: '/admin/regrade', label: 'Regrade', icon: RotateCcw },
     ],

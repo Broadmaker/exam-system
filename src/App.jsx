@@ -19,6 +19,7 @@ import Classes from './pages/admin/Classes';
 import StudentRecords from './pages/StudentRecords';
 import Notifications from './pages/Notifications';
 import AdminNotifications from './pages/admin/Notifications';
+import Templates from './pages/admin/Templates';
 
 export default function App() {
   return (
@@ -42,6 +43,7 @@ export default function App() {
         <Route path="/admin/proctor" element={<Proctor />} />
         <Route path="/admin/classes" element={<Classes />} />
         <Route path="/admin/notifications" element={<AdminNotifications />} />
+        <Route path="/admin/templates" element={<Templates />} />
       </Routes>
       <FloatingInstall />
     </ToastProvider>

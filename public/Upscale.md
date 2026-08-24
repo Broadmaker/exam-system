@@ -163,7 +163,7 @@
 | 63 | Dashboard Analytics | 🚧 PARTIAL | KPIs on Dashboard; full charts pending |
 | 64 | Question Quality Analytics | ⏳ TODO | Discrimination/distractor pending |
 | 65 | Competency-Based Assessment | ✅ DONE | `competency` per question `worker/schema.sql:34` |
-| 66 | Exam Templates | ⏳ TODO | Save-as-template pending |
+| 66 | Exam Templates | ✅ DONE | **2026-08-24** `exam_templates` + `exam_template_questions` `worker/schema.sql:196` `worker/index.js:1446` UI `src/pages/admin/Templates.jsx` + `CreateExam` save/use |
 | 67 | Exam Duplication | ✅ DONE | `POST /exams/:id/duplicate` `worker/index.js:112` |
 | 68 | Exam Versioning | ⏳ TODO | Version history pending |
 | 69 | AI Features — Future | ⏳ TODO | Future |

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast } from '../../components/ui';
-import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag } from 'lucide-react';
+import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast, Modal, Spinner } from '../../components/ui';
+import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag, Save, Copy } from 'lucide-react';
 import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags } from '../../utils';
 
 export default function CreateExam() {
@@ -238,9 +238,17 @@ function CreateExamInner() {
   const [editSaving, setEditSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  // Templates (§66)
+  const [templates, setTemplates] = useState([]);
+  const [showTplModal, setShowTplModal] = useState(false);
+  const [tplSaving, setTplSaving] = useState(false);
+  const [showUseTplModal, setShowUseTplModal] = useState(false);
+  const [tplUsing, setTplUsing] = useState(false);
+  const [selectedTpl, setSelectedTpl] = useState('');
 
   useEffect(() => {
     api.listClasses().then(setClasses).catch(() => {});
+    api.listTemplates().then(setTemplates).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -296,6 +304,29 @@ function CreateExamInner() {
       }
     } catch (e) { toast.error(e.message); }
     setSaving(false);
+  };
+
+  const saveAsTemplate = async () => {
+    if (!examId) { toast.error('Save the exam first'); return; }
+    setTplSaving(true);
+    try {
+      const res = await api.createTemplate({ exam_id: examId, title: title.trim() + ' Template', description: desc.trim(), type: examType, time_limit: timeLimit, questions_per_set: questions.length || 10, show_answers: showAnswers, passing_score: Number(passingScore) || 60, class_id: classId });
+      toast.success(`Template saved (${res.question_count} questions)`);
+      api.listTemplates().then(setTemplates).catch(()=>{});
+      setShowTplModal(false);
+    } catch (e) { toast.error(e.message); }
+    setTplSaving(false);
+  };
+
+  const useTemplate = async () => {
+    if (!selectedTpl) { toast.error('Select a template'); return; }
+    setTplUsing(true);
+    try {
+      const res = await api.useTemplate(selectedTpl, { class_id: classId });
+      toast.success(`Created exam from template (${res.question_count} Qs)`);
+      window.location.search = '?id=' + res.id;
+    } catch (e) { toast.error(e.message); }
+    setTplUsing(false);
   };
 
   const addQuestion = async () => {
@@ -475,11 +506,29 @@ function CreateExamInner() {
           <div className="flex items-center justify-between gap-3 border border-border rounded-lg px-3.5 py-3 bg-canvas/60">
             <Toggle checked={showAnswers} onChange={setShowAnswers} label="Show correct answers to students after submission" />
           </div>
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-1 flex-wrap">
             <Button onClick={saveExam} loading={saving} icon={FileText}>{saving ? 'Saving...' : examId ? 'Update Exam' : 'Save Exam'}</Button>
+            {examId && <Button variant="soft" icon={Save} onClick={() => setShowTplModal(true)}>Save as Template</Button>}
+            {!examId && templates.length > 0 && <Button variant="soft" icon={Copy} onClick={() => setShowUseTplModal(true)}>Create from Template ({templates.length})</Button>}
           </div>
         </div>
       </Card>
+
+      {/* Template modals */}
+      <Modal open={showTplModal} onClose={()=>setShowTplModal(false)} title="Save as Template" icon={Library} size="sm"
+        footer={<><Button variant="ghost" onClick={()=>setShowTplModal(false)}>Cancel</Button><Button icon={Save} loading={tplSaving} onClick={saveAsTemplate}>Save Template</Button></>}>
+        <p className="text-[12px] text-muted mb-3">This will save the current exam’s title, description, type ({EXAM_TYPE_LABELS[examType] || examType}), {timeLimit} min, {passingScore}% passing, and {questions.length} question(s) as a reusable template (§66). You’ll find it in <strong>Templates</strong>.</p>
+        <Input label="Template name" value={title} onChange={e=>setTitle(e.target.value)} placeholder={title + ' Template'} />
+      </Modal>
+
+      <Modal open={showUseTplModal} onClose={()=>setShowUseTplModal(false)} title="Create from Template" icon={Library} size="sm"
+        footer={<><Button variant="ghost" onClick={()=>setShowUseTplModal(false)}>Cancel</Button><Button icon={Copy} loading={tplUsing} onClick={useTemplate}>Create Exam</Button></>}>
+        <Select label="Choose template" value={selectedTpl} onChange={e=>setSelectedTpl(e.target.value)}>
+          <option value="">— Select —</option>
+          {templates.map(t=> <option key={t.id} value={t.id}>{t.title} — {t.question_count} Qs · {t.time_limit}m</option>)}
+        </Select>
+        <p className="text-[11px] text-faint mt-2">Creates a new draft exam from the template with all its questions copied.</p>
+      </Modal>
 
       {/* Add Question */}
       {examId && (
