@@ -4,7 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast, Modal, Spinner } from '../../components/ui';
 import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag, Save, Copy, ArrowLeft } from 'lucide-react';
-import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags } from '../../utils';
+import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags, effectiveExamStatus } from '../../utils';
 
 export default function CreateExam() {
   const [params] = useSearchParams();
@@ -266,7 +266,8 @@ function CreateExamInner() {
       setTitle(data.title);
       setDesc(data.description || '');
       setExamType(data.type || 'major_exam');
-      setStatus(data.status || 'draft');
+      // Use effective status so an exam past deadline shows as Closed in the editor instead of staying stuck on Active
+      setStatus(effectiveExamStatus(data) || data.status || 'draft');
       setPassingScore(data.passing_score !== undefined ? String(data.passing_score) : '60');
       setStartAt(data.start_at ? toLocalInput(data.start_at) : '');
       setTimeLimit(data.time_limit);
@@ -479,11 +480,20 @@ function CreateExamInner() {
                 </Select>
                 <div>
                   <Select label="Status" value={status} onChange={e => setStatus(e.target.value)}>
-                    <option value="draft">Draft — not visible</option>
-                    <option value="scheduled">Scheduled — opens later</option>
-                    <option value="active">Active — open now</option>
-                    <option value="closed">Closed — no new starts</option>
-                    <option value="archived">Archived</option>
+                    {(() => {
+                      const opts = [
+                        { value: 'draft', label: 'Draft — not visible' },
+                        { value: 'scheduled', label: 'Scheduled — opens later' },
+                        { value: 'active', label: 'Active — open now' },
+                        { value: 'closed', label: 'Closed — no new starts' },
+                        { value: 'archived', label: 'Archived' },
+                      ];
+                      // Put current status first so the dropdown focuses/opens on the current state instead of always landing on Active
+                      const current = opts.find(o => o.value === status);
+                      const rest = opts.filter(o => o.value !== status);
+                      const sorted = current ? [current, ...rest] : opts;
+                      return sorted.map(o => <option key={o.value} value={o.value}>{o.label}</option>);
+                    })()}
                   </Select>
                   <div className="mt-1.5"><Badge tone={status==='active'?'success':status==='draft'?'neutral':status==='scheduled'?'info':'danger'}>{status}</Badge></div>
                 </div>
