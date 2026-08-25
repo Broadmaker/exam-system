@@ -315,6 +315,16 @@ export const EXAM_STATUS_LABELS = {
   draft: 'Draft', scheduled: 'Scheduled', active: 'Active', closed: 'Closed', archived: 'Archived',
 };
 
+export function effectiveExamStatus(exam, now = Date.now()) {
+  if (!exam) return 'draft';
+  const s = exam.status || 'active';
+  if ((s === 'active' || s === 'scheduled') && exam.deadline) {
+    const t = new Date(exam.deadline).getTime();
+    if (!isNaN(t) && t <= now) return 'closed';
+  }
+  return s;
+}
+
 // Question metadata (Upscale.md §13) — difficulty labels + tag helpers.
 export const DIFFICULTY_LABELS = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
 

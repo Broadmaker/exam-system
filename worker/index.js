@@ -31,6 +31,31 @@ async function log(db, action, details = '') {
   } catch {}
 }
 
+// ── DEADLINE AUTO-CLOSE ─────────────────────────────
+function isDeadlinePassed(deadline, now = Date.now()) {
+  if (!deadline) return false;
+  const t = new Date(deadline).getTime();
+  return !isNaN(t) && t <= now;
+}
+
+async function autoCloseExpiredExams(db) {
+  const now = Date.now();
+  try {
+    const { results } = await db.prepare(
+      `SELECT id, deadline, status FROM exams WHERE status IN ('active','scheduled') AND deadline != ''`
+    ).all();
+    let closed = 0;
+    for (const ex of (results || [])) {
+      if (isDeadlinePassed(ex.deadline, now)) {
+        await db.prepare(`UPDATE exams SET status = 'closed', updated_at = datetime('now') WHERE id = ?`).bind(ex.id).run();
+        await log(db, 'exam_auto_closed', `Auto-closed ${ex.id} after deadline ${ex.deadline}`);
+        closed++;
+      }
+    }
+    return closed;
+  } catch { return 0; }
+}
+
 // ── NOTIFICATIONS (Upscale.md §42-43, §72) ─────
 const NOTIF_TYPES = new Set(['assessment_published','assessment_reminder','assessment_submitted','result_published','grade_changed','attendance_recorded','announcement']);
 
@@ -181,6 +206,21 @@ app.get('/api/exams', async (c) => {
        (SELECT COUNT(*) FROM submissions WHERE exam_id = e.id) as submission_count
      FROM exams e ORDER BY e.created_at DESC`
   ).all();
+  // Lazy auto-close: if deadline has passed, flip active/scheduled → closed
+  const now = Date.now();
+  const expiredIds = [];
+  for (const ex of (results || [])) {
+    if ((ex.status === 'active' || ex.status === 'scheduled') && isDeadlinePassed(ex.deadline, now)) {
+      expiredIds.push(ex.id);
+    }
+  }
+  if (expiredIds.length) {
+    for (const id of expiredIds) {
+      await db.prepare(`UPDATE exams SET status = 'closed', updated_at = datetime('now') WHERE id = ?`).bind(id).run();
+      await log(db, 'exam_auto_closed', `Auto-closed ${id} after deadline`);
+    }
+    for (const ex of results) if (expiredIds.includes(ex.id)) ex.status = 'closed';
+  }
   return c.json(results);
 });
 
@@ -206,8 +246,14 @@ app.post('/api/exams', async (c) => {
 app.get('/api/exams/:id', async (c) => {
   const db = c.env.DB;
   const examId = c.req.param('id');
-  const exam = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(examId).first();
+  let exam = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
+  // Single-exam lazy auto-close
+  if ((exam.status === 'active' || exam.status === 'scheduled') && isDeadlinePassed(exam.deadline)) {
+    await db.prepare(`UPDATE exams SET status = 'closed', updated_at = datetime('now') WHERE id = ?`).bind(examId).run();
+    await log(db, 'exam_auto_closed', `Auto-closed ${examId} after deadline (single fetch)`);
+    exam.status = 'closed';
+  }
   const { results: questions } = await db.prepare(
     `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(examId).all();
@@ -532,8 +578,14 @@ app.post('/api/exams/:id/session/start', async (c) => {
     return c.json({ error: 'Student ID is required.' }, 400);
   }
 
-  const exam = await db.prepare(`SELECT deadline, access_code, class_id, status, start_at FROM exams WHERE id = ?`).bind(examId).first();
+  let exam = await db.prepare(`SELECT deadline, access_code, class_id, status, start_at FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
+  // Auto-close if deadline already passed before any lifecycle checks
+  if ((exam.status === 'active' || exam.status === 'scheduled') && isDeadlinePassed(exam.deadline)) {
+    await db.prepare(`UPDATE exams SET status = 'closed', updated_at = datetime('now') WHERE id = ?`).bind(examId).run();
+    await log(db, 'exam_auto_closed', `Auto-closed ${examId} at deadline (session gate)`);
+    exam.status = 'closed';
+  }
 
   // Lifecycle gate (Upscale.md §48): only scheduled (when open) and active exams
   // can be started. Draft / closed / archived exams are blocked server-side.
@@ -2411,4 +2463,14 @@ app.post('/api/regrade/:examId', async (c) => {
   return c.json({ regraded: updated.length, results: updated });
 });
 
-export default app;
+// ── SCHEDULED CRON: auto-close expired exams ────────
+async function handleScheduled(event, env, ctx) {
+  const db = env.DB;
+  if (!db) return;
+  try { await autoCloseExpiredExams(db); } catch {}
+}
+
+export default {
+  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+  scheduled: handleScheduled,
+};

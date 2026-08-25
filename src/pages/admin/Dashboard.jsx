@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
-import { examTypeLabel, EXAM_STATUS_TONES, EXAM_STATUS_LABELS, EXAM_TYPE_LABELS } from '../../utils';
+import { examTypeLabel, EXAM_STATUS_TONES, EXAM_STATUS_LABELS, EXAM_TYPE_LABELS, effectiveExamStatus } from '../../utils';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, StatCard, Card, Badge, Button, ConfirmDialog, EmptyState, Input, Select, useToast } from '../../components/ui';
 import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp, CopyPlus, CalendarClock, Search, Filter, ArrowUpDown, X, History, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
@@ -32,7 +32,7 @@ export default function Dashboard() {
 
   const totalSubs = exams.reduce((s, e) => s + (e.submission_count || 0), 0);
   const totalQuestions = exams.reduce((s, e) => s + (e.question_count || 0), 0);
-  const activeExams = exams.filter(e => e.status === 'active').length;
+  const activeExams = exams.filter(e => effectiveExamStatus(e) === 'active').length;
   const fineStats = useMemo(() => {
     const avgSubs = exams.length ? (totalSubs / exams.length).toFixed(1) : '—';
     const avgQ = exams.length ? (totalQuestions / exams.length).toFixed(1) : '—';
@@ -49,14 +49,14 @@ export default function Dashboard() {
 
   const statusCounts = useMemo(() => {
     const c = { all: exams.length, draft: 0, scheduled: 0, active: 0, closed: 0, archived: 0 };
-    exams.forEach(e => { const s = e.status || 'active'; if (c[s] !== undefined) c[s]++; });
+    exams.forEach(e => { const s = effectiveExamStatus(e); if (c[s] !== undefined) c[s]++; });
     return c;
   }, [exams]);
 
   const needsAttention = useMemo(() => {
-    const drafts = exams.filter(e => e.status === 'draft').length;
+    const drafts = exams.filter(e => effectiveExamStatus(e) === 'draft').length;
     const emptyQ = exams.filter(e => (e.question_count || 0) === 0).length;
-    const overdue = exams.filter(e => e.deadline && new Date(e.deadline).getTime() < Date.now() && (e.submission_count || 0) === 0).length;
+    const overdue = exams.filter(e => e.deadline && new Date(e.deadline).getTime() < Date.now() && (e.submission_count || 0) === 0 && effectiveExamStatus(e) !== 'closed' && effectiveExamStatus(e) !== 'archived').length;
     return { drafts, emptyQ, overdue };
   }, [exams]);
 
@@ -83,7 +83,7 @@ export default function Dashboard() {
           className.includes(q);
       });
     }
-    if (statusFilter !== 'all') out = out.filter(e => (e.status || 'active') === statusFilter);
+    if (statusFilter !== 'all') out = out.filter(e => effectiveExamStatus(e) === statusFilter);
     if (typeFilter !== 'all') out = out.filter(e => (e.type || 'major_exam') === typeFilter);
     out.sort((a, b) => {
       if (sortBy === 'created_desc') return new Date(b.created_at || 0) - new Date(a.created_at || 0);
@@ -466,7 +466,7 @@ export default function Dashboard() {
 }
 
 function ExamStatus({ exam }) {
-  const status = exam?.status || 'active';
+  const status = effectiveExamStatus(exam);
   const iconFor = {
     scheduled: <Clock size={10} />,
     active: <Lock size={10} />,
@@ -491,8 +491,8 @@ function DeadlinesHealth({ exams, classMap }) {
   const now = Date.now();
   const in7d = now + 7 * 24 * 60 * 60 * 1000;
   const withDeadline = exams.filter(e => e.deadline && !isNaN(new Date(e.deadline).getTime()));
-  const upcoming = withDeadline.filter(e => { const t = new Date(e.deadline).getTime(); return t >= now && t <= in7d; }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline)).slice(0, 5);
-  const overdue = withDeadline.filter(e => new Date(e.deadline).getTime() < now && (e.status === 'active' || e.status === 'scheduled') ).slice(0, 5);
+  const upcoming = withDeadline.filter(e => { const t = new Date(e.deadline).getTime(); return t >= now && t <= in7d && (effectiveExamStatus(e) === 'active' || effectiveExamStatus(e) === 'scheduled'); }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline)).slice(0, 5);
+  const overdue = withDeadline.filter(e => new Date(e.deadline).getTime() < now && (effectiveExamStatus(e) === 'active' || effectiveExamStatus(e) === 'scheduled') ).slice(0, 5);
   const noDeadline = exams.filter(e => !e.deadline).length;
   if (!exams.length) return null;
   if (!upcoming.length && !overdue.length && !noDeadline) return null;

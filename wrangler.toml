@@ -13,6 +13,9 @@ VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"
 [observability]
 enabled = true
 
+[triggers]
+crons = ["* * * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "exam-db"
