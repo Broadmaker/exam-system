@@ -10,3 +10,5 @@ export { default as EmptyState } from './EmptyState';
 export { default as Spinner } from './Spinner';
 export { Input, Select, TextArea } from './Field';
 export { ToastProvider, useToast } from './Toast';
+export { PillsContainer, Pill, TabPill } from './Pills';
+export { SearchInput, SearchInputLarge } from './SearchInput';

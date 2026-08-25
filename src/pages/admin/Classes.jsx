@@ -4,16 +4,17 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import {
   PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, Spinner, Modal, ConfirmDialog, useToast,
+  PillsContainer, TabPill, SearchInputLarge,
 } from '../../components/ui';
 import QRCode from 'qrcode';
 import {
   Users, Plus, Pencil, Trash2, ArrowLeft, CalendarCheck, ClipboardList,
   X, Search, UserPlus, BookOpen, Save, History, Download, Copy,
   QrCode, Link2, Eye, School, User, Key, ArrowRight, CheckCircle, XCircle, Info, UserCheck,
-  BarChart3, Settings, Scale, Layers, AlertTriangle,
+  BarChart3, Settings, Scale, Layers, AlertTriangle, Printer, CalendarClock,
 } from 'lucide-react';
 
-import { exportCSV, EXAM_TYPE_LABELS } from '../../utils';
+import { exportCSV, EXAM_TYPE_LABELS, EXAM_STATUS_LABELS, examTypeLabel, effectiveExamStatus } from '../../utils';
 
 export default function Classes() {
   const [classes, setClasses] = useState([]);
@@ -50,7 +51,14 @@ function ClassesList({ classes, onOpen, onChanged }) {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [search, setSearch] = useState('');
   const toast = useToast();
+
+  const filteredClasses = classes.filter(k => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return k.name?.toLowerCase().includes(q) || k.subject?.toLowerCase().includes(q) || k.section?.toLowerCase().includes(q) || k.instructor?.toLowerCase().includes(q) || k.access_code?.toLowerCase().includes(q);
+  });
 
   const openForm = (k) => {
     if (k) { setEditId(k.id); setCName(k.name); setCSubject(k.subject || ''); setCSection(k.section || ''); setCInstructor(k.instructor || ''); setCCode(k.access_code || ''); setCreating(true); }
@@ -99,56 +107,117 @@ function ClassesList({ classes, onOpen, onChanged }) {
         actions={<Button icon={Plus} onClick={() => openForm(null)}>New Class</Button>}
       />
 
-      {creating && (
-        <Card eyebrow="Class Setup" title={editId ? 'Edit Class' : 'Create Class'} icon={editId ? Pencil : Plus} className="!border-navy-700 !mb-5">
-          <div className="flex flex-col gap-3">
-            <Input label="Class Name" icon={School} value={cName} onChange={e => setCName(e.target.value)} placeholder="e.g. BSCS 2-A" />
-            <div className="grid sm:grid-cols-2 gap-3">
-              <Input label="Subject" icon={BookOpen} value={cSubject} onChange={e => setCSubject(e.target.value)} placeholder="e.g. Statistics" />
-              <Input label="Section" icon={Users} value={cSection} onChange={e => setCSection(e.target.value)} placeholder="e.g. BSCS 2-A" />
-            </div>
-            <div className="grid sm:grid-cols-2 gap-3">
+      <Modal open={creating} onClose={() => setCreating(false)} title={editId ? 'Edit Class' : 'Create Class'} icon={editId ? Pencil : Plus} size="md"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+            <Button onClick={save} loading={saving} icon={Save}>{saving ? 'Saving…' : editId ? 'Save Changes' : 'Create Class'}</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="bg-canvas/40 border border-border rounded-xl p-3.5">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-2.5 flex items-center gap-1.5"><School size={12} /> Class Identity</div>
+            <div className="flex flex-col gap-3">
+              <Input label="Class Name *" icon={School} value={cName} onChange={e => setCName(e.target.value)} placeholder="e.g. BSCS 2-A" />
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Input label="Subject" icon={BookOpen} value={cSubject} onChange={e => setCSubject(e.target.value)} placeholder="e.g. Statistics" />
+                <Input label="Section" icon={Users} value={cSection} onChange={e => setCSection(e.target.value)} placeholder="e.g. BSCS 2-A" />
+              </div>
               <Input label="Instructor" icon={User} value={cInstructor} onChange={e => setCInstructor(e.target.value)} placeholder="e.g. Prof. Sanig" />
-              <Input label="Enrollment Code" icon={Key} value={cCode} onChange={e => setCCode(e.target.value)} placeholder="Auto-generated if blank" className="!font-mono !uppercase !tracking-wide" hint="Students use this code to join at /enroll — leave blank to auto-generate." />
-            </div>
-            <div className="flex gap-2 pt-1">
-              <Button size="sm" onClick={save} loading={saving} icon={Save}>{saving ? 'Saving…' : 'Save Class'}</Button>
-              <Button size="sm" variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
             </div>
           </div>
-        </Card>
-      )}
+          <div className="bg-canvas/40 border border-border rounded-xl p-3.5">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-2.5 flex items-center gap-1.5"><Key size={12} /> Enrollment</div>
+            <Input label="Enrollment Code" icon={Key} value={cCode} onChange={e => setCCode(e.target.value)} placeholder="Auto-generated if blank" className="!font-mono !uppercase !tracking-wide" hint="Students use this code to join at /enroll — leave blank to auto-generate." />
+            <div className="mt-2 flex items-start gap-1.5 text-[11px] text-muted bg-info-bg/30 border border-info/15 rounded-lg px-2.5 py-2">
+              <Info size={12} className="text-info shrink-0 mt-0.5" />
+              <span>Share this code with students. They enroll once at <strong className="font-mono text-navy-700">/enroll</strong>.</span>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {!classes.length ? (
         <EmptyState icon={Users} title="No classes yet" body="Create a class, enroll your students, then build exams for it."
           action={<Button icon={Plus} onClick={() => openForm(null)}>Create Your First Class</Button>} />
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-          {classes.map(k => (
-            <Card key={k.id} className="!p-5 !mb-0 card-hover flex flex-col gap-2.5 cursor-pointer" onClick={() => onOpen(k)}>
-              <div className="flex justify-between items-start">
-                <div className="text-[16px] font-bold text-navy-800">{k.name}</div>
-                <div className="flex gap-0.5">
-                  <button onClick={(e) => { e.stopPropagation(); openForm(k); }} className="p-1.5 rounded-md text-navy-700 hover:bg-navy-50 cursor-pointer"><Pencil size={14} /></button>
-                  <button onClick={(e) => { e.stopPropagation(); setDeleteTarget(k); }} className="p-1.5 rounded-md text-faint hover:bg-danger-bg hover:text-danger cursor-pointer"><Trash2 size={14} /></button>
-                </div>
-              </div>
-              <div className="text-[13px] text-muted">{k.subject || '—'}{k.section ? ' · ' + k.section : ''}</div>
-              <button
-                onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(k.access_code || ''); toast.info('Enrollment code copied!'); }}
-                className="inline-flex items-center gap-1.5 bg-navy-100 text-navy-700 px-3 py-1 rounded-md cursor-pointer self-start hover:bg-navy-100/70 transition-colors"
-                title="Click to copy">
-                <span className="text-[10px] font-bold tracking-[.12em] font-mono">{k.access_code}</span>
-                <Copy size={11} />
-              </button>
-              {k.instructor && <div className="text-[12px] text-faint">{k.instructor}</div>}
-              <div className="flex gap-4 text-[12px] text-muted border-t border-border pt-2.5">
-                <span className="inline-flex items-center gap-1"><Users size={12} /> {k.student_count || 0} students</span>
-                <span className="inline-flex items-center gap-1"><ClipboardList size={12} /> {k.exam_count || 0} exams</span>
-              </div>
-            </Card>
-          ))}
-        </div>
+        <>
+          <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row gap-3 mb-4 shadow-sm">
+            <SearchInputLarge value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, subject, section or code…" onClear={() => setSearch('')} />
+            <div className="flex items-center gap-2 shrink-0 self-center">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-navy-700 text-white rounded-full px-3 py-1.5">
+                <Users size={11} /> {filteredClasses.length} of {classes.length}
+              </span>
+              {search && (
+                <button onClick={() => setSearch('')} className="text-[11px] font-medium text-faint hover:text-navy-700 hover:underline cursor-pointer">Clear</button>
+              )}
+            </div>
+          </div>
+          {!filteredClasses.length ? (
+            <EmptyState icon={Search} title="No classes match your search" body={`No results for "${search}"`} compact action={<Button variant="outline" onClick={() => setSearch('')}>Clear search</Button>} />
+          ) : (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3.5">
+              {filteredClasses.map(k => (
+                <Card key={k.id} className="!p-0 !mb-0 overflow-hidden card-hover flex flex-col cursor-pointer group" onClick={() => onOpen(k)}>
+                  <div className="h-1 bg-gradient-to-r from-navy-700 via-navy-600 to-accent" />
+                  <div className="p-4 sm:p-5 flex flex-col gap-3 flex-1">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <span className="w-9 h-9 rounded-xl bg-navy-700 text-white flex items-center justify-center shrink-0 font-bold text-[14px] shadow-sm">
+                          {(k.name || '?').charAt(0).toUpperCase()}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[15px] font-bold text-navy-800 truncate leading-tight">{k.name}</div>
+                          <div className="text-[12px] text-muted truncate">{[k.subject, k.section].filter(Boolean).join(' · ') || 'No subject'}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-0.5 shrink-0">
+                        <button onClick={(e) => { e.stopPropagation(); openForm(k); }} title="Edit" className="w-7 h-7 flex items-center justify-center rounded-lg text-faint hover:text-navy-700 hover:bg-navy-50 cursor-pointer transition-colors"><Pencil size={13} /></button>
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteTarget(k); }} title="Delete" className="w-7 h-7 flex items-center justify-center rounded-lg text-faint hover:text-danger hover:bg-danger-bg cursor-pointer transition-colors"><Trash2 size={13} /></button>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(k.access_code || ''); toast.info('Enrollment code copied!'); }}
+                        className="inline-flex items-center gap-1.5 bg-navy-700 text-white pl-2.5 pr-1.5 py-1 rounded-full text-[11px] font-mono font-bold tracking-wide hover:bg-navy-800 transition-colors cursor-pointer"
+                        title="Click to copy enrollment code">
+                        <Key size={11} className="text-white/80" />
+                        {k.access_code}
+                        <span className="w-5 h-5 rounded-full bg-white/15 flex items-center justify-center ml-0.5"><Copy size={10} className="text-white" /></span>
+                      </button>
+                      {k.instructor && <span className="inline-flex items-center gap-1 text-[11px] text-muted bg-canvas border border-border rounded-full px-2.5 py-1"><User size={11} /> {k.instructor}</span>}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div className="relative overflow-hidden bg-gradient-to-br from-info-bg to-surface border border-info/15 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-lg bg-info text-white flex items-center justify-center shrink-0 shadow-sm"><Users size={14} /></span>
+                        <div className="min-w-0 flex-1 text-center">
+                          <div className="text-[16px] font-bold text-navy-800 leading-none text-center">{k.student_count || 0}</div>
+                          <div className="text-[10px] font-bold tracking-[.08em] uppercase text-faint leading-none mt-1 text-center">Students</div>
+                        </div>
+                        <span className="absolute right-2 top-2 w-1.5 h-1.5 rounded-full bg-info/30" />
+                      </div>
+                      <div className="relative overflow-hidden bg-gradient-to-br from-success-bg to-surface border border-success/15 rounded-xl px-3 py-2.5 flex items-center gap-2.5">
+                        <span className="w-8 h-8 rounded-lg bg-success text-white flex items-center justify-center shrink-0 shadow-sm"><ClipboardList size={14} /></span>
+                        <div className="min-w-0 flex-1 text-center">
+                          <div className="text-[16px] font-bold text-navy-800 leading-none text-center">{k.exam_count || 0}</div>
+                          <div className="text-[10px] font-bold tracking-[.08em] uppercase text-faint leading-none mt-1 text-center">Exams</div>
+                        </div>
+                        <span className="absolute right-2 top-2 w-1.5 h-1.5 rounded-full bg-success/30" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-4 sm:px-5 py-2.5 bg-canvas/40 border-t border-border flex items-center justify-between">
+                    <span className="text-[11px] text-faint">Tap to manage</span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy-700 group-hover:text-navy-800">View <ArrowRight size={12} /></span>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog
@@ -161,15 +230,6 @@ function ClassesList({ classes, onOpen, onChanged }) {
         onConfirm={del}
       />
     </>
-  );
-}
-
-function TabBtn({ active, onClick, icon, label }) {
-  return (
-    <button onClick={onClick}
-      className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-[13px] font-semibold cursor-pointer font-sans whitespace-nowrap transition-all duration-150 ${active ? 'bg-navy-700 text-white shadow-card' : 'bg-surface border border-border text-muted hover:bg-navy-50 hover:text-navy-800'}`}>
-      <span className={active ? 'text-white' : 'text-navy-700'}>{icon}</span> {label}
-    </button>
   );
 }
 
@@ -187,50 +247,83 @@ function ClassDetail({ klass, onBack, onChanged }) {
 
   return (
     <>
-      <Button variant="outline" size="sm" icon={ArrowLeft} onClick={onBack} className="!mb-4">All Classes</Button>
+      <Button variant="ghost" icon={ArrowLeft} onClick={onBack} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">All Classes</Button>
 
-      <Card className="!mb-5">
-        <div className="flex justify-between items-start flex-wrap gap-3">
-          <div>
-            <h3 className="text-xl font-bold text-navy-800">{data?.name || klass.name}</h3>
-            <div className="text-[13px] text-muted mt-1">
-              {[data?.subject, data?.section].filter(Boolean).join(' · ') || '—'}
-              {data?.instructor && <span className="ml-3">{data.instructor}</span>}
-            </div>
-            {data?.access_code && (
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <Badge tone="info" className="!tracking-[.08em] !font-mono">{data.access_code}</Badge>
-                <button onClick={() => { navigator.clipboard.writeText(data.access_code); toast.info('Enrollment code copied!'); }}
-                  className="text-[11px] text-navy-700 bg-none border-none cursor-pointer font-semibold inline-flex items-center gap-1">
-                  <Copy size={11} /> copy
-                </button>
-                <span className="text-[11px] text-muted">Students enroll with this code at <strong className="font-mono">/enroll</strong></span>
+      <Card className="!mb-5 !p-0 overflow-hidden">
+        {/* Banner */}
+        <div className="relative bg-gradient-to-br from-navy-900 via-[#12306a] to-navy-700 p-5 sm:p-6 overflow-hidden">
+          <div className="absolute inset-0 pointer-events-none opacity-40" style={{ backgroundImage: 'radial-gradient(600px 200px at 85% -10%, rgba(255,255,255,0.12), transparent 60%), radial-gradient(400px 180px at 10% 120%, rgba(232,160,32,0.14), transparent 60%)' }} />
+          <div className="absolute inset-0 pointer-events-none opacity-[0.06]" style={{ backgroundImage: 'linear-gradient(rgba(255,255,255,0.7) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
+          <div className="relative flex items-start sm:items-stretch gap-3.5">
+            <span className="w-11 h-11 sm:w-14 sm:self-stretch sm:h-auto sm:min-h-[56px] rounded-2xl bg-white/10 backdrop-blur border border-white/15 text-white flex items-center justify-center font-bold text-[16px] sm:text-[18px] shrink-0 shadow-sm aspect-square sm:aspect-auto">
+              {((data?.name || klass.name || '?').charAt(0) || '?').toUpperCase()}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-[19px] sm:text-[22px] font-bold text-white leading-tight truncate">{data?.name || klass.name}</h3>
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mt-2">
+                <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-white/85 bg-white/10 backdrop-blur border border-white/10 rounded-full px-2.5 py-1">
+                  <BookOpen size={12} className="text-accent" /> {data?.subject || 'No subject'}
+                </span>
+                {data?.section && (
+                  <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-white/85 bg-white/10 backdrop-blur border border-white/10 rounded-full px-2.5 py-1">
+                    <Users size={12} className="text-white/70" /> {data.section}
+                  </span>
+                )}
+                {data?.instructor && (
+                  <span className="inline-flex items-center gap-1 text-[11px] sm:text-[12px] text-white/85 bg-white/10 backdrop-blur border border-white/10 rounded-full px-2.5 py-1">
+                    <User size={12} className="text-white/70" /> {data.instructor}
+                  </span>
+                )}
               </div>
-            )}
+            </div>
           </div>
-          <Button icon={Plus} to={"/admin/create?class=" + klass.id}>Create Exam for this Class</Button>
+        </div>
+        {/* Details below banner */}
+        <div className="p-4 sm:p-5 bg-surface flex flex-col gap-3">
+          {data?.access_code && (
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-canvas/60 border border-border rounded-xl px-3.5 py-2.5">
+              <span className="text-[10px] font-bold tracking-[.08em] uppercase text-faint shrink-0">Enrollment code</span>
+              <span className="inline-flex items-center gap-1.5 bg-navy-700 text-white px-2.5 py-1 rounded-full text-[11px] font-mono font-bold tracking-wide">
+                <Key size={11} className="text-white/80" /> {data.access_code}
+              </span>
+              <button
+                onClick={() => { navigator.clipboard.writeText(data.access_code); toast.info('Enrollment code copied!'); }}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-navy-700 hover:text-navy-800 bg-surface border border-border rounded-full px-2.5 py-1 cursor-pointer transition-colors"
+              >
+                <Copy size={11} /> Copy
+              </button>
+              <span className="text-[11px] text-faint hidden sm:inline">Students enroll at <strong className="font-mono text-navy-700">/enroll</strong></span>
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-faint">
+            <span className="inline-flex items-center gap-1"><Users size={11} /> {data?.enrollments?.length || 0} enrolled</span>
+            <span className="w-1 h-1 rounded-full bg-border shrink-0" />
+            <span className="inline-flex items-center gap-1"><ClipboardList size={11} /> {data?.exams?.length || 0} exams</span>
+            <span className="w-1 h-1 rounded-full bg-border shrink-0" />
+            <span className="inline-flex items-center gap-1"><QrCode size={11} /> {data?.sessions?.length || 0} check-ins</span>
+          </div>
         </div>
       </Card>
 
-      <div className="flex gap-1.5 mb-5 flex-wrap">
-        <TabBtn active={tab === 'enrollments'} onClick={() => setTab('enrollments')} icon={<Users size={14} />} label={`Enrollments (${data?.enrollments?.length || 0})`} />
-        <TabBtn active={tab === 'attendance'} onClick={() => setTab('attendance')} icon={<CalendarCheck size={14} />} label="Take Attendance" />
-        <TabBtn active={tab === 'history'} onClick={() => setTab('history')} icon={<History size={14} />} label="Attendance History" />
-        <TabBtn active={tab === 'checkins'} onClick={() => setTab('checkins')} icon={<QrCode size={14} />} label={`Check-in Sessions (${data?.sessions?.length || 0})`} />
-        <TabBtn active={tab === 'exams'} onClick={() => setTab('exams')} icon={<ClipboardList size={14} />} label={`Exams (${data?.exams?.length || 0})`} />
-        <TabBtn active={tab === 'gradebook'} onClick={() => setTab('gradebook')} icon={<BarChart3 size={14} />} label="Gradebook" />
-      </div>
+      <PillsContainer className="mb-5">
+        <TabPill active={tab === 'enrollments'} onClick={() => setTab('enrollments')} icon={<Users size={14} />} label={`Enrollments (${data?.enrollments?.length || 0})`} />
+        <TabPill active={tab === 'attendance'} onClick={() => setTab('attendance')} icon={<CalendarCheck size={14} />} label="Attendance" />
+        <TabPill active={tab === 'history'} onClick={() => setTab('history')} icon={<History size={14} />} label="Attendance History" />
+        <TabPill active={tab === 'exams'} onClick={() => setTab('exams')} icon={<ClipboardList size={14} />} label={`Exams (${data?.exams?.length || 0})`} />
+        <TabPill active={tab === 'gradebook'} onClick={() => setTab('gradebook')} icon={<BarChart3 size={14} />} label="Gradebook" />
+      </PillsContainer>
 
       {loading ? (
         <Spinner label="Loading..." />
       ) : tab === 'enrollments' ? (
         <EnrollmentsTab classId={klass.id} enrollments={data.enrollments} onChanged={load} />
       ) : tab === 'attendance' ? (
-        <AttendanceTab classId={klass.id} onChanged={load} />
+        <div className="flex flex-col gap-5">
+          <AttendanceTab classId={klass.id} onChanged={load} />
+          <CheckinSessionsTab classId={klass.id} sessions={data.sessions || []} onChanged={load} />
+        </div>
       ) : tab === 'history' ? (
         <HistoryTab classId={klass.id} />
-      ) : tab === 'checkins' ? (
-        <CheckinSessionsTab classId={klass.id} sessions={data.sessions || []} onChanged={load} />
       ) : tab === 'exams' ? (
         <ExamsTab classId={klass.id} exams={data.exams} />
       ) : (
@@ -409,8 +502,9 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
       <Modal
         open={!!editTarget}
         onClose={() => setEditTarget(null)}
-        title="Edit Student"
-        icon={Pencil}
+        title={editTarget ? `Edit Student — ${editTarget.student_name}` : 'Edit Student'}
+        icon={User}
+        size="md"
         footer={
           <>
             <Button variant="ghost" onClick={() => setEditTarget(null)}>Cancel</Button>
@@ -418,17 +512,25 @@ function EnrollmentsTab({ classId, enrollments, onChanged }) {
           </>
         }
       >
-        <div className="flex flex-col gap-3">
-          <Input label="Student ID" value={editForm.student_id}
-            onChange={e => setEditForm({ ...editForm, student_id: e.target.value.toUpperCase() })}
-            placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono" />
-          <Input label="Full Name" value={editForm.student_name}
-            onChange={e => setEditForm({ ...editForm, student_name: e.target.value })}
-            placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
-          <Input label="Section" value={editForm.student_section}
-            onChange={e => setEditForm({ ...editForm, student_section: e.target.value })}
-            placeholder="e.g. BSCS 2-A" autoComplete="off" />
-          <p className="text-[11px] text-faint">Changing the ID or name also updates their submissions, attendance, and class attendance records.</p>
+        <div className="flex flex-col gap-4">
+          <div className="bg-canvas/40 border border-border rounded-xl p-3.5">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint mb-2.5 flex items-center gap-1.5"><User size={12} /> Student Identity</div>
+            <div className="flex flex-col gap-3">
+              <Input label="Student ID *" icon={Key} value={editForm.student_id}
+                onChange={e => setEditForm({ ...editForm, student_id: e.target.value.toUpperCase() })}
+                placeholder="e.g. 2019-12345" autoComplete="off" className="!font-mono !uppercase !tracking-wide" />
+              <Input label="Full Name *" icon={User} value={editForm.student_name}
+                onChange={e => setEditForm({ ...editForm, student_name: e.target.value })}
+                placeholder="e.g. Dela Cruz, Juan A." autoComplete="off" />
+              <Input label="Section" icon={Users} value={editForm.student_section}
+                onChange={e => setEditForm({ ...editForm, student_section: e.target.value })}
+                placeholder="e.g. BSCS 2-A" autoComplete="off" />
+            </div>
+          </div>
+          <div className="flex items-start gap-2 text-[11px] text-muted bg-info-bg/30 border border-info/15 rounded-lg px-3 py-2.5">
+            <Info size={13} className="text-info shrink-0 mt-0.5" />
+            <span>Changing the ID or name also updates <strong className="text-navy-700">submissions, attendance, and class records</strong>. Section is used for grouping.</span>
+          </div>
         </div>
       </Modal>
     </Card>
@@ -497,31 +599,41 @@ function AttendanceTab({ classId, onChanged }) {
             <p className="text-[13px] text-muted">No students enrolled. Add students in the Enrollments tab first.</p>
           ) : (
             <>
-              <div className="flex flex-col gap-1.5 mb-4">
+              <div className="flex flex-col gap-2 mb-4">
                 {data.students.map(s => {
                   const st = marks[s.student_id] || 'absent';
                   return (
-                    <div key={s.student_id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-md bg-surface text-[13px] hover:bg-navy-50 transition-colors min-w-0">
-                      <span className="w-7 h-7 rounded-full bg-navy-100 text-navy-700 flex items-center justify-center text-[11px] font-bold shrink-0">
-                        {(s.student_name || '?').charAt(0).toUpperCase()}
-                      </span>
-                      <span className="flex-1 min-w-0">
-                        <span className="block font-medium truncate">{s.student_name}</span>
-                        <span className="block text-[11px] text-muted font-mono truncate">{s.student_id}{s.student_section ? ' · ' + s.student_section : ''}</span>
-                      </span>
-                      {s.source === 'exam' && (
-                        <Badge tone="info" className="!text-[10px] !px-2 !py-0.5 shrink-0" title="Auto-recorded from taking the exam">Exam</Badge>
-                      )}
-                      {s.source === 'checkin' && (
-                        <Badge tone="purple" className="!text-[10px] !px-2 !py-0.5 shrink-0" title="Auto-recorded from QR check-in">Check-in</Badge>
-                      )}
-                      <div className="flex gap-1 shrink-0">
-                        {[['present', 'Present', 'text-success'], ['late', 'Late', 'text-warning'], ['absent', 'Absent', 'text-danger']].map(([val, label, cls]) => (
-                          <button key={val} onClick={() => setMarks({ ...marks, [s.student_id]: val })}
-                            className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-all ${st === val ? `${cls} bg-navy-100` : 'text-faint hover:text-navy-800 hover:bg-navy-50'}`}>
-                            {label}
-                          </button>
-                        ))}
+                    <div key={s.student_id} className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 border border-border rounded-xl bg-surface hover:bg-navy-50/50 transition-colors">
+                      <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                        <span className="w-8 h-8 rounded-xl bg-navy-100 text-navy-700 flex items-center justify-center text-[11px] font-bold shrink-0">
+                          {(s.student_name || '?').charAt(0).toUpperCase()}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-navy-800 leading-tight break-words text-[13px] sm:text-[13px]">{s.student_name}</div>
+                          <div className="text-[11px] text-muted font-mono break-words leading-tight mt-0.5">{s.student_id}{s.student_section ? ' · ' + s.student_section : ''}</div>
+                        </div>
+                        {(s.source === 'exam' || s.source === 'checkin') && (
+                          <div className="shrink-0 hidden sm:flex">
+                            {s.source === 'exam' && <Badge tone="info" className="!text-[10px] !px-2 !py-0.5" title="Auto-recorded from taking the exam">Exam</Badge>}
+                            {s.source === 'checkin' && <Badge tone="purple" className="!text-[10px] !px-2 !py-0.5" title="Auto-recorded from QR check-in">Check-in</Badge>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                        {(s.source === 'exam' || s.source === 'checkin') && (
+                          <div className="sm:hidden flex shrink-0">
+                            {s.source === 'exam' && <Badge tone="info" className="!text-[10px] !px-1.5 !py-0.5">Exam</Badge>}
+                            {s.source === 'checkin' && <Badge tone="purple" className="!text-[10px] !px-1.5 !py-0.5">Check-in</Badge>}
+                          </div>
+                        )}
+                        <div className="flex gap-1 flex-1 sm:flex-none ml-auto sm:ml-0">
+                          {[['present', 'Present', 'bg-success text-white border-success'], ['late', 'Late', 'bg-warning text-white border-warning'], ['absent', 'Absent', 'bg-danger text-white border-danger']].map(([val, label, activeCls]) => (
+                            <button key={val} onClick={() => setMarks({ ...marks, [s.student_id]: val })}
+                              className={`flex-1 sm:flex-none px-3 py-1.5 rounded-full text-[11px] font-semibold cursor-pointer transition-all border ${st === val ? `${activeCls} shadow-sm` : 'bg-surface border-border text-faint hover:text-navy-800 hover:border-navy-700/20 hover:bg-navy-50'}`}>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   );
@@ -828,32 +940,75 @@ function HistoryTab({ classId }) {
 }
 
 function ExamsTab({ classId, exams }) {
+  const [qrExam, setQrExam] = useState(null);
+  const [qr, setQr] = useState('');
+  const toast = useToast();
+  useEffect(() => {
+    if (!qrExam) { setQr(''); return; }
+    QRCode.toDataURL(window.location.origin + '/exam?id=' + encodeURIComponent(qrExam.id), { width: 280, margin: 1, color: { dark: '#0b1b3a', light: '#ffffff' } }).then(setQr).catch(() => setQr(''));
+  }, [qrExam]);
+  const fmt = (d) => { try { const x = new Date(d); return isNaN(x.getTime()) ? String(d).slice(0,16) : x.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); } catch { return String(d); } };
   return (
-    <Card eyebrow="Exams" title={`Exams for this Class (${exams.length})`} icon={ClipboardList}
-        actions={<Button size="sm" variant="soft" icon={Plus} to={"/admin/create?class=" + classId}>New Exam</Button>}>
-      {!exams.length ? (
-        <p className="text-[13px] text-muted">No exams yet. Click "New Exam" above to get started.</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {exams.map(e => {
-            const closed = e.deadline && new Date(e.deadline) <= Date.now();
-            return (
-              <Link key={e.id} to={"/admin/create?id=" + e.id} className="text-inherit no-underline">
-                <div className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-lg bg-surface text-[13px] hover:bg-navy-50 transition-colors">
-                  <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><ClipboardList size={15} /></span>
-                  <span className="flex-1 min-w-0">
-                    <span className="block font-medium text-navy-800 truncate">{e.title}</span>
-                    <span className="block text-[11px] text-muted mt-0.5">{e.submission_count || 0} submissions{e.deadline ? (closed ? ' · closed' : ' · open until ' + new Date(e.deadline).toLocaleString()) : ' · no deadline'}</span>
-                  </span>
-                  <Badge tone={closed ? 'danger' : e.deadline ? 'success' : 'neutral'}>{closed ? 'Closed' : e.deadline ? 'Open' : 'No deadline'}</Badge>
-                  <ArrowRight size={14} className="text-faint shrink-0" />
+    <>
+      <Card eyebrow="Exams" title={`Exams for this Class (${exams.length})`} icon={ClipboardList}
+          actions={<Button size="sm" variant="soft" icon={Plus} to={"/admin/create?class=" + classId}>New Exam</Button>}>
+        {!exams.length ? (
+          <p className="text-[13px] text-muted">No exams yet. Click "New Exam" above to get started.</p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {exams.map(e => {
+              const closed = e.deadline && new Date(e.deadline) <= Date.now();
+              const letter = (e.title || '?').charAt(0).toUpperCase();
+              return (
+                <div key={e.id} className="flex items-center gap-2.5 px-3 py-2 border border-border rounded-lg bg-surface text-[13px] hover:bg-navy-50 transition-colors">
+                  <Link to={"/admin/create?id=" + e.id} className="flex items-center gap-2.5 flex-1 min-w-0 text-inherit no-underline">
+                    <span className="w-8 h-8 rounded-xl bg-navy-700 text-white flex items-center justify-center shrink-0 font-bold text-[12px] shadow-sm">{letter}</span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block font-medium text-navy-800 truncate">{e.title}</span>
+                      <span className="block text-[11px] text-muted mt-0.5">{e.submission_count || 0} submissions{e.deadline ? (closed ? ' · closed' : ' · open until ' + fmt(e.deadline)) : ' · no deadline'}</span>
+                    </span>
+                    <Badge tone={closed ? 'danger' : e.deadline ? 'success' : 'neutral'}>{closed ? 'Closed' : e.deadline ? 'Open' : 'No deadline'}</Badge>
+                  </Link>
+                  <button onClick={() => setQrExam(e)} title="Show QR" className="w-7 h-7 flex items-center justify-center rounded-lg bg-surface border border-border text-navy-700 hover:bg-navy-50 hover:text-navy-800 shrink-0 transition-colors cursor-pointer">
+                    <QrCode size={14} />
+                  </button>
+                  <Link to={"/admin/create?id=" + e.id} className="text-faint hover:text-navy-700 shrink-0"><ArrowRight size={14} /></Link>
                 </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </Card>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      <Modal open={!!qrExam} onClose={() => setQrExam(null)} title={qrExam ? qrExam.title : 'Exam QR'} icon={QrCode} size="sm">
+        {qrExam && (
+          <div className="text-center">
+            <div className="bg-canvas/60 border border-border rounded-lg p-2.5 mb-3 text-left">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-[.08em] uppercase text-faint shrink-0 w-7">ID</span>
+                <span className="font-mono text-[11px] truncate flex-1 text-navy-700">{qrExam.id}</span>
+                <button onClick={() => { navigator.clipboard.writeText(qrExam.id); toast.info('ID copied'); }} title="Copy ID" className="w-7 h-7 flex items-center justify-center rounded-md bg-surface border border-border text-navy-700 hover:bg-navy-50 shrink-0 cursor-pointer"><Copy size={13} /></button>
+              </div>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-border inline-block shadow-sm">
+              {qr ? <img src={qr} alt="Exam QR" className="w-[240px] h-[240px] block" /> : <div className="w-[240px] h-[240px] flex items-center justify-center text-faint text-[12px]">Generating…</div>}
+            </div>
+            <p className="text-[11px] text-faint mt-3 leading-relaxed">Scan to open — enter your Student ID to begin</p>
+            {qrExam.deadline && <p className="text-[11px] text-muted mt-1">Deadline: <strong className="text-navy-700">{fmt(qrExam.deadline)}</strong></p>}
+            <div className="flex flex-wrap gap-1.5 justify-center mt-3">
+              <Badge tone="info">{examTypeLabel(qrExam.type)}</Badge>
+              <Badge tone={qrExam.deadline && new Date(qrExam.deadline) <= Date.now() ? 'danger' : 'neutral'}>{qrExam.deadline && new Date(qrExam.deadline) <= Date.now() ? 'Closed' : 'Open'}</Badge>
+              <Badge tone="neutral">{qrExam.question_count || 0} Q</Badge>
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+              <Button size="sm" variant="soft" icon={Copy} onClick={() => { navigator.clipboard.writeText(window.location.origin + '/exam?id=' + qrExam.id); toast.info('Link copied'); }}>Copy Link</Button>
+              <Button size="sm" variant="outline" icon={Download} onClick={() => { if (!qr) return; const a=document.createElement('a'); a.href=qr; a.download=`exam-${qrExam.id.slice(0,8)}.png`; a.click(); toast.info('QR downloaded'); }}>Download</Button>
+              <Button size="sm" variant="outline" icon={Printer} onClick={() => { const w=window.open('','_blank','width=400,height=500'); if(!w){window.print();return;} w.document.write(`<html><head><title>${qrExam.title} — QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px}img{width:320px;height:320px}h1{font-size:16px;margin:12px 0 4px}p{font-size:11px;color:#64748b;word-break:break-all}</style></head><body><h1>${qrExam.title}</h1><p>${window.location.origin + '/exam?id=' + qrExam.id}</p><p style="font-family:monospace;font-size:10px">${qrExam.id}</p><img src="${qr}" /><p>Scan to open — enter your Student ID to begin</p><script>window.onload=()=>window.print()<\/script></body></html>`); w.document.close(); }}>Print</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </>
   );
 }
 function GradebookTab({ classId }) {

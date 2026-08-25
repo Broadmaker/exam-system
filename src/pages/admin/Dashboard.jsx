@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import { examTypeLabel, EXAM_STATUS_TONES, EXAM_STATUS_LABELS, EXAM_TYPE_LABELS, effectiveExamStatus } from '../../utils';
 import AdminLayout from '../../components/AdminLayout';
-import { PageHeader, StatCard, Card, Badge, Button, ConfirmDialog, EmptyState, Input, Select, useToast } from '../../components/ui';
-import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp, CopyPlus, CalendarClock, Search, Filter, ArrowUpDown, X, History, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import { PageHeader, StatCard, Card, Badge, Button, ConfirmDialog, EmptyState, Input, Select, Modal, useToast, PillsContainer, Pill, SearchInput } from '../../components/ui';
+import { Plus, Users, ClipboardList, Clock, BarChart3, Eye, Pencil, Lock, FileText, Radio, Trash2, GraduationCap, Copy, TrendingUp, CopyPlus, CalendarClock, Search, Filter, ArrowUpDown, X, History, RefreshCw, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, QrCode, Download, Printer, Info } from 'lucide-react';
+import QRCode from 'qrcode';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -17,7 +18,15 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+  const [qrExam, setQrExam] = useState(null);
+  const [qr, setQr] = useState('');
   const toast = useToast();
+
+  useEffect(() => {
+    if (!qrExam) { setQr(''); return; }
+    const link = window.location.origin + '/exam?id=' + encodeURIComponent(qrExam.id);
+    QRCode.toDataURL(link, { width: 280, margin: 1, color: { dark: '#0b1b3a', light: '#ffffff' } }).then(setQr).catch(() => setQr(''));
+  }, [qrExam]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -197,30 +206,30 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Triage strip */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        {/* Triage strip — shared PillsContainer */}
+        <PillsContainer className="mb-4">
           {[
             { key: 'all', label: 'All', count: statusCounts.all },
-            { key: 'draft', label: 'Draft', count: statusCounts.draft, tone: 'neutral' },
-            { key: 'scheduled', label: 'Scheduled', count: statusCounts.scheduled, tone: 'info' },
-            { key: 'active', label: 'Active', count: statusCounts.active, tone: 'success' },
-            { key: 'closed', label: 'Closed', count: statusCounts.closed, tone: 'danger' },
-            { key: 'archived', label: 'Archived', count: statusCounts.archived, tone: 'neutral' },
+            { key: 'draft', label: 'Draft', count: statusCounts.draft },
+            { key: 'scheduled', label: 'Scheduled', count: statusCounts.scheduled },
+            { key: 'active', label: 'Active', count: statusCounts.active },
+            { key: 'closed', label: 'Closed', count: statusCounts.closed },
+            { key: 'archived', label: 'Archived', count: statusCounts.archived },
           ].map(p => (
-            <button
+            <Pill
               key={p.key}
+              active={statusFilter === p.key}
               onClick={() => setStatusFilter(p.key === 'all' ? 'all' : p.key)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[12px] font-semibold transition-colors ${statusFilter === p.key ? 'bg-navy-700 text-white border-navy-700' : 'bg-surface text-muted border-border hover:border-navy-700/30 hover:text-navy-800'}`}
-            >
-              {p.label} <span className={`min-w-5 h-5 flex items-center justify-center rounded-full text-[11px] ${statusFilter === p.key ? 'bg-white/20 text-white' : 'bg-navy-50 text-muted'}`}>{p.count}</span>
-            </button>
+              label={p.label}
+              count={p.count}
+            />
           ))}
           {(needsAttention.drafts > 0 || needsAttention.emptyQ > 0) && (
-            <span className="inline-flex items-center gap-1.5 text-[11px] text-warning ml-1">
+            <span className="shrink-0 snap-start inline-flex items-center gap-1.5 text-[11px] text-warning ml-1 py-1.5">
               <Filter size={11} /> {needsAttention.drafts} drafts · {needsAttention.emptyQ} empty · {needsAttention.overdue} overdue (0 subs)
             </span>
           )}
-        </div>
+        </PillsContainer>
 
         {/* C - Deadlines & Health (inline compact) */}
         <DeadlinesHealth exams={exams} classMap={classMap} />
@@ -237,29 +246,19 @@ export default function Dashboard() {
           }
         />
 
-        {/* Filters toolbar */}
+        {/* Filters toolbar — shared SearchInput */}
         <div className="bg-surface border border-border rounded-xl p-3 sm:p-4 flex flex-col lg:flex-row gap-3 mb-4">
-          <div className="flex-1 min-w-[200px]">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search by title, ID, or type…"
-                className="input !pl-9 !py-2.5 !text-[13px] !bg-canvas focus:!bg-surface w-full"
-              />
-            </div>
-          </div>
-          <div className="flex gap-2 flex-wrap">
-            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[130px]">
+          <SearchInput value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by title, ID, or type…" onClear={() => setSearch('')} />
+          <div className="flex gap-2 overflow-x-auto no-scrollbar snap-x snap-mandatory flex-nowrap pb-1 lg:pb-0 scroll-px-3 pr-1">
+            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[130px] shrink-0 snap-start">
               <option value="all">All statuses</option>
               {Object.entries(EXAM_STATUS_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[140px]">
+            <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[140px] shrink-0 snap-start">
               <option value="all">All types</option>
               {Object.entries(EXAM_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[160px]">
+            <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="select !py-2.5 !text-[13px] !w-auto min-w-[160px] shrink-0 snap-start">
               <option value="created_desc">Newest first</option>
               <option value="deadline_asc">Deadline earliest</option>
               <option value="submissions_desc">Most submissions</option>
@@ -299,8 +298,8 @@ export default function Dashboard() {
               <Card key={e.id} padded={false} className="overflow-hidden card-hover">
                 <div className="p-4 sm:p-5">
                   <div className="flex items-start gap-3">
-                    <span className="w-10 h-10 rounded-xl bg-navy-100 text-navy-700 flex items-center justify-center shrink-0">
-                      <FileText size={18} />
+                    <span className="w-10 h-10 rounded-xl bg-navy-700 text-white flex items-center justify-center shrink-0 font-bold text-[14px] shadow-sm">
+                      {(e.title || '?').charAt(0).toUpperCase()}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -354,6 +353,7 @@ export default function Dashboard() {
                     </button>
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
+                    <Button size="sm" variant="soft" title="Show QR" icon={QrCode} onClick={() => setQrExam(e)} />
                     <Button size="sm" variant="soft" title="Edit" icon={Pencil} to={"/admin/create?id=" + e.id} />
                     <Button size="sm" variant="soft" title="Preview" icon={FileText} to={"/admin/preview?id=" + e.id} />
                     <Button size="sm" variant="soft" title="Duplicate" icon={CopyPlus} loading={duplicating === e.id}
@@ -461,6 +461,65 @@ export default function Dashboard() {
         loading={deleting}
         onConfirm={confirmDelete}
       />
+
+      {/* QR per exam — scan to take exam */}
+      <Modal open={!!qrExam} onClose={() => setQrExam(null)} title={qrExam ? qrExam.title : 'Exam QR'} icon={QrCode} size="sm">
+        {qrExam && (
+          <div className="text-center">
+            {/* ID with icon-only copy — link copy is via the button under QR */}
+            <div className="bg-canvas/60 border border-border rounded-lg p-2.5 mb-3 text-left">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold tracking-[.08em] uppercase text-faint shrink-0 w-7">ID</span>
+                <span className="font-mono text-[11px] truncate flex-1 text-navy-700">{qrExam.id}</span>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(qrExam.id); toast.info('ID copied'); }}
+                  title="Copy ID"
+                  aria-label="Copy ID"
+                  className="w-7 h-7 flex items-center justify-center rounded-md bg-surface border border-border text-navy-700 hover:bg-navy-50 hover:text-navy-800 transition-colors cursor-pointer shrink-0"
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white p-3 rounded-xl border border-border inline-block shadow-sm">
+              {qr ? <img src={qr} alt="Exam QR" className="w-[240px] h-[240px] block" /> : <div className="w-[240px] h-[240px] flex items-center justify-center text-faint text-[12px]">Generating…</div>}
+            </div>
+            <p className="text-[11px] text-faint mt-3 leading-relaxed">Scan to open — enter your Student ID to begin</p>
+            {qrExam.deadline && <p className="text-[11px] text-muted mt-1">Deadline: <strong className="text-navy-700">{fmtDeadline(qrExam.deadline)}</strong></p>}
+            <div className="flex flex-wrap gap-1.5 justify-center mt-3">
+              <Badge tone="info">{examTypeLabel(qrExam.type)}</Badge>
+              <Badge tone={effectiveExamStatus(qrExam) === 'active' ? 'success' : effectiveExamStatus(qrExam) === 'closed' ? 'danger' : 'neutral'}>{EXAM_STATUS_LABELS[effectiveExamStatus(qrExam)] || qrExam.status}</Badge>
+              <Badge tone="neutral">{qrExam.question_count || 0} Q · {qrExam.time_limit} min</Badge>
+            </div>
+
+            {/* Buttons under QR — compact, centered */}
+            <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+              <Button size="sm" variant="soft" icon={Copy} onClick={() => { navigator.clipboard.writeText(window.location.origin + '/exam?id=' + qrExam.id); toast.info('Link copied'); }}>
+                Copy Link
+              </Button>
+              <Button size="sm" variant="outline" icon={Download} onClick={() => {
+                if (!qr) return;
+                const a = document.createElement('a');
+                a.href = qr;
+                a.download = `exam-${qrExam.id.slice(0,8)}.png`;
+                a.click();
+                toast.info('QR downloaded');
+              }}>
+                Download
+              </Button>
+              <Button size="sm" variant="outline" icon={Printer} onClick={() => {
+                const w = window.open('', '_blank', 'width=400,height=500');
+                if (!w) { window.print(); return; }
+                w.document.write(`<html><head><title>${qrExam.title} — QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px}img{width:320px;height:320px}h1{font-size:16px;margin:12px 0 4px}p{font-size:11px;color:#64748b;word-break:break-all}</style></head><body><h1>${qrExam.title}</h1><p>${window.location.origin + '/exam?id=' + qrExam.id}</p><p style="font-family:monospace;font-size:10px">${qrExam.id}</p><img src="${qr}" /><p>Scan to take the exam</p><script>window.onload=()=>window.print()<\/script></body></html>`);
+                w.document.close();
+              }}>
+                Print
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </AdminLayout>
   );
 }
@@ -488,58 +547,128 @@ function fmtDeadline(deadline) {
 }
 
 function DeadlinesHealth({ exams, classMap }) {
+  const [dismissed, setDismissed] = useState(() => {
+    try { return localStorage.getItem('dash_deadlines_dismissed') === '1'; } catch { return false; }
+  });
   const now = Date.now();
   const in7d = now + 7 * 24 * 60 * 60 * 1000;
   const withDeadline = exams.filter(e => e.deadline && !isNaN(new Date(e.deadline).getTime()));
   const upcoming = withDeadline.filter(e => { const t = new Date(e.deadline).getTime(); return t >= now && t <= in7d && (effectiveExamStatus(e) === 'active' || effectiveExamStatus(e) === 'scheduled'); }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline)).slice(0, 5);
   const overdue = withDeadline.filter(e => new Date(e.deadline).getTime() < now && (effectiveExamStatus(e) === 'active' || effectiveExamStatus(e) === 'scheduled') ).slice(0, 5);
   const noDeadline = exams.filter(e => !e.deadline).length;
+  const hasUrgent = upcoming.some(e => (new Date(e.deadline).getTime() - now) < 24*60*60*1000);
   if (!exams.length) return null;
   if (!upcoming.length && !overdue.length && !noDeadline) return null;
-  return (
-    <div className="bg-surface border border-border rounded-xl px-3 sm:px-4 py-3 mb-4 flex flex-col lg:flex-row gap-4 lg:gap-6">
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
-          <CalendarClock size={12} className="text-faint" />
-          <span className="text-[11px] font-bold tracking-[.08em] uppercase text-faint">Due in 7 days · {upcoming.length}</span>
-          {upcoming.some(e => (new Date(e.deadline).getTime() - now) < 24*60*60*1000) && <Badge tone="warning">Due &lt;24h</Badge>}
-        </div>
-        {!upcoming.length ? <p className="text-[12px] text-muted">No exams due this week.</p> : (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {upcoming.map(e => {
-              const hrs = Math.round((new Date(e.deadline).getTime() - now) / (60 * 60 * 1000));
-              const urgent = hrs < 24;
-              return (
-                <div key={e.id} className={`shrink-0 min-w-[180px] max-w-[220px] border rounded-lg px-3 py-2 ${urgent ? 'bg-warning-bg/50 border-warning/30' : 'bg-canvas/60 border-border'}`}>
-                  <div className="text-[12px] font-semibold text-navy-800 truncate">{e.title}</div>
-                  <div className="text-[11px] text-faint truncate">{classMap[e.class_id] || 'No class'}</div>
-                  <div className={`text-[11px] font-mono font-semibold mt-1 ${urgent ? 'text-warning' : 'text-navy-700'}`}>{fmtDeadline(e.deadline)}</div>
-                  <div className="text-[11px] text-faint">{hrs < 24 ? `${hrs}h left` : `${Math.round(hrs/24)}d left`} · {e.submission_count || 0} subs</div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+  if (dismissed) {
+    const pillTone = overdue.length > 0 ? 'danger' : hasUrgent ? 'warning' : upcoming.length > 0 ? 'info' : 'neutral';
+    const pillCls = pillTone === 'danger' ? 'bg-danger-bg text-danger border-danger/30 hover:bg-danger-bg/80'
+      : pillTone === 'warning' ? 'bg-warning-bg text-warning border-warning/30 hover:bg-warning-bg/80'
+      : pillTone === 'info' ? 'bg-info-bg text-info border-info/20 hover:bg-info-bg/80'
+      : 'bg-surface text-muted border-border hover:text-navy-800';
+    const pillLabel = overdue.length > 0 ? `${overdue.length} overdue`
+      : hasUrgent ? `${upcoming.length} due <24h`
+      : upcoming.length > 0 ? `${upcoming.length} due`
+      : noDeadline ? `${noDeadline} no deadline` : 'deadlines';
+    return (
+      <div className="flex justify-end mb-3">
+        <button
+          onClick={() => { try { localStorage.removeItem('dash_deadlines_dismissed'); } catch {} setDismissed(false); }}
+          className={`inline-flex items-center gap-1.5 text-[11px] font-semibold border rounded-full px-3 py-1.5 shadow-sm cursor-pointer transition-colors ${pillCls}`}
+        >
+          <Info size={12} /> Show deadlines info · {pillLabel}
+        </button>
       </div>
-      <div className="lg:w-px lg:bg-border lg:shrink-0 hidden lg:block" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-2">
-          <Clock size={12} className="text-faint" />
-          <span className="text-[11px] font-bold tracking-[.08em] uppercase text-faint">At risk · {overdue.length} overdue</span>
-          {overdue.length > 0 && <Badge tone="danger">{overdue.length}</Badge>}
-          {noDeadline > 0 && <span className="text-[11px] text-faint">· {noDeadline} no deadline</span>}
-        </div>
-        {!overdue.length ? <p className="text-[12px] text-muted">No overdue active exams.</p> : (
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {overdue.map(e => (
-              <div key={e.id} className="shrink-0 min-w-[180px] max-w-[220px] bg-danger-bg/40 border border-danger/20 rounded-lg px-3 py-2">
-                <div className="text-[12px] font-semibold text-navy-800 truncate">{e.title}</div>
-                <div className="text-[11px] text-faint truncate">{e.submission_count || 0} subs · {e.question_count || 0} Q</div>
-                <div className="text-[11px] font-mono text-danger mt-1">Overdue · {fmtDeadline(e.deadline)}</div>
-              </div>
-            ))}
+    );
+  }
+  const dismiss = () => { try { localStorage.setItem('dash_deadlines_dismissed', '1'); } catch {} setDismissed(true); };
+  const headerTone = overdue.length > 0 ? 'danger' : hasUrgent ? 'warning' : 'info';
+  const headerBorder = headerTone === 'danger' ? 'border-danger/15' : headerTone === 'warning' ? 'border-warning/20' : 'border-info/15';
+  const headerGrad = headerTone === 'danger' ? 'from-danger-bg/30 via-danger-bg/15' : headerTone === 'warning' ? 'from-warning-bg/40 via-warning-bg/20' : 'from-info-bg/40 via-info-bg/20';
+  const headerIconBg = headerTone === 'danger' ? 'bg-danger' : headerTone === 'warning' ? 'bg-warning' : 'bg-info';
+  return (
+    <div className={`relative bg-surface border rounded-2xl shadow-sm overflow-hidden mb-4 ${headerBorder}`}>
+      {/* Header — info style, works on mobile + dark */}
+      <div className={`flex items-center justify-between gap-3 px-4 sm:px-5 py-3 bg-gradient-to-r ${headerGrad} to-surface border-b ${headerTone === 'danger' ? 'border-danger/10' : headerTone === 'warning' ? 'border-warning/10' : 'border-info/10'}`}>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`w-8 h-8 rounded-xl text-white flex items-center justify-center shrink-0 shadow-sm ${headerIconBg}`}>
+            <Info size={15} />
+          </span>
+          <div className="min-w-0">
+            <div className="text-[13px] font-bold text-navy-800 leading-none">Deadlines & exam health</div>
+            <div className="text-[11px] text-muted leading-none mt-1 truncate">
+              {upcoming.length ? `${upcoming.length} due this week` : 'No upcoming deadlines'} · {overdue.length ? `${overdue.length} overdue` : 'no overdue'} {noDeadline ? `· ${noDeadline} no deadline` : ''}
+            </div>
           </div>
-        )}
+        </div>
+        <button
+          onClick={dismiss}
+          title="Dismiss"
+          aria-label="Dismiss"
+          className="w-7 h-7 flex items-center justify-center rounded-full bg-surface border border-border text-faint hover:text-navy-800 hover:border-navy-700/20 transition-colors cursor-pointer shrink-0"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Body — stacked on mobile, two cols on lg */}
+      <div className="p-4 sm:p-5 grid gap-5 lg:grid-cols-[1fr_1fr] lg:gap-0">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <CalendarClock size={13} className="text-info shrink-0" />
+            <span className="text-[11px] font-bold tracking-[.08em] uppercase text-navy-700">Due in 7 days</span>
+            <Badge tone={hasUrgent ? 'warning' : 'info'}>{upcoming.length}</Badge>
+            {hasUrgent && <Badge tone="warning">Due &lt;24h</Badge>}
+          </div>
+          {!upcoming.length ? (
+            <div className="rounded-xl border border-dashed border-border bg-canvas/40 px-3.5 py-3 text-center">
+              <p className="text-[12px] font-medium text-navy-700">No exams due this week</p>
+              <p className="text-[11px] text-faint mt-0.5">You’re clear — no deadlines in the next 7 days.</p>
+            </div>
+          ) : (
+            <div className="flex gap-2.5 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1 scroll-px-4 pr-1">
+              {upcoming.map(e => {
+                const hrs = Math.round((new Date(e.deadline).getTime() - now) / (60 * 60 * 1000));
+                const urgent = hrs < 24;
+                return (
+                  <div key={e.id} className={`snap-start shrink-0 min-w-[200px] max-w-[240px] sm:min-w-[210px] rounded-xl border px-3.5 py-3 ${urgent ? 'bg-warning-bg/40 border-warning/30' : 'bg-canvas/40 border-border'}`}>
+                    <div className="text-[13px] font-semibold text-navy-800 truncate leading-tight">{e.title}</div>
+                    <div className="text-[11px] text-faint truncate mt-0.5">{classMap[e.class_id] || 'No class'}</div>
+                    <div className={`inline-flex items-center gap-1 text-[11px] font-mono font-semibold mt-2 px-2 py-1 rounded-full ${urgent ? 'bg-warning text-white' : 'bg-navy-700 text-white'}`}>{fmtDeadline(e.deadline)}</div>
+                    <div className="text-[11px] text-muted mt-1.5">{hrs < 24 ? `${hrs}h left` : `${Math.round(hrs/24)}d left`} · {e.submission_count || 0} subs</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 lg:pl-5 lg:border-l lg:border-info/10 pt-4 lg:pt-0 border-t lg:border-t-0 border-border">
+          <div className="flex items-center gap-2 mb-2.5 flex-wrap">
+            <Clock size={13} className={overdue.length ? 'text-danger' : 'text-faint'} />
+            <span className="text-[11px] font-bold tracking-[.08em] uppercase text-navy-700">At risk</span>
+            <Badge tone={overdue.length ? 'danger' : 'neutral'}>{overdue.length} overdue</Badge>
+            {noDeadline > 0 && <span className="text-[11px] text-faint">· {noDeadline} no deadline</span>}
+          </div>
+          {!overdue.length ? (
+            <div className="rounded-xl border border-success/15 bg-success-bg/30 px-3.5 py-3 flex items-center gap-2.5">
+              <span className="w-7 h-7 rounded-full bg-success text-white flex items-center justify-center shrink-0"><Info size={13} /></span>
+              <div>
+                <p className="text-[12px] font-semibold text-navy-800">No overdue exams</p>
+                <p className="text-[11px] text-muted">All active exams are on track.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2.5 overflow-x-auto no-scrollbar snap-x snap-mandatory pb-1 scroll-px-4 pr-1">
+              {overdue.map(e => (
+                <div key={e.id} className="snap-start shrink-0 min-w-[200px] max-w-[240px] sm:min-w-[210px] bg-danger-bg/30 border border-danger/20 rounded-xl px-3.5 py-3">
+                  <div className="text-[13px] font-semibold text-navy-800 truncate leading-tight">{e.title}</div>
+                  <div className="text-[11px] text-faint truncate mt-0.5">{e.submission_count || 0} subs · {e.question_count || 0} Q</div>
+                  <div className="inline-flex items-center gap-1 text-[11px] font-mono font-semibold mt-2 px-2 py-1 rounded-full bg-danger text-white">Overdue · {fmtDeadline(e.deadline)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { shuffleWithSeed, parseChoices, matchesAnswer } from '../../utils';
@@ -75,6 +75,7 @@ function plainText(html) {
 
 function AnswersInner() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const examId = params.get('id');
   const [exam, setExam] = useState(null);
   const [subs, setSubs] = useState([]);
@@ -139,6 +140,7 @@ function AnswersInner() {
   if (!examId) {
     return (
       <main className="max-w-[640px] mx-auto px-5 py-12">
+        <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
         <PageHeader
           eyebrow="Exam Review"
           title="Review student answers"
@@ -167,10 +169,11 @@ function AnswersInner() {
       </main>
     );
   }
-  if (loading) return <main className="max-w-[1200px] mx-auto px-4 py-6"><Spinner label="Loading answers..." /></main>;
+  if (loading) return <main className="max-w-[1200px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><Spinner label="Loading answers..." /></main>;
 
   return (
     <main className="max-w-[1200px] mx-auto px-4 py-6">
+      <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
       <PageHeader
         eyebrow="Exam Review"
         title={exam?.title || 'Student Answers'}

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { parseChoices } from '../../utils';
-import { PageHeader, Spinner, Card, EmptyState } from '../../components/ui';
-import { FileText, FolderOpen, Lightbulb, CheckCircle2, HelpCircle } from 'lucide-react';
+import { PageHeader, Spinner, Card, EmptyState, Button } from '../../components/ui';
+import { FileText, FolderOpen, Lightbulb, CheckCircle2, HelpCircle, ArrowLeft } from 'lucide-react';
 
 export default function Preview() {
   return <AdminLayout title="Preview Exam"><PreviewInner /></AdminLayout>;
@@ -12,6 +12,7 @@ export default function Preview() {
 
 function PreviewInner() {
   const [params] = useSearchParams();
+  const navigate = useNavigate();
   const examId = params.get('id');
   const [exam, setExam] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,15 +26,16 @@ function PreviewInner() {
   }, [examId]);
 
   if (!examId) {
-    return <main className="max-w-[860px] mx-auto px-4 py-6"><EmptyState icon={FolderOpen} title="No exam selected" body="Select an exam from the Dashboard to preview." /></main>;
+    return <main className="max-w-[860px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><EmptyState icon={FolderOpen} title="No exam selected" body="Select an exam from the Dashboard to preview." /></main>;
   }
-  if (loading) return <main className="max-w-[860px] mx-auto px-4 py-6"><Spinner label="Loading exam..." /></main>;
-  if (!exam) return <main className="max-w-[860px] mx-auto px-4 py-6"><EmptyState icon={HelpCircle} title="Exam not found" /></main>;
+  if (loading) return <main className="max-w-[860px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><Spinner label="Loading exam..." /></main>;
+  if (!exam) return <main className="max-w-[860px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><EmptyState icon={HelpCircle} title="Exam not found" /></main>;
 
   const parts = [...new Set((exam.questions || []).map(q => q.part))].sort();
 
   return (
     <main className="max-w-[860px] mx-auto px-4 py-6">
+      <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
       <PageHeader
         eyebrow="Exams"
         title={exam.title || 'Exam Preview'}
