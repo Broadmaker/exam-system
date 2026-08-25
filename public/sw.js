@@ -1,5 +1,5 @@
-const CACHE = 'exam-portal-v3';
-const SHELL = ['/', '/index.html'];
+const CACHE = 'exam-portal-v4';
+const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -71,8 +71,8 @@ self.addEventListener('push', (event) => {
   const url = data.url || '/notifications';
   const options = {
     body,
-    icon: '/product_brand_logo.png',
-    badge: '/product_brand_logo.png',
+    icon: '/splash-screen-logo.png',
+    badge: '/splash-screen-logo.png',
     data: { url },
     tag: data.tag || 'wmsu-notif',
   };

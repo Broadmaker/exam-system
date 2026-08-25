@@ -3,17 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#f0f4f8">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1120">
+<meta name="theme-color" content="#0f2044">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0f2044">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Exam Portal">
 <title>Exam Portal</title>
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/splash-screen-logo.png">
 <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/splash-screen-logo.png">
+<!-- iOS PWA splash (startup image) — modern fallback using large light splash -->
+<link rel="apple-touch-startup-image" href="/splash-screen-logo.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="preload" as="image" href="/splash-screen-logo.png" fetchpriority="high">
+<style>
+  /* Immediate splash — visible before JS/React loads, dismissed by window.__hideSplash() */
+  #pwa-splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:radial-gradient(700px 380px at 50% -10%, #1e3a7a 0%, transparent 70%),linear-gradient(180deg,#0f2044 0%,#0b1b3a 55%,#0a1530 100%);transition:opacity .46s ease,visibility .46s ease}
+  #pwa-splash.hidden{opacity:0;visibility:hidden;pointer-events:none}
+  #pwa-splash-logo{width:min(42vw,148px);height:min(42vw,148px);object-fit:contain;filter:drop-shadow(0 12px 32px rgba(0,0,0,.45)) drop-shadow(0 2px 8px rgba(0,0,0,.3));animation:pwa-splash-in .7s cubic-bezier(.22,1,.36,1) both}
+  #pwa-splash-title{color:#fff;font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;font-weight:800;font-size:16px;letter-spacing:.03em;line-height:1.1;text-align:center;text-shadow:0 1px 12px rgba(0,0,0,.35)}
+  #pwa-splash-sub{color:rgba(255,255,255,.68);font-family:Inter,system-ui,sans-serif;font-size:12px;font-weight:500;letter-spacing:.06em;text-transform:uppercase;text-align:center;margin-top:6px}
+  #pwa-splash-spinner{width:32px;height:32px;border-radius:999px;border:3px solid rgba(255,255,255,.14);border-top-color:#e8a020;animation:pwa-splash-spin .85s linear infinite;margin-top:6px}
+  #pwa-splash-powered{position:absolute;bottom:max(18px,env(safe-area-inset-bottom,18px));left:50%;transform:translateX(-50%);color:rgba(255,255,255,.42);font-family:Inter,system-ui,sans-serif;font-size:10px;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+  @keyframes pwa-splash-spin{to{transform:rotate(360deg)}}
+  @keyframes pwa-splash-in{from{opacity:0;transform:scale(.86) translateY(8px)}to{opacity:1;transform:scale(1) translateY(0)}}
+  @media (prefers-reduced-motion:reduce){#pwa-splash-spinner{animation:none;border-top-color:rgba(255,255,255,.4)}#pwa-splash-logo{animation:none}}
+</style>
 <script>
   (function () {
     try {
@@ -23,9 +40,29 @@
       document.documentElement.setAttribute('data-theme', 'light');
     }
   })();
+  // Expose global hide so React (main.jsx) can dismiss instantly once mounted
+  window.__hideSplash = function () {
+    var el = document.getElementById('pwa-splash');
+    if (!el || el.classList.contains('hidden')) return;
+    el.classList.add('hidden');
+    setTimeout(function () { if (el && el.parentNode) el.parentNode.removeChild(el); }, 520);
+  };
+  window.addEventListener('load', function () { setTimeout(window.__hideSplash, 700); });
+  // Safety: never block UI longer than 3.5s even if JS fails
+  setTimeout(window.__hideSplash, 3500);
 </script>
 </head>
 <body>
+<!-- PWA splash screen — uses /splash-screen-logo.png (1:1 ≈1254px). Shown inline before React hydrates for instant paint on standalone/PWA launch. -->
+<div id="pwa-splash" aria-hidden="true">
+  <img id="pwa-splash-logo" src="/splash-screen-logo.png" alt="" width="148" height="148" fetchpriority="high" decoding="async" />
+  <div style="text-align:center">
+    <div id="pwa-splash-title">WMSU Exam Portal</div>
+    <div id="pwa-splash-sub">Western Mindanao State University</div>
+  </div>
+  <div id="pwa-splash-spinner" aria-hidden="true"></div>
+  <div id="pwa-splash-powered">Secure • Offline-ready • WA</div>
+</div>
 <div id="root"></div>
 <script type="module" src="/src/main.jsx"></script>
 </body>

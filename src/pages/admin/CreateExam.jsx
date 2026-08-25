@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
@@ -243,8 +243,10 @@ function CreateExamInner() {
   const [templates, setTemplates] = useState([]);
   const [showTplModal, setShowTplModal] = useState(false);
   const [tplSaving, setTplSaving] = useState(false);
+  const tplSavingRef = useRef(false);
   const [showUseTplModal, setShowUseTplModal] = useState(false);
   const [tplUsing, setTplUsing] = useState(false);
+  const tplUsingRef = useRef(false);
   const [selectedTpl, setSelectedTpl] = useState('');
 
   useEffect(() => {
@@ -309,7 +311,9 @@ function CreateExamInner() {
   };
 
   const saveAsTemplate = async () => {
-    if (!examId) { toast.error('Save the exam first'); return; }
+    if (tplSavingRef.current) return;
+    tplSavingRef.current = true;
+    if (!examId) { toast.error('Save the exam first'); tplSavingRef.current = false; return; }
     setTplSaving(true);
     try {
       const res = await api.createTemplate({ exam_id: examId, title: title.trim() + ' Template', description: desc.trim(), type: examType, time_limit: timeLimit, questions_per_set: questions.length || 10, show_answers: showAnswers, passing_score: Number(passingScore) || 60, class_id: classId });
@@ -318,10 +322,13 @@ function CreateExamInner() {
       setShowTplModal(false);
     } catch (e) { toast.error(e.message); }
     setTplSaving(false);
+    tplSavingRef.current = false;
   };
 
   const useTemplate = async () => {
-    if (!selectedTpl) { toast.error('Select a template'); return; }
+    if (tplUsingRef.current) return;
+    tplUsingRef.current = true;
+    if (!selectedTpl) { toast.error('Select a template'); tplUsingRef.current = false; return; }
     setTplUsing(true);
     try {
       const res = await api.useTemplate(selectedTpl, { class_id: classId });
@@ -329,6 +336,7 @@ function CreateExamInner() {
       window.location.search = '?id=' + res.id;
     } catch (e) { toast.error(e.message); }
     setTplUsing(false);
+    tplUsingRef.current = false;
   };
 
   const addQuestion = async () => {

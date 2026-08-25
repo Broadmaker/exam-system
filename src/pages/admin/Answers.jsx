@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
-import { shuffleWithSeed, parseChoices, matchesAnswer } from '../../utils';
+import { shuffleWithSeed, parseChoices, matchesAnswer, examTypeLabel, EXAM_STATUS_LABELS, EXAM_STATUS_TONES, effectiveExamStatus } from '../../utils';
 import { PageHeader, Card, Button, Badge, Select, EmptyState, Spinner, Modal, useToast } from '../../components/ui';
-import { Search, RefreshCw, Eye, CheckCircle, XCircle, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users } from 'lucide-react';
+import { SearchInput } from '../../components/ui/SearchInput';
+import { PillsContainer, Pill } from '../../components/ui/Pills';
+import { Search, RefreshCw, Eye, CheckCircle, XCircle, X, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users, Clock, CalendarClock, GraduationCap, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 export default function Answers() {
   return <AdminLayout title="Student Answers"><AnswersInner /></AdminLayout>;
@@ -82,6 +84,9 @@ function AnswersInner() {
   const [examList, setExamList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [examSearch, setExamSearch] = useState('');
+  const [examPage, setExamPage] = useState(1);
+  const EXAM_PAGE_SIZE = 6;
   const [openSub, setOpenSub] = useState(null);
   const [saving, setSaving] = useState(null);
 
@@ -98,6 +103,7 @@ function AnswersInner() {
   };
   useEffect(() => { load(); }, [examId]);
   useEffect(() => { api.listExams().then(setExamList).catch(() => {}); }, []);
+  useEffect(() => { setExamPage(1); }, [examSearch]);
 
   const qs = exam?.questions || [];
   const rows = subs.map(sub => ({ sub, cells: buildCells(qs, sub) }));
@@ -138,8 +144,16 @@ function AnswersInner() {
   };
 
   if (!examId) {
+    const filteredExams = examList.filter(ex => {
+      const q = examSearch.trim().toLowerCase();
+      if (!q) return true;
+      return ex.title?.toLowerCase().includes(q) || ex.id?.toLowerCase().includes(q) || ex.type?.toLowerCase().includes(q);
+    });
+    const totalPages = Math.max(1, Math.ceil(filteredExams.length / EXAM_PAGE_SIZE));
+    const safePage = Math.min(examPage, totalPages);
+    const pagedExams = filteredExams.slice((safePage - 1) * EXAM_PAGE_SIZE, safePage * EXAM_PAGE_SIZE);
     return (
-      <main className="max-w-[640px] mx-auto px-5 py-12">
+      <main className="max-w-[960px] mx-auto px-4 py-6">
         <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
         <PageHeader
           eyebrow="Exam Review"
@@ -147,32 +161,72 @@ function AnswersInner() {
           subtitle="Select an exam to see how each student answered, and manually accept or reject individual answers."
           icon={Eye}
         />
+        {examList.length > 0 && (
+          <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 flex gap-3 mb-4 shadow-sm">
+            <SearchInput value={examSearch} onChange={e=>setExamSearch(e.target.value)} placeholder="Search exams by title or type…" onClear={()=>setExamSearch('')} />
+            <span className="hidden sm:inline-flex items-center text-[11px] text-faint self-center shrink-0">{filteredExams.length} of {examList.length}</span>
+          </div>
+        )}
         {!examList.length ? (
           <EmptyState icon={FolderOpen} title="No exams yet" compact />
+        ) : !filteredExams.length ? (
+          <EmptyState icon={Search} title="No matches" body={`No exams match "${examSearch}"`} compact action={<Button variant="outline" icon={X} onClick={()=>setExamSearch('')}>Clear search</Button>} />
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {examList.map(ex => (
-              <button key={ex.id} onClick={() => setParams({ id: ex.id })}
-                className="flex items-center gap-3 text-left font-sans bg-surface border border-border rounded-[10px] px-4 py-3.5 cursor-pointer transition-all hover:border-navy-700 hover:bg-navy-50 hover:shadow-card">
-                <span className="w-9 h-9 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Eye size={16} /></span>
-                <span className="flex-1 min-w-0">
-                  <span className="block font-semibold text-navy-800 text-[14px] truncate">{ex.title}</span>
-                  <span className="block text-[12px] text-muted mt-0.5">
-                    {ex.question_count} question{ex.question_count !== 1 ? 's' : ''} · {ex.submission_count} submission{ex.submission_count !== 1 ? 's' : ''}
-                  </span>
-                </span>
-                <ArrowRight size={16} className="shrink-0 text-faint" />
-              </button>
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {pagedExams.map(ex => {
+                const letter = (ex.title || '?').charAt(0).toUpperCase();
+                const effStatus = effectiveExamStatus(ex);
+                return (
+                  <button key={ex.id} onClick={() => setParams({ id: ex.id })}
+                    className="group card-hover flex flex-col gap-0 text-left bg-surface border border-border rounded-xl overflow-hidden cursor-pointer">
+                    <div className="h-1 bg-gradient-to-r from-navy-700 via-navy-600 to-accent" />
+                    <div className="p-4 flex flex-col gap-2.5">
+                      <div className="flex items-start gap-3">
+                        <span className="w-10 h-10 rounded-xl bg-navy-700 text-white flex items-center justify-center shrink-0 font-bold text-[14px] shadow-sm">{letter}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-navy-800 text-[14px] truncate leading-tight">{ex.title}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <Badge tone="info">{examTypeLabel(ex.type)}</Badge>
+                            <Badge tone={EXAM_STATUS_TONES[effStatus] || 'neutral'}>{EXAM_STATUS_LABELS[effStatus] || ex.status}</Badge>
+                            <Badge tone={(ex.question_count||0)===0?'danger':'neutral'}>{ex.question_count||0} Q</Badge>
+                          </div>
+                        </div>
+                        <ArrowRight size={16} className="shrink-0 text-faint group-hover:text-navy-700 transition-colors mt-1" />
+                      </div>
+                      <div className="flex flex-wrap gap-3 text-[11px] text-muted border-t border-border pt-2.5">
+                        <span className="inline-flex items-center gap-1"><Clock size={11}/>{ex.time_limit || 60}m</span>
+                        <span className="inline-flex items-center gap-1"><BarChart3 size={11}/>{ex.submission_count||0} subs</span>
+                        <span className="inline-flex items-center gap-1"><GraduationCap size={11}/>{ex.passing_score ?? 60}% pass</span>
+                        {ex.deadline && <span className="inline-flex items-center gap-1"><CalendarClock size={11}/>{new Date(ex.deadline).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>}
+                      </div>
+                      {ex.description && <div className="text-[11px] text-faint truncate leading-relaxed">{ex.description}</div>}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4">
+                <span className="text-[11px] text-faint order-2 sm:order-1">Showing <strong className="text-navy-800">{(safePage-1)*EXAM_PAGE_SIZE+1}–{Math.min(safePage*EXAM_PAGE_SIZE, filteredExams.length)}</strong> of {filteredExams.length}</span>
+                <div className="flex items-center gap-1 order-1 sm:order-2">
+                  <button onClick={()=>setExamPage(1)} disabled={safePage<=1} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsLeft size={14}/></button>
+                  <button onClick={()=>setExamPage(p=>Math.max(1,p-1))} disabled={safePage<=1} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft size={14}/></button>
+                  <span className="text-[11px] font-semibold text-navy-800 px-2">{safePage} / {totalPages}</span>
+                  <button onClick={()=>setExamPage(p=>Math.min(totalPages,p+1))} disabled={safePage>=totalPages} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight size={14}/></button>
+                  <button onClick={()=>setExamPage(totalPages)} disabled={safePage>=totalPages} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsRight size={14}/></button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
     );
   }
-  if (loading) return <main className="max-w-[1200px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><Spinner label="Loading answers..." /></main>;
+  if (loading) return <main className="max-w-[960px] mx-auto px-4 py-6"><Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button><Spinner label="Loading answers..." /></main>;
 
   return (
-    <main className="max-w-[1200px] mx-auto px-4 py-6">
+    <main className="max-w-[960px] mx-auto px-4 py-6">
       <Button variant="ghost" icon={ArrowLeft} onClick={() => navigate('/admin')} className="!px-0 !py-1 !text-[13px] !text-muted hover:!text-navy-800 mb-3">Back to Dashboard</Button>
       <PageHeader
         eyebrow="Exam Review"
@@ -195,37 +249,39 @@ function AnswersInner() {
         }
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-4">
-        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
-          <span className="w-8 h-8 rounded-lg bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Users size={15} /></span>
-          <div>
-            <div className="text-[11px] text-muted font-medium">Submissions</div>
-            <div className="text-[16px] font-bold text-navy-800 leading-tight">{subs.length}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div className="bg-surface border border-border rounded-xl px-4 py-3.5 flex items-center gap-3 shadow-sm">
+          <span className="w-9 h-9 rounded-xl bg-navy-100 text-navy-700 flex items-center justify-center shrink-0"><Users size={16} /></span>
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint leading-none">Submissions</div>
+            <div className="text-[20px] font-bold text-navy-800 leading-none mt-1">{subs.length}</div>
           </div>
+          <span className="ml-auto text-[11px] font-medium text-muted bg-canvas border border-border rounded-full px-2.5 py-1">{qs.length} Qs</span>
         </div>
-        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3">
-          <span className="w-8 h-8 rounded-lg bg-purple-bg text-purple flex items-center justify-center shrink-0"><BarChart3 size={15} /></span>
-          <div>
-            <div className="text-[11px] text-muted font-medium">Average score</div>
-            <div className="text-[16px] font-bold text-navy-800 leading-tight">
+        <div className="bg-surface border border-border rounded-xl px-4 py-3.5 flex items-center gap-3 shadow-sm">
+          <span className="w-9 h-9 rounded-xl bg-purple-bg text-purple flex items-center justify-center shrink-0"><BarChart3 size={16} /></span>
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint leading-none">Average</div>
+            <div className="text-[20px] font-bold text-navy-800 leading-none mt-1">
               {subs.length ? Math.round(subs.reduce((a, s) => a + (s.total ? s.score / s.total : 0), 0) / subs.length * 100) : 0}%
             </div>
           </div>
+          <span className="ml-auto text-[11px] text-faint">{subs.length ? `${Math.round(subs.reduce((a,s)=>a+s.score,0)/subs.length)}/${qs.length} avg` : '—'}</span>
         </div>
-        <div className="flex items-center gap-2.5 bg-surface border border-border rounded-[10px] px-3.5 py-3 col-span-2 sm:col-span-1">
-          <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><CheckCircle size={15} /></span>
-          <div>
-            <div className="text-[11px] text-muted font-medium">Passed (≥ 60%)</div>
-            <div className="text-[16px] font-bold text-navy-800 leading-tight">
-              {subs.filter(s => s.total && s.score / s.total >= 0.6).length}
+        <div className="bg-surface border border-border rounded-xl px-4 py-3.5 flex items-center gap-3 shadow-sm">
+          <span className="w-9 h-9 rounded-xl bg-success-bg text-success flex items-center justify-center shrink-0"><CheckCircle size={16} /></span>
+          <div className="min-w-0">
+            <div className="text-[11px] font-bold tracking-[.08em] uppercase text-faint leading-none">Passed ≥60%</div>
+            <div className="text-[20px] font-bold text-navy-800 leading-none mt-1">
+              {subs.filter(s => s.total && s.score / s.total >= 0.6).length}<span className="text-[12px] font-normal text-muted">/{subs.length}</span>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="relative mb-4 max-w-[380px]">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by student name..." className="input !pl-9" />
+      <div className="bg-surface border border-border rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row gap-3 mb-4 shadow-sm">
+        <SearchInput value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search by student name…" onClear={()=>setSearch('')} />
+        <div className="text-[11px] text-faint self-center shrink-0 hidden sm:block">{filtered.length} of {subs.length}</div>
       </div>
 
       {!subs.length ? (
@@ -234,11 +290,13 @@ function AnswersInner() {
         <EmptyState icon={Search} title="No matches" body={`No results match "${search}"`} compact />
       ) : (
         <>
-          <div className="table-wrap">
-            <table className="table min-w-max" style={{ borderCollapse: 'collapse' }}>
+          <div className="flex items-center gap-1 text-[11px] text-faint mb-2 sm:hidden"><ArrowRight size={12} className="text-faint" /> Swipe to see all questions →</div>
+          <Card className="!p-0 overflow-hidden shadow-sm">
+            <div className="overflow-x-auto no-scrollbar">
+              <table className="table min-w-max w-full" style={{ borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={{ position: 'sticky', left: 0, background: 'var(--color-navy-50)', zIndex: 2, minWidth: 180, borderRight: '1px solid var(--color-border)' }}>Student</th>
+                  <th style={{ position: 'sticky', left: 0, background: 'var(--color-navy-50)', zIndex: 2, minWidth: 150, borderRight: '1px solid var(--color-border)' }} className="sm:min-w-[180px]">Student</th>
                   {qs.map((q, qi) => (
                     <th key={q.id} title={plainText(q.text)} style={{ textAlign: 'center', fontSize: 11, minWidth: 92 }}>
                       <div>Q{qi + 1}</div>
@@ -254,7 +312,7 @@ function AnswersInner() {
                   const reviewedCount = r.cells.filter(c => c.reviewed).length;
                   return (
                   <tr key={r.sub.id} onClick={() => setOpenSub(r.sub.id)} className="cursor-pointer">
-                    <td style={{ position: 'sticky', left: 0, zIndex: 1, minWidth: 180, background: rowIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-navy-50)', borderRight: '1px solid var(--color-border)' }}>
+                    <td style={{ position: 'sticky', left: 0, zIndex: 1, minWidth: 150, background: rowIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-navy-50)', borderRight: '1px solid var(--color-border)' }}>
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-navy-800 truncate">{r.sub.student_name}</span>
                         {reviewedCount > 0 && (
@@ -296,16 +354,17 @@ function AnswersInner() {
                 })}
               </tbody>
             </table>
-            <div className="flex items-center gap-2 px-4 py-2.5 text-[11px] text-muted border-t border-border bg-canvas flex-wrap">
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-success-bg border border-success inline-block" /> Correct</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-danger-bg border border-danger inline-block" /> Wrong</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-navy-50 border border-border inline-block" /> Unanswered</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-surface border-2 border-warning inline-block" /> Manual review</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-warning border-2 border-surface shadow-sm inline-block" /> Reviewed cell</span>
-              <span className="inline-flex items-center gap-1"><span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold"><CheckCircle size={10} /> n</span> Reviewed count</span>
-              <span className="ml-auto hidden sm:inline">Click a row for full details and review controls.</span>
-            </div>
           </div>
+          <div className="flex items-center gap-2 px-4 py-2.5 text-[11px] text-muted border-t border-border bg-canvas flex-wrap">
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-success-bg border border-success inline-block" /> Correct</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-danger-bg border border-danger inline-block" /> Wrong</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-navy-50 border border-border inline-block" /> Unanswered</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-surface border-2 border-warning inline-block" /> Manual review</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-warning border-2 border-surface shadow-sm inline-block" /> Reviewed cell</span>
+            <span className="inline-flex items-center gap-1"><span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold"><CheckCircle size={10} /> n</span> Reviewed count</span>
+            <span className="ml-auto hidden sm:inline">Click a row for full details and review controls.</span>
+          </div>
+        </Card>
         </>
       )}
 

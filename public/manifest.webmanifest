@@ -4,12 +4,19 @@
   "description": "Official examination portal for Western Mindanao State University.",
   "start_url": "/",
   "scope": "/",
-  "display": "fullscreen",
+  "display": "standalone",
+  "display_override": ["standalone", "fullscreen"],
   "orientation": "any",
   "background_color": "#0f2044",
   "theme_color": "#0f2044",
   "lang": "en",
   "icons": [
+    {
+      "src": "/splash-screen-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",
@@ -27,6 +34,21 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    },
+    {
+      "src": "/splash-screen-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/splash-screen-logo.png",
+      "sizes": "1254x1254",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "WMSU Exam Portal — splash screen"
     }
   ]
 }
