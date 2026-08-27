@@ -53,6 +53,7 @@ export const api = {
   endSession: (examId, body) => request('/exams/' + examId + '/session/end', { method: 'POST', body: JSON.stringify(body) }),
   getProctor: (examId) => request('/proctor/' + examId, { headers: { 'Authorization': adminPass() } }),
   kickStudent: (examId, sessionId) => request('/proctor/' + examId + '/kick', { method: 'POST', body: JSON.stringify({ session_id: sessionId }), headers: { 'Authorization': adminPass() } }),
+  cleanupStale: (examId) => request('/proctor/' + examId + '/cleanup-stale', { method: 'POST', headers: { 'Authorization': adminPass() } }),
   allowRetry: (examId, studentId, allow) => request('/proctor/' + examId + '/retry', { method: 'POST', body: JSON.stringify({ student_id: studentId, allow }), headers: { 'Authorization': adminPass() } }),
   getRetryStatus: (examId, studentId, studentName, studentSection) => request('/exams/' + examId + '/retry-status?student_id=' + encodeURIComponent(studentId) + '&student_name=' + encodeURIComponent(studentName) + '&student_section=' + encodeURIComponent(studentSection)),
   lookupStudent: (examId, studentId) => request('/exams/' + examId + '/student?student_id=' + encodeURIComponent(studentId)),

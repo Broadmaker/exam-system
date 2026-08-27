@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import {
@@ -18,7 +18,24 @@ import { exportCSV, EXAM_TYPE_LABELS, EXAM_STATUS_LABELS, examTypeLabel, effecti
 
 export default function Classes() {
   const [classes, setClasses] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // URL is primary, localStorage is fallback so refresh survives even if URL wasn't updated
+  const urlId = searchParams.get('id');
+  const storedId = (() => { try { return localStorage.getItem('admin_classes_selectedId'); } catch { return null; } })();
+  const selectedId = urlId || storedId;
+  const urlTab = searchParams.get('tab');
+  const storedTab = (() => { try { return localStorage.getItem('admin_classes_tab'); } catch { return null; } })();
+  // keep URL in sync with localStorage on mount/refresh
+  useEffect(() => {
+    if (selectedId && !urlId) {
+      const next = new URLSearchParams(searchParams);
+      next.set('id', selectedId);
+      next.set('tab', urlTab || storedTab || 'enrollments');
+      setSearchParams(next, { replace: true });
+    }
+  }, []); // run once on mount
+
+  const selected = selectedId ? (classes.find(c => c.id === selectedId) || { id: selectedId, name: 'Loading…' }) : null;
   const toast = useToast();
 
   const load = useCallback(() => {
@@ -27,13 +44,31 @@ export default function Classes() {
 
   useEffect(() => { load(); }, [load]);
 
+  const openClass = useCallback((k) => {
+    try { localStorage.setItem('admin_classes_selectedId', k.id); } catch {}
+    try { if (!localStorage.getItem('admin_classes_tab')) localStorage.setItem('admin_classes_tab', 'enrollments'); } catch {}
+    const next = new URLSearchParams(searchParams);
+    next.set('id', k.id);
+    if (!next.get('tab')) next.set('tab', localStorage.getItem('admin_classes_tab') || 'enrollments');
+    setSearchParams(next);
+  }, [searchParams, setSearchParams]);
+
+  const closeClass = useCallback(() => {
+    try { localStorage.removeItem('admin_classes_selectedId'); } catch {}
+    // keep tab for next open but clear URL id
+    const next = new URLSearchParams(searchParams);
+    next.delete('id');
+    setSearchParams(next);
+    load();
+  }, [searchParams, setSearchParams, load]);
+
   return (
     <AdminLayout title="Classes">
       <main className="max-w-[1000px] mx-auto px-4 py-6">
         {selected ? (
-          <ClassDetail klass={selected} onBack={() => { setSelected(null); load(); }} onChanged={load} />
+          <ClassDetail klass={selected} onBack={closeClass} onChanged={load} />
         ) : (
-          <ClassesList classes={classes} onOpen={setSelected} onChanged={load} />
+          <ClassesList classes={classes} onOpen={openClass} onChanged={load} />
         )}
       </main>
     </AdminLayout>
@@ -235,7 +270,17 @@ function ClassesList({ classes, onOpen, onChanged }) {
 
 function ClassDetail({ klass, onBack, onChanged }) {
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState('enrollments');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const storedTab = (() => { try { return localStorage.getItem('admin_classes_tab'); } catch { return null; } })();
+  const tab = searchParams.get('tab') || storedTab || 'enrollments';
+  const setTab = (next) => {
+    try { localStorage.setItem('admin_classes_tab', next); } catch {}
+    try { localStorage.setItem('admin_classes_selectedId', klass.id); } catch {}
+    const sp = new URLSearchParams(searchParams);
+    sp.set('id', klass.id);
+    sp.set('tab', next);
+    setSearchParams(sp);
+  };
   const [loading, setLoading] = useState(true);
   const toast = useToast();
 

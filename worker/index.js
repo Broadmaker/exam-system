@@ -475,15 +475,48 @@ app.get('/api/logs', async (c) => {
 app.post('/api/submit', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
-  const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed' } = body;
+  const { exam_id, student_name, student_section, student_id = '', seed, answers, score: clientScore, total: clientTotal, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed' } = body;
+
+  if (!exam_id || !student_name || !student_section) {
+    return c.json({ error: 'Missing exam_id, student_name or student_section.' }, 400);
+  }
+  const normId = String(student_id || '').trim().toUpperCase();
 
   const exam = await db.prepare(`SELECT deadline, class_id, status, start_at FROM exams WHERE id = ?`).bind(exam_id).first();
-  // Find any prior submission for this student so we can tell a fresh attempt
-  // (blocked by lifecycle) from a resumed mid-session finalization (allowed).
-  const existing = await db.prepare(
-    `SELECT id, reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
-  ).bind(exam_id, student_name, student_section).first();
-  const isResumeFinalization = !!existing;
+  if (!exam) return c.json({ error: 'Exam not found' }, 404);
+
+  // Find any prior submission — prefer student_id match, fallback to name+section
+  // (unique index is on name+section, but class-linked flows key by student_id).
+  let existing = null;
+  if (normId) {
+    existing = await db.prepare(
+      `SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_id = ?`
+    ).bind(exam_id, normId).first();
+  }
+  if (!existing) {
+    existing = await db.prepare(
+      `SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+    ).bind(exam_id, student_name, student_section).first();
+  }
+  const startedAtNum = Number(body.started_at);
+  const hasValidStartedAt = Number.isFinite(startedAtNum) && startedAtNum > 0;
+  // Grace for pending offline submits: if they started before the deadline/close,
+  // treat as a resume even when no row exists yet (covers "submitted but not recorded").
+  // This is the path for your expired-but-not-recorded case.
+  let isStartedBeforeDeadline = false;
+  let isStartedBeforeClose = false;
+  try {
+    if (hasValidStartedAt && exam?.deadline) {
+      const dl = new Date(exam.deadline).getTime();
+      if (!isNaN(dl) && startedAtNum < dl) isStartedBeforeDeadline = true;
+    }
+    if (hasValidStartedAt && !exam?.deadline && exam && ['closed','archived'].includes(exam.status)) {
+      // No deadline but exam was closed — if they started before now, allow finish
+      // (draft is never allowed this way)
+      isStartedBeforeClose = startedAtNum < Date.now();
+    }
+  } catch {}
+  const isResumeFinalization = !!existing || isStartedBeforeDeadline || isStartedBeforeClose;
 
   // Never accept FRESH submissions for exams that aren't open for new attempts:
   // draft (never published), scheduled-but-not-open, closed, or archived. Resumed
@@ -520,10 +553,65 @@ app.post('/api/submit', async (c) => {
   if (exam.class_id) {
     const enrolled = await db.prepare(
       `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
-    ).bind(exam.class_id, student_id).first();
+    ).bind(exam.class_id, normId).first();
     if (!enrolled) {
       return c.json({ error: 'You must be enrolled in this class to take this exam.' }, 403);
     }
+  }
+
+  // ── Server-side grading (authoritative): recompute score from questions ──
+  const { results: questions } = await db.prepare(
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
+  ).bind(exam_id).all();
+  if (!questions || !questions.length) {
+    return c.json({ error: 'This exam has no questions — cannot submit.' }, 400);
+  }
+  // Normalize submitted answers (client may send object or JSON string)
+  let submittedAnswers = answers;
+  if (typeof submittedAnswers === 'string') {
+    try { submittedAnswers = JSON.parse(submittedAnswers); } catch { submittedAnswers = {}; }
+  }
+  if (!submittedAnswers || typeof submittedAnswers !== 'object' || Array.isArray(submittedAnswers)) submittedAnswers = {};
+  const answerCount = Object.keys(submittedAnswers).filter(k => {
+    const v = submittedAnswers[k];
+    return v !== undefined && v !== null && String(v).trim() !== '';
+  }).length;
+
+  // Guard: never overwrite a non-zero submission with an empty payload (kick/retry wipe bug)
+  if (existing && answerCount === 0) {
+    const prevScore = Number(existing.score) || 0;
+    if (prevScore > 0) {
+      return c.json({ error: 'No answers provided — previous submission preserved.', preserved: true, id: existing.id, score: existing.score, total: existing.total }, 400);
+    }
+    // Also block empty manual submit even for first non-zero-previous? Allow 0→0 but no-op
+    // For a retry that wipes answers before re-answering, the client auto-submit would be empty → reject.
+    if (existing) {
+      return c.json({ error: 'No answers provided. Please answer at least one question before submitting.' }, 400);
+    }
+  }
+  if (!existing && answerCount === 0) {
+    // First submission with zero answers is allowed only for auto reasons, otherwise nudge
+    if (safeReason === 'manual') {
+      return c.json({ error: 'No answers provided. Please answer at least one question before submitting.' }, 400);
+    }
+  }
+
+  // Authoritative score — ignore client-supplied score/total
+  let serverScore = 0;
+  try {
+    const tmpSub = { seed: String(seed || ''), answers: submittedAnswers, answer_scheme: safeScheme };
+    const computed = computeScore(questions, tmpSub);
+    serverScore = computed.correctCount;
+  } catch (e) {
+    // Fallback: if grading crashes, log and keep client score but clamp
+    serverScore = Math.max(0, Math.min(questions.length, Number(clientScore) || 0));
+    await log(db, 'grading_fallback', `Grading failed for ${student_name} (${normId}) in ${exam_id}: ${String(e)}`);
+  }
+  const serverTotal = questions.length;
+
+  // Log discrepancy if client tried to lie
+  if (Number(clientScore) !== serverScore || Number(clientTotal) !== serverTotal) {
+    await log(db, 'score_mismatch', `Client ${clientScore}/${clientTotal} vs server ${serverScore}/${serverTotal} for ${student_name} (${normId}) in ${exam_id}`);
   }
 
   const id = existing ? existing.id : uuid();
@@ -532,24 +620,25 @@ app.post('/api/submit', async (c) => {
       `UPDATE submissions
        SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, submitted_at = datetime('now')
        WHERE id = ?`
-    ).bind(student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, safeScheme, id).run();
+    ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, id).run();
     // Answers changed, so discard any manual reviews tied to the old attempt.
     await db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id).run();
   } else {
     await db.prepare(
       `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, exam_id, student_name, student_section, student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, safeScheme).run();
+    ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme).run();
   }
 
   // Mark attendance as submitted and close the student's active session(s).
   await db.prepare(
     `UPDATE attendance SET status = 'submitted', submitted_at = datetime('now')
      WHERE exam_id = ? AND (student_id = ? OR (student_name = ? AND student_section = ?))`
-  ).bind(exam_id, student_id, student_name, student_section).run();
+  ).bind(exam_id, normId, student_name, student_section).run();
+  // Close by both student_id and session device binding to avoid stale rows
   await db.prepare(
-    `UPDATE exam_sessions SET active = 0 WHERE exam_id = ? AND student_id = ?`
-  ).bind(exam_id, student_id).run();
+    `UPDATE exam_sessions SET active = 0 WHERE exam_id = ? AND (student_id = ? OR student_name = ?)`
+  ).bind(exam_id, normId, student_name).run();
 
   // Auto-record class attendance when this exam belongs to a class.
   if (exam.class_id) {
@@ -559,11 +648,11 @@ app.post('/api/submit', async (c) => {
        VALUES (?, ?, ?, ?, ?, 'present', 'exam')
        ON CONFLICT(class_id, date, student_id)
        DO UPDATE SET student_name = excluded.student_name`
-    ).bind(uuid(), exam.class_id, today, student_id, student_name).run();
+    ).bind(uuid(), exam.class_id, today, normId, student_name).run();
   }
 
-  await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${student_id || 'no ID'}): ${score}/${total} (${safeReason})`);
-  return c.json({ id }, existing ? 200 : 201);
+  await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
+  return c.json({ id, score: serverScore, total: serverTotal }, existing ? 200 : 201);
 });
 
 // ── SESSIONS (single-session lock + heartbeat) ──────
@@ -573,7 +662,7 @@ app.post('/api/exams/:id/session/start', async (c) => {
   const db = c.env.DB;
   const examId = c.req.param('id');
   const body = await c.req.json();
-  const { student_id, student_name, student_section, device_id = '' } = body;
+  const { student_id, student_name, student_section, device_id = '', started_at = '' } = body;
 
   if (!student_id) {
     return c.json({ error: 'Student ID is required.' }, 400);
@@ -588,19 +677,51 @@ app.post('/api/exams/:id/session/start', async (c) => {
     exam.status = 'closed';
   }
 
+  // Check for existing submission that would allow a retry even after close/deadline
+  // — same logic as POST /api/submit isResumeFinalization. This provides the
+  // grace window you asked for: students you flagged "Allow Retry" can still
+  // start a new session after the exam is closed, otherwise they'd be locked out.
+  let existingForGate = null;
+  try {
+    const nid = String(student_id || '').trim().toUpperCase();
+    if (nid) existingForGate = await db.prepare(`SELECT reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_id = ?`).bind(examId, nid).first();
+    if (!existingForGate) {
+      // fallback to name/section if student_id lookup missed (legacy rows)
+      const nm = body.student_name || student_name;
+      const sc = body.student_section || student_section;
+      if (nm && sc) existingForGate = await db.prepare(`SELECT reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`).bind(examId, nm, sc).first();
+    }
+  } catch {}
+  let canRetryAfterClose = !!existingForGate && (!!existingForGate.retry_allowed || ['timeout','tab','kick'].includes(existingForGate.reason));
+  // Also allow if this is a pending offline submit being retried after expiry:
+  // the client keeps started_at in exam_state_<id> / pending_submission and
+  // sends it on re-open (src/pages/Exam.jsx). If that timestamp is before
+  // the deadline, treat as a resume even when no row exists yet.
+  try {
+    const startedAtNum = Number(started_at);
+    if (!canRetryAfterClose && Number.isFinite(startedAtNum) && startedAtNum > 0 && exam?.deadline) {
+      const dl = new Date(exam.deadline).getTime();
+      if (!isNaN(dl) && startedAtNum < dl) canRetryAfterClose = true;
+    }
+    if (!canRetryAfterClose && Number.isFinite(Number(started_at)) && Number(started_at) > 0 && !exam?.deadline && ['closed','archived'].includes(exam.status)) {
+      canRetryAfterClose = true; // no deadline but closed after they started
+    }
+  } catch {}
+
   // Lifecycle gate (Upscale.md §48): only scheduled (when open) and active exams
-  // can be started. Draft / closed / archived exams are blocked server-side.
+  // can be started. Draft / closed / archived exams are blocked server-side —
+  // except for retry-grace (canRetryAfterClose).
   const now = Date.now();
-  if (exam.status === 'draft') {
+  if (exam.status === 'draft' && !canRetryAfterClose) {
     return c.json({ error: 'This exam is not published yet. Please check back later.' }, 403);
   }
-  if (exam.status === 'archived') {
+  if (exam.status === 'archived' && !canRetryAfterClose) {
     return c.json({ error: 'This exam is archived and no longer available.' }, 403);
   }
-  if (exam.status === 'closed') {
+  if (exam.status === 'closed' && !canRetryAfterClose) {
     return c.json({ error: 'This exam has been closed by the instructor.' }, 403);
   }
-  if (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > now) {
+  if (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > now && !canRetryAfterClose) {
     return c.json({ error: 'This exam opens at ' + new Date(exam.start_at).toLocaleString() + '.' }, 403);
   }
 
@@ -626,7 +747,7 @@ app.post('/api/exams/:id/session/start', async (c) => {
     return c.json({ error: 'Invalid access code. Ask your proctor for the correct code.' }, 403);
   }
 
-  if (exam.deadline && new Date(exam.deadline).getTime() <= Date.now()) {
+  if (exam.deadline && new Date(exam.deadline).getTime() <= Date.now() && !canRetryAfterClose) {
     return c.json({ error: 'This exam has already ended.' }, 403);
   }
 
@@ -754,9 +875,15 @@ app.post('/api/proctor/:examId/kick', async (c) => {
 
   if (!body.session_id) return c.json({ error: 'Missing session_id' }, 400);
   const session = await db.prepare(
-    `SELECT student_id, student_name FROM exam_sessions WHERE id = ? AND exam_id = ?`
+    `SELECT student_id, student_name, last_seen, active, kicked FROM exam_sessions WHERE id = ? AND exam_id = ?`
   ).bind(body.session_id, examId).first();
   if (!session) return c.json({ error: 'Session not found' }, 404);
+
+  // Detect if session is already stale/offline — kicking won't trigger client auto-submit
+  const lastSeenMs = session.last_seen ? new Date(session.last_seen).getTime() : 0;
+  const isStale = !isNaN(lastSeenMs) && (Date.now() - lastSeenMs) > SESSION_STALE_MS;
+  const wasAlreadyKicked = !!session.kicked;
+  const wasActive = !!session.active;
 
   await db.prepare(
     `UPDATE exam_sessions SET kicked = 1, active = 0 WHERE id = ?`
@@ -764,9 +891,27 @@ app.post('/api/proctor/:examId/kick', async (c) => {
   await db.prepare(
     `UPDATE attendance SET status = 'kicked' WHERE exam_id = ? AND student_id = ?`
   ).bind(examId, session.student_id).run();
-  await log(db, 'session_kicked', `Admin kicked ${session.student_name} (${session.student_id})`);
+  await log(db, 'session_kicked', `Admin kicked ${session.student_name} (${session.student_id})${isStale ? ' [stale/offline — no client auto-submit will occur]' : ''}`);
 
-  return c.json({ success: true });
+  // Kick does NOT create or overwrite a submission — it only signals the client
+  // via heartbeat. If the student is offline (stale), no auto-submit will happen.
+  // The guard in POST /api/submit prevents an empty kick-triggered payload from
+  // overwriting a previous non-zero score, so stale kicks are safe.
+  return c.json({ success: true, wasActive, wasAlreadyKicked, isStale, offline: isStale, note: isStale ? 'Student is offline — kick only closes the stale session; it does not submit or change the score. Use Allow Retry to let them re-take, or Clear Stale to remove the row.' : 'Kick sent — if the student is online their client will auto-submit within seconds.' });
+});
+
+// Clear stale sessions without marking as kicked (safe cleanup for old rows)
+app.post('/api/proctor/:examId/cleanup-stale', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const staleFloor = Math.floor((Date.now() - SESSION_STALE_MS) / 1000);
+  const result = await db.prepare(
+    `UPDATE exam_sessions SET active = 0 WHERE exam_id = ? AND active = 1 AND CAST(strftime('%s', last_seen) AS INTEGER) <= ?`
+  ).bind(examId, staleFloor).run();
+  const cleared = result.meta ? result.meta.changes : 0;
+  await log(db, 'stale_cleared', `Cleared ${cleared} stale session(s) for ${examId}`);
+  return c.json({ success: true, cleared });
 });
 
 // Allow/deny a retry for an already-submitted student. Body: { student_id, allow }.
@@ -2489,6 +2634,8 @@ app.post('/api/regrade/:examId', async (c) => {
   return c.json({ regraded: updated.length, results: updated });
 });
 
+// ── SPA FALLBACK: served via fetch handler below (non-/api → ASSETS) ────────
+
 // ── SCHEDULED CRON: auto-close expired exams ────────
 async function handleScheduled(event, env, ctx) {
   const db = env.DB;
@@ -2497,6 +2644,32 @@ async function handleScheduled(event, env, ctx) {
 }
 
 export default {
-  fetch: (request, env, ctx) => app.fetch(request, env, ctx),
+  fetch: async (request, env, ctx) => {
+    const url = new URL(request.url);
+    // Non-API routes: let Workers Assets handle it (SPA fallback to index.html)
+    if (!url.pathname.startsWith('/api/')) {
+      // Try Assets binding first (wrangler.toml assets.binding = "ASSETS")
+      try {
+        if (env.ASSETS) {
+          const assetRes = await env.ASSETS.fetch(request);
+          // If asset found (200), return it; if 404, fallback to index.html
+          if (assetRes.status !== 404) return assetRes;
+          const indexRes = await env.ASSETS.fetch(new Request(new URL('/index.html', url.origin), request));
+          if (indexRes.ok) {
+            const headers = new Headers(indexRes.headers);
+            headers.set('Cache-Control', 'no-cache');
+            return new Response(indexRes.body, { status: 200, headers });
+          }
+        }
+      } catch {}
+      // Fallback: let Hono try (will 404) then platform's not_found_handling should serve index.html
+      // But we explicitly fetch index.html via network as last resort
+      try {
+        const res = await fetch(new URL('/index.html', url.origin).toString());
+        if (res.ok) return new Response(await res.text(), { headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-cache' } });
+      } catch {}
+    }
+    return app.fetch(request, env, ctx);
+  },
   scheduled: handleScheduled,
 };

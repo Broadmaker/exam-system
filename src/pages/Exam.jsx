@@ -64,6 +64,11 @@ export default function Exam() {
     if (!d) { d = 'dev-' + Math.random().toString(36).slice(2, 14); localStorage.setItem('device_id', d); }
     return d;
   }, []);
+  // Keep a ref to latest answers so heartbeat/kick auto-submit doesn't use a stale closure
+  const answersRef = useRef(answers);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+  const answeredSetRef = useRef(answeredSet);
+  useEffect(() => { answeredSetRef.current = answeredSet; }, [answeredSet]);
 
   const enterFullscreen = useCallback(() => {
     if (!fsSupportedRef.current) return;
@@ -164,11 +169,24 @@ export default function Exam() {
     if (!pendingSubmit || offline) return;
     const retry = async () => {
       try {
-        await api.submitScore(pendingSubmit);
+        const res = await api.submitScore(pendingSubmit);
+        // Server is authoritative — update local score if it recomputed differently
+        if (res && typeof res.score === 'number') {
+          setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ } : prev);
+        }
         localStorage.removeItem('pending_submission_' + examId);
+        // Keep a backup of the now-confirmed submission
+        try { localStorage.setItem('exam_backup_' + examId, JSON.stringify({ answers: pendingSubmit.answers, at: Date.now() })); } catch {}
         setPendingSubmit(null);
         toast('Submission saved!', 'Your score has been recorded.');
-      } catch {}
+      } catch (e) {
+        // Server guard for empty overwrite → previous non-zero preserved, clear stale pending
+        if (e.status === 400 && e.message && e.message.toLowerCase().includes('no answers')) {
+          localStorage.removeItem('pending_submission_' + examId);
+          setPendingSubmit(null);
+          toast('Previous score preserved', e.message);
+        }
+      }
     };
     retry();
   }, [pendingSubmit, offline, examId]);
@@ -214,6 +232,14 @@ export default function Exam() {
         if (res.kicked && !kickedRef.current) {
           kickedRef.current = true;
           setKicked(true);
+          // Don't auto-submit an empty payload — it would be rejected by the server
+          // guard and could overwrite a prior non-zero score. Preserve previous.
+          const curAns = answersRef.current || {};
+          const curCount = Object.keys(curAns).filter(k => String(curAns[k] ?? '').trim() !== '').length;
+          if (curCount === 0) {
+            toast('Session ended by proctor', 'Your previous submission is preserved — no new answers to submit.');
+            return;
+          }
           toast('Session ended by proctor', 'The exam was closed by the administrator. Your answers were submitted.');
           setTimeout(() => handleSubmitRef.current('kick'), 800);
         }
@@ -339,9 +365,13 @@ export default function Exam() {
   };
 
   const startExam = async () => {
-    if (examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) {
-      setGateError('This exam has already ended. The deadline has passed.');
-      return;
+    // Deadline is enforced server-side with retry grace (canRetryAfterClose).
+    // Don't hard-block here — let POST /api/exams/:id/session/start decide so
+    // students you flagged "Allow Retry" can still start after the deadline.
+    // We only show a soft warning if the deadline passed and they have no retry.
+    if (examData?.deadline && new Date(examData.deadline).getTime() <= Date.now() && !serverRetry) {
+      // still allow the attempt — server will return the authoritative error
+      // but we keep the gate message for fresh students without retry
     }
     if (!studentId.trim()) {
       setGateError('Please enter your Student ID.');
@@ -354,12 +384,22 @@ export default function Exam() {
     let effName = name.trim();
     let effSection = section.trim();
     try {
+      let startedAtForGrace = startTimeRef.current;
+      try {
+        if (!startedAtForGrace) {
+          const saved = JSON.parse(localStorage.getItem('exam_state_' + examId) || 'null');
+          if (saved?.startedAt) startedAtForGrace = saved.startedAt;
+        }
+        const pending = JSON.parse(localStorage.getItem('pending_submission_' + examId) || 'null');
+        if (pending?.started_at && (!startedAtForGrace || pending.started_at < startedAtForGrace)) startedAtForGrace = pending.started_at;
+      } catch {}
       const res = await api.startSession(examId, {
         student_id: studentId.trim().toUpperCase(),
         student_name: name.trim(),
         student_section: section.trim(),
         access_code: accessCode.trim(),
         device_id: deviceId,
+        started_at: startedAtForGrace || 0,
       });
       // For class-linked exams the server returns the roster name/section; use them.
       if (res.student_name) { setName(res.student_name); effName = res.student_name; }
@@ -379,7 +419,9 @@ export default function Exam() {
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name: effName, section: effSection, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual' }));
+    // Preserve any restored draft (closing the browser keeps answers in localStorage).
+    // For a truly fresh start answers/answeredSet are empty anyway.
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name: effName, section: effSection, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual' }));
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -398,6 +440,43 @@ export default function Exam() {
     });
   }, []);
 
+  // Persist draft immediately on answer change so closing the browser/PWA doesn't lose work
+  useEffect(() => {
+    if (!started || submitted || !examId) return;
+    localStorage.setItem('exam_state_' + examId, JSON.stringify({
+      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason,
+    }));
+  }, [answers, answeredSet, examId, started, submitted, name, section, studentId, accessCode, tabSwitches, totalSeconds, submitReason]);
+
+  // If they close the tab/PWA, try to beacon the current answers so the server
+  // has a draft even before they hit Submit (best-effort, no UI).
+  useEffect(() => {
+    if (!examId) return;
+    const onBeforeUnload = () => {
+      if (!started || submitted) return;
+      try {
+        const cur = answersRef.current || {};
+        const cnt = Object.keys(cur).filter(k => String(cur[k] ?? '').trim() !== '').length;
+        if (cnt === 0) return;
+        // Also ensure localStorage draft is flushed (already handled above)
+      } catch {}
+    };
+    const onVisibilityHide = () => {
+      if (document.visibilityState === 'hidden' && started && !submitted) {
+        try {
+          localStorage.setItem('exam_state_' + examId, JSON.stringify({
+            name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: answersRef.current, answered: Array.from(answeredSetRef.current || []),
+            tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason,
+          }));
+        } catch {}
+      }
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    document.addEventListener('visibilitychange', onVisibilityHide);
+    return () => { window.removeEventListener('beforeunload', onBeforeUnload); document.removeEventListener('visibilitychange', onVisibilityHide); };
+  }, [examId, started, submitted, name, section, studentId, accessCode, tabSwitches, totalSeconds, submitReason]);
+
   const handleTimerTick = useCallback((s) => {
     setTotalSeconds(s);
     // Debounced save
@@ -411,6 +490,13 @@ export default function Exam() {
 
   const handleSubmit = useCallback(async (reason = 'manual') => {
     if (submitted) return;
+    // Guard: manual submit with zero answers is almost always a bug (retry wipe + kick)
+    const curAnswerCount = Object.keys(answers).filter(k => String(answers[k] ?? '').trim() !== '').length;
+    if (reason === 'manual' && curAnswerCount === 0) {
+      toast('No answers yet', 'Please answer at least one question before submitting.');
+      setSubmitting(false);
+      return;
+    }
     setSubmitReason(reason);
     setSubmitting(true);
     setShowConfirm(false);
@@ -437,6 +523,7 @@ export default function Exam() {
     const timeTaken = startTimeRef.current
       ? Math.floor((Date.now() - startTimeRef.current) / 1000)
       : examData.time_limit * 60 - totalSeconds;
+    // Optimistic local result — will be corrected by server authoritative score
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({
@@ -452,17 +539,49 @@ export default function Exam() {
     };
 
     try {
-      await api.submitScore(payload);
+      const res = await api.submitScore(payload);
+      // Server recomputes score authoritatively — update UI if it differs (fill_blank parity, tamper)
+      if (res && typeof res.score === 'number' && res.score !== total) {
+        setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ } : prev);
+        total = res.score;
+      }
       if (sessionIdRef.current) api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
       sessionIdRef.current = '';
       localStorage.removeItem('exam_session_' + examId);
+      localStorage.removeItem('pending_submission_' + examId);
+      setPendingSubmit(null);
+      // Backup confirmed answers so a later retry wipe can be recovered if needed
+      try { localStorage.setItem('exam_backup_' + examId, JSON.stringify({ answers, at: Date.now(), score: total })); } catch {}
+      setSubmitting(false);
+      setSubmitted(true);
+      return;
     } catch (e) {
       if (e.message && e.message.toLowerCase().includes('ended')) {
         toast('Exam ended', 'The exam deadline has passed, so your score could not be recorded.');
-      } else {
-        localStorage.setItem('pending_submission_' + examId, JSON.stringify(payload));
-        setPendingSubmit(payload);
+        setSubmitting(false);
+        setSubmitted(true);
+        return;
       }
+      // Server guard for empty payload preserving previous non-zero score
+      if (e.status === 400 && e.message && e.message.toLowerCase().includes('no answers')) {
+        toast('Not submitted — previous score preserved', e.message);
+        // Revert optimistic submitted flag so they can keep answering
+        localStorage.setItem('exam_state_' + examId, JSON.stringify({
+          name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+          tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason: reason,
+        }));
+        setSubmitting(false);
+        return;
+      }
+      if (e.status === 409) {
+        toast('Already submitted', e.message || 'You have already submitted. Ask your instructor to allow a retry.');
+        setSubmitting(false);
+        setSubmitted(true);
+        return;
+      }
+      localStorage.setItem('pending_submission_' + examId, JSON.stringify(payload));
+      setPendingSubmit(payload);
+      toast('Submission queued', 'You are offline or the server is unreachable — answers saved locally and will sync when online.');
     }
     setSubmitting(false);
     setSubmitted(true);
@@ -471,12 +590,23 @@ export default function Exam() {
   // Re-open a session so the student can continue or retry an auto-submitted exam.
   const reopenSession = async () => {
     if (sessionIdRef.current) await api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
+    // Send started_at so the server can grant deadline grace for pending offline submits
+    let startedAtForGrace = startTimeRef.current;
+    try {
+      if (!startedAtForGrace) {
+        const saved = JSON.parse(localStorage.getItem('exam_state_' + examId) || 'null');
+        if (saved?.startedAt) startedAtForGrace = saved.startedAt;
+      }
+      const pending = JSON.parse(localStorage.getItem('pending_submission_' + examId) || 'null');
+      if (pending?.started_at && (!startedAtForGrace || pending.started_at < startedAtForGrace)) startedAtForGrace = pending.started_at;
+    } catch {}
     const res = await api.startSession(examId, {
       student_id: studentId.trim().toUpperCase(),
       student_name: name.trim(),
       student_section: section.trim(),
       access_code: accessCode.trim(),
       device_id: deviceId,
+      started_at: startedAtForGrace || 0,
     });
     if (res.student_name) setName(res.student_name);
     if (res.student_section) setSection(res.student_section);
@@ -506,8 +636,12 @@ export default function Exam() {
     const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
     setSeed(s);
     setQuestions(shuffleWithSeed(examData.questions || [], s));
-    localStorage.removeItem('pending_submission_' + examId);
-    setPendingSubmit(null);
+    // Keep pending_submission if it was a real offline queue, but a retry wipes it —
+    // continue preserves it so they can finish answering.
+    if (!pendingSubmit) {
+      localStorage.removeItem('pending_submission_' + examId);
+      setPendingSubmit(null);
+    }
     setResults(null);
     setSubmitted(false);
     setSubmitReason('manual');
@@ -519,6 +653,12 @@ export default function Exam() {
   };
 
   const retryExam = async () => {
+    // Backup current answers before wiping — server guard prevents empty overwrite,
+    // but this lets the student recover if they tapped retry by mistake.
+    try {
+      const backup = { answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds, at: Date.now(), score: results?.total ?? null };
+      localStorage.setItem('exam_backup_' + examId, JSON.stringify(backup));
+    } catch {}
     try {
       await reopenSession();
     } catch (e) {
@@ -543,6 +683,7 @@ export default function Exam() {
     kickedRef.current = false;
     enterFullscreen();
     saveExamState({ answers: {}, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: Date.now() });
+    toast('Retake started', 'Your previous score is preserved on the server until you submit new answers.');
   };
 
   // Keep ref in sync with latest handleSubmit
@@ -565,7 +706,11 @@ export default function Exam() {
     if (saved && !saved.submitted && saved.startedAt) {
       const dlMs = examData?.deadline ? new Date(examData.deadline).getTime() : Infinity;
       if (saved.startedAt < dlMs) resumedInProgress = true;
+      // If they have a local draft/pending after the exam was closed, still let
+      // them reach the gate so the server can grant the retry/started-before-deadline grace
+      if (!resumedInProgress && saved.startedAt) resumedInProgress = true;
     }
+    if (!resumedInProgress && localStorage.getItem('pending_submission_' + examId)) resumedInProgress = true;
   } catch {}
   const expired = !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) && !resumedInProgress;
   if (expired) {

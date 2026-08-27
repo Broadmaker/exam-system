@@ -42,16 +42,30 @@ export default function Proctor() {
     }).then(url => setQr(url)).catch(() => {});
   }, [examId, qrOpen]);
 
+  const [clearing, setClearing] = useState(false);
   const kick = async () => {
     if (!kickTarget) return;
     setKicking(true);
     try {
-      await api.kickStudent(examId, kickTarget.id);
-      toast.success(`Session ended for ${kickTarget.student_name}`);
+      const res = await api.kickStudent(examId, kickTarget.id);
+      if (res.offline || res.isStale) {
+        toast.info(res.note || `Stale session closed for ${kickTarget.student_name} — student is offline, score preserved. Use Allow Retry if they need a retake.`);
+      } else {
+        toast.success(res.note || `Session ended for ${kickTarget.student_name}`);
+      }
       setKickTarget(null);
       load();
     } catch (e) { toast.error(e.message); }
     setKicking(false);
+  };
+  const clearStale = async () => {
+    setClearing(true);
+    try {
+      const res = await api.cleanupStale(examId);
+      toast.success(`Cleared ${res.cleared ?? 0} stale session(s)`);
+      load();
+    } catch (e) { toast.error(e.message); }
+    setClearing(false);
   };
 
   const toggleRetry = async (sub) => {
@@ -171,11 +185,17 @@ export default function Proctor() {
                 {/* Stale */}
                 {data.stale.length > 0 && (
                   <Card title={`Stale / Disconnected (${data.stale.length})`} icon={AlertTriangle} className="!mb-0"
-                    actions={<span className="text-[11px] text-muted">no heartbeat for 75s+ (offline or closed)</span>}>
+                    actions={
+                      <span className="flex items-center gap-2">
+                        <span className="text-[11px] text-muted">no heartbeat for 75s+ (offline or closed)</span>
+                        <Button size="sm" variant="outline" icon={RefreshCw} onClick={clearStale} loading={clearing}>Clear Stale</Button>
+                      </span>
+                    }>
+                    <p className="text-[11px] text-faint mb-2 leading-relaxed">Kick on a stale row only closes it — it does not submit or overwrite the score (server guard). Use <strong>Allow Retry</strong> below to let the student re-take.</p>
                     <div className="flex flex-col gap-2">
                       {data.stale.map(s => (
                         <SessionRow key={s.id} s={s}
-                          action={<Button size="sm" variant="danger" icon={Ban} onClick={() => setKickTarget(s)}>Kick</Button>} />
+                          action={<Button size="sm" variant="danger" icon={Ban} onClick={() => setKickTarget(s)}>Close</Button>} />
                       ))}
                     </div>
                   </Card>
@@ -226,7 +246,7 @@ export default function Proctor() {
         onClose={() => setKickTarget(null)}
         title="End Student Session?"
         body={
-          kickTarget ? <>End <strong>{kickTarget.student_name}</strong>'s exam session? Their current answers will be submitted.</> : ''
+          kickTarget ? <><div>End <strong>{kickTarget.student_name}</strong>'s exam session?</div><div className="text-[11px] text-muted mt-2">If the student is online their answers auto-submit. If offline/stale, kicking only closes the row and preserves the previous score — it does not create a zero.</div></> : ''
         }
         confirmLabel="End Session"
         loading={kicking}
