@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import { hashStr, shuffleWithSeed, parseChoices, matchesAnswer, examTypeLabel } from '../utils';
+import { hashStr, shuffleWithSeed, matchesAnswer, examTypeLabel } from '../utils';
 import ToastContainer, { toast } from '../components/Toast';
 import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
@@ -424,14 +424,9 @@ export default function Exam() {
       if (qType === 'fill_blank') {
         isCorrect = matchesAnswer(answers[q.id], q.answer);
       } else {
-        const choices = parseChoices(q.choices);
-        const choiceSeed = Number(seed) + idx * 7919;
-        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-          ...c, displayKey: String.fromCharCode(65 + ci),
-        }));
-        const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
-        const chosen = answers[q.id];
-        isCorrect = chosen === correctDisplayKey;
+        // Choices are displayed in fixed (DB) order; the recorded answer is the
+        // canonical choice key, so compare it directly against the answer key.
+        isCorrect = !!answers[q.id] && answers[q.id] === q.answer;
       }
       if (isCorrect) {
         total++;
@@ -453,6 +448,7 @@ export default function Exam() {
       exam_id: examId, student_name: name, student_section: section, student_id: studentId.trim().toUpperCase(),
       seed: String(seed), answers, score: total, total: qs.length,
       tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0, reason,
+      answer_scheme: 'fixed',
     };
 
     try {
@@ -654,7 +650,7 @@ export default function Exam() {
                   <span className="w-8 h-8 rounded-lg bg-success-bg text-success flex items-center justify-center shrink-0"><Shuffle size={16} /></span>
                   <div>
                     <div className="text-[13px] font-semibold">Randomized per student</div>
-                    <div className="text-[11px] text-white/50">Order and choices are shuffled by your seed.</div>
+                    <div className="text-[11px] text-white/50">Question order is shuffled; answer choices keep their letter (A, B, C, D) fixed.</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-left">

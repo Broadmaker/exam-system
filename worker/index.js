@@ -475,7 +475,7 @@ app.get('/api/logs', async (c) => {
 app.post('/api/submit', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
-  const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken, reason = 'manual' } = body;
+  const { exam_id, student_name, student_section, student_id = '', seed, answers, score, total, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed' } = body;
 
   const exam = await db.prepare(`SELECT deadline, class_id, status, start_at FROM exams WHERE id = ?`).bind(exam_id).first();
   // Find any prior submission for this student so we can tell a fresh attempt
@@ -510,6 +510,7 @@ app.post('/api/submit', async (c) => {
   }
 
   const safeReason = ['manual', 'timeout', 'tab', 'kick'].includes(reason) ? reason : 'manual';
+  const safeScheme = answer_scheme === 'fixed' ? 'fixed' : 'shuffled';
   // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
   // or the proctor explicitly granted a retry for this student.
   if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
@@ -529,16 +530,16 @@ app.post('/api/submit', async (c) => {
   if (existing) {
     await db.prepare(
       `UPDATE submissions
-       SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, submitted_at = datetime('now')
+       SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, submitted_at = datetime('now')
        WHERE id = ?`
-    ).bind(student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, id).run();
+    ).bind(student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, safeScheme, id).run();
     // Answers changed, so discard any manual reviews tied to the old attempt.
     await db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id).run();
   } else {
     await db.prepare(
-      `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, exam_id, student_name, student_section, student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason).run();
+      `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(id, exam_id, student_name, student_section, student_id, seed, JSON.stringify(answers), score, total, tab_switches, time_taken, safeReason, safeScheme).run();
   }
 
   // Mark attendance as submitted and close the student's active session(s).
@@ -1810,7 +1811,7 @@ app.get('/api/student/:studentId', async (c) => {
     `SELECT e.id as exam_id, e.title, e.time_limit, e.class_id, e.type, e.status, e.passing_score,
             c.name as class_name, c.subject, c.section,
             s.score, s.total, s.submitted_at, s.time_taken, s.tab_switches, s.student_name, s.student_section,
-            s.seed, s.answers
+            s.seed, s.answers, s.answer_scheme
      FROM submissions s
      JOIN exams e ON e.id = s.exam_id
      LEFT JOIN classes c ON c.id = e.class_id
@@ -1850,6 +1851,25 @@ app.get('/api/student/:studentId', async (c) => {
     ? await db.prepare(`SELECT student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`).bind(enrollments[0].class_id, studentId).first()
     : null);
 
+  // Grade one multiple-choice answer. Two schemes share this path:
+  //   'fixed'   — answer choices are shown in DB order, so the stored answer is the
+  //               canonical choice key; compare directly against the key.
+  //   'shuffled'— legacy: answer choices were shuffled per student, so the stored
+  //               answer is a display letter; resolve it back through the seed
+  //               shuffle to the underlying choice key, then compare.
+  const gradeMC = (chosen, q, studentSeed, qIndex, scheme) => {
+    const choices = parseChoices(q.choices);
+    if (scheme === 'fixed') {
+      return !!chosen && chosen === q.answer;
+    }
+    const choiceSeed = studentSeed + qIndex * 7919;
+    const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+      ...c, displayKey: String.fromCharCode(65 + ci),
+    }));
+    const picked = shuffled.find(c => c.displayKey === chosen);
+    return !!picked && picked.key === q.answer;
+  };
+
   // ── Competency breakdown (Upscale.md §32, §65) ──
   // Grade this student's per-question answers for every exam they took and
   // bucket correct/incorrect by the question's competency tag (if any).
@@ -1874,13 +1894,7 @@ app.get('/api/student/:studentId', async (c) => {
       if ((q.type || 'multiple_choice') === 'fill_blank') {
         correct = matchesAnswer(submittedAnswers[q.id] || '', q.answer);
       } else {
-        const choices = parseChoices(q.choices);
-        const choiceSeed = studentSeed + idx * 7919;
-        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-          ...c, displayKey: String.fromCharCode(65 + ci),
-        }));
-        const chosen = shuffled.find(c => c.displayKey === submittedAnswers[q.id]);
-        correct = !!chosen && chosen.key === q.answer;
+        correct = gradeMC(submittedAnswers[q.id], q, studentSeed, idx, s.answer_scheme);
       }
       competencyBuckets[comp] = competencyBuckets[comp] || { correct: 0, total: 0 };
       competencyBuckets[comp].total++;
@@ -1955,7 +1969,7 @@ app.get('/api/submissions/:examId', async (c) => {
   const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
   const passing = exam ? Number(exam.passing_score) : 60;
   const { results } = await db.prepare(
-    `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers
+    `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC`
   ).bind(examId).all();
@@ -1989,7 +2003,7 @@ app.get('/api/analytics/:examId', async (c) => {
   ).bind(examId).all();
 
   const { results: submissions } = await db.prepare(
-    `SELECT seed, answers FROM submissions WHERE exam_id = ?`
+    `SELECT seed, answers, answer_scheme FROM submissions WHERE exam_id = ?`
   ).bind(examId).all();
 
   if (!questions.length) return c.json([]);
@@ -2028,15 +2042,21 @@ app.get('/api/analytics/:examId', async (c) => {
     submissions.forEach(sub => {
       const studentSeed = Number(sub.seed);
       const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
-      const choiceSeed = studentSeed + qIdx * 7919;
-      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-        ...c, displayKey: String.fromCharCode(65 + ci),
-      }));
-      const chosenDisplayKey = submittedAnswers[q.id];
-      const chosenChoice = shuffled.find(s => s.displayKey === chosenDisplayKey);
-      if (chosenChoice) {
-        choiceMap[chosenChoice.key].count++;
-        if (chosenChoice.key === q.answer) correctCount++;
+      const stored = submittedAnswers[q.id];
+      let chosenKey;
+      if (sub.answer_scheme === 'fixed') {
+        chosenKey = stored;
+      } else {
+        const choiceSeed = studentSeed + qIdx * 7919;
+        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+          ...c, displayKey: String.fromCharCode(65 + ci),
+        }));
+        const viaLetter = shuffled.find(s => s.displayKey === stored);
+        chosenKey = viaLetter ? viaLetter.key : undefined;
+      }
+      if (chosenKey && choiceMap[chosenKey]) {
+        choiceMap[chosenKey].count++;
+        if (chosenKey === q.answer) correctCount++;
       }
     });
 
@@ -2347,13 +2367,19 @@ function computeScore(questions, sub, overrides = {}) {
       autoCorrect = matchesAnswer(studentAnswer, q.answer);
     } else {
       const choices = parseChoices(q.choices);
-      const choiceSeed = studentSeed + idx * 7919;
-      const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
-        ...c, displayKey: String.fromCharCode(65 + ci),
-      }));
-      const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
-      const chosen = submittedAnswers[q.id];
-      autoCorrect = chosen === correctDisplayKey;
+      if (sub.answer_scheme === 'fixed') {
+        // Fixed order: the stored answer is the canonical choice key.
+        autoCorrect = !!submittedAnswers[q.id] && submittedAnswers[q.id] === q.answer;
+      } else {
+        // Legacy shuffled letters: resolve back through the seed shuffle.
+        const choiceSeed = studentSeed + idx * 7919;
+        const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
+          ...c, displayKey: String.fromCharCode(65 + ci),
+        }));
+        const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
+        const chosen = submittedAnswers[q.id];
+        autoCorrect = chosen === correctDisplayKey;
+      }
     }
 
     const verdict = overrides[q.id];
@@ -2429,7 +2455,7 @@ app.post('/api/regrade/:examId', async (c) => {
   ).bind(examId).all();
 
   const { results: submissions } = await db.prepare(
-    `SELECT id, student_name, student_section, seed, answers, score, total FROM submissions WHERE exam_id = ?`
+    `SELECT id, student_name, student_section, seed, answers, score, total, answer_scheme FROM submissions WHERE exam_id = ?`
   ).bind(examId).all();
 
   const { results: reviewRows } = await db.prepare(

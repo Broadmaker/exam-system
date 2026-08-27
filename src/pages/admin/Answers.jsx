@@ -39,18 +39,35 @@ function buildCells(questions, sub) {
       };
     } else {
       const choices = parseChoices(q.choices);
-      const shuffled = shuffleWithSeed(choices, seeds[q.id]).map((c, ci) => ({
-        ...c, displayKey: String.fromCharCode(65 + ci),
-      }));
-      const picked = shuffled.find(c => c.displayKey === raw);
+      const scheme = sub.answer_scheme === 'fixed' ? 'fixed' : 'shuffled';
       const correctChoice = choices.find(c => c.key === q.answer) || {};
+
+      // Resolve which underlying choice the student picked, regardless of scheme.
+      // For 'shuffled' (legacy) the stored value is a per-student display letter;
+      // for 'fixed' it is the canonical choice key.
+      let picked;
+      if (scheme === 'fixed') {
+        picked = choices.find(c => c.key === raw) || null;
+      } else {
+        const shuffled = shuffleWithSeed(choices, seeds[q.id]).map((c, ci) => ({
+          ...c, displayKey: String.fromCharCode(65 + ci),
+        }));
+        picked = shuffled.find(c => c.displayKey === raw);
+      }
+
+      // Re-align for DISPLAY using the canonical DB-order letters (A=first choice,
+      // B=second, …) so answers align with the answer key the same way new takers see
+      // them. The stored grade (`autoCorrect` from the picked choice's key) is unchanged.
+      const pickedKey = picked ? picked.key : (raw || null);
       autoCorrect = !!picked && picked.key === q.answer;
       cell = {
         type: 'multiple_choice',
-        chosen: raw || null,
+        chosen: pickedKey,
         answerKey: q.answer,
         choiceText: picked ? picked.text : '',
         answerText: correctChoice.text || '',
+        correctDisplayKey: q.answer,
+        correctDisplayText: correctChoice.text || '',
       };
     }
 
@@ -67,8 +84,19 @@ function buildCells(questions, sub) {
 
 function cellText(cell) {
   if (cell.type === 'fill_blank') return (cell.chosen || '—');
-  if (cell.chosen) return `${cell.chosen} ${cell.choiceText || ''}`.trim();
-  return '—';
+  // Multiple-choice: surface BOTH the student's pick and the correct answer
+  // (letter + text). Old submissions recorded shuffled letters, so the correct
+  // letter shown is the per-student one; new submissions use fixed DB order.
+  const pick = cell.chosen ? `${cell.chosen} ${cell.choiceText || ''}`.trim() : '—';
+  const correct = `${cell.correctDisplayKey || cell.answerKey} ${cell.correctDisplayText || cell.answerText || ''}`.trim();
+  return `${pick} | correct: ${correct}`;
+}
+
+// The student's chosen answer alone (letter + text as they saw it), used in the
+// drill-down modal where the correct answer is shown on its own line.
+function studentAnswerText(cell) {
+  if (cell.type === 'fill_blank') return (cell.chosen || '—');
+  return cell.chosen ? `${cell.chosen} ${cell.choiceText || ''}`.trim() : '—';
 }
 
 function plainText(html) {
@@ -297,14 +325,23 @@ function AnswersInner() {
               <thead>
                 <tr>
                   <th style={{ position: 'sticky', left: 0, background: 'var(--color-navy-50)', zIndex: 2, minWidth: 150, borderRight: '1px solid var(--color-border)' }} className="sm:min-w-[180px]">Student</th>
-                  {qs.map((q, qi) => (
-                    <th key={q.id} title={plainText(q.text)} style={{ textAlign: 'center', fontSize: 11, minWidth: 92 }}>
+                  {qs.map((q, qi) => {
+                    const correctText = (() => {
+                      try {
+                        const ch = parseChoices(q.choices).find(c => c.key === q.answer);
+                        return ch ? ch.text : q.answer;
+                      } catch { return q.answer; }
+                    })();
+                    return (
+                    <th key={q.id} title={`${plainText(q.text)} — correct: ${correctText}`} style={{ textAlign: 'center', fontSize: 11, minWidth: 92 }}>
                       <div>Q{qi + 1}</div>
                       <div style={{ fontSize: 10, color: 'var(--color-muted)', marginTop: 2, fontWeight: 400 }}>
-                        {q.type === 'fill_blank' ? 'fill' : 'ans: ' + q.answer}
+                        {q.type === 'fill_blank' ? 'fill' : '✓ ' + correctText.slice(0, 20)}
                       </div>
+                      <div style={{ fontSize: 9, color: 'var(--color-faint)', fontWeight: 400 }}>fixed A B C D · old rows per-seed</div>
                     </th>
-                  ))}
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -331,7 +368,7 @@ function AnswersInner() {
                         : cell.chosen === null ? 'bg-navy-50 text-faint'
                         : 'bg-danger-bg text-danger';
                       return (
-                        <td key={ci} title={`${cellText(cell)}${cell.reviewed ? ' · manually reviewed (' + cell.verdict + ')' : ''}`} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 92, maxWidth: 170, verticalAlign: 'top' }}>
+                        <td key={ci} title={`${cellText(cell)}${cell.reviewed ? ' · manually reviewed (' + cell.verdict + ')' : ''}`} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 118, maxWidth: 190, verticalAlign: 'top' }}>
                           <div className={`relative flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] min-h-[26px] font-mono ${col}`}
                             style={{ outline: cell.reviewed ? (cell.correct ? '1.5px solid var(--color-success)' : '1.5px solid var(--color-danger)') : 'none' }}>
                             {cell.reviewed && (
@@ -340,10 +377,17 @@ function AnswersInner() {
                             {cell.type === 'fill_blank' ? (
                               <span className="truncate max-w-[140px]">{cell.chosen || '—'}</span>
                             ) : (
-                              <>
-                                <span className="font-bold text-[11px]">{cell.chosen || '—'}</span>
-                                <span className="truncate max-w-[130px] text-[11px]">{cell.choiceText}</span>
-                              </>
+                              <div className="flex flex-col items-center justify-center gap-0.5 leading-tight">
+                                <span className="flex items-center gap-1">
+                                  <span className="font-bold text-[11px]">{cell.chosen || '—'}</span>
+                                  <span className="truncate max-w-[120px] text-[11px]">{cell.choiceText}</span>
+                                </span>
+                                <span className="flex items-center gap-1 text-success">
+                                  <CheckCircle size={10} className="shrink-0" />
+                                  <span className="font-bold text-[10px]">{cell.correctDisplayKey || cell.answerKey}</span>
+                                  <span className="truncate max-w-[120px] text-[10px]">{cell.correctDisplayText || cell.answerText || ''}</span>
+                                </span>
+                              </div>
                             )}
                           </div>
                         </td>
@@ -410,12 +454,15 @@ function AnswersInner() {
                   <div className="p-4">
                     <div className="text-[13.5px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: q.text }} />
                     <div className="flex flex-col gap-1 text-[13px] border-t border-border pt-2.5">
-                      <div className="text-muted">Student's answer: <strong className={statusColor}>{cellText(cell)}</strong></div>
+                      <div className="text-muted">Student's answer: <strong className={statusColor}>{studentAnswerText(cell)}</strong></div>
                       <div className="text-muted">
                         Correct answer:{' '}
                         <strong className="text-navy-700">
-                          {cell.type === 'fill_blank' ? (cell.answerText || q.answer || '—') : `${cell.answerKey}${cell.answerText ? ' · ' + cell.answerText : ''}`}
+                          {cell.type === 'fill_blank' ? (cell.answerText || q.answer || '—') : `${cell.correctDisplayKey || cell.answerKey}${(cell.correctDisplayText || cell.answerText) ? ' · ' + (cell.correctDisplayText || cell.answerText) : ''}`}
                         </strong>
+                        {cell.type !== 'fill_blank' && cell.correctDisplayKey !== cell.answerKey && (
+                          <span className="text-[11px] text-faint ml-1">(DB key {cell.answerKey})</span>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-border flex-wrap">

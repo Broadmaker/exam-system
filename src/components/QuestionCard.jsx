@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { shuffleWithSeed, renderDatasets, parseChoices } from '../utils';
+import { renderDatasets, parseChoices } from '../utils';
 import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
 
 export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers }) {
@@ -71,12 +71,10 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
   }
 
   const qData = { ...question, choices: parseChoices(question.choices) };
-  const choiceSeed = seed + index * 7919;
-  const shuffled = shuffleWithSeed(qData.choices, choiceSeed).map((c, ci) => ({
-    ...c,
-    displayKey: String.fromCharCode(65 + ci),
-  }));
-  const correctKey = shuffled.find((c) => c.key === qData.answer)?.displayKey;
+  // Choices are shown in their fixed (DB) order: the display letter IS the choice's
+  // canonical key (A=first choice, B=second, …), so the letter and label always align.
+  const fixedChoices = qData.choices.map((c) => ({ ...c, displayKey: c.key }));
+  const correctKey = qData.answer;
 
   const handleChange = (displayKey) => { if (!submitted) onAnswer(qData.id, displayKey); };
 
@@ -108,7 +106,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
       <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: renderDatasets(qData.text, seed, index) }} />
 
       <div className="flex flex-col gap-2">
-        {shuffled.map((c) => {
+        {fixedChoices.map((c) => {
           const selected = chosenKey === c.displayKey;
           const showCorrect = submitted && showAnswers && c.displayKey === correctKey;
           const showWrong = submitted && showAnswers && selected && c.displayKey !== correctKey;

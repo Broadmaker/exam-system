@@ -1,4 +1,4 @@
-const CACHE = 'exam-portal-v4';
+const CACHE = 'exam-portal-v5';
 const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
