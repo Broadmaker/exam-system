@@ -277,12 +277,25 @@ function rateLimit(c, max = 30, windowMs = 60_000) {
 // ── EXAMS ──────────────────────────────────────────
 app.get('/api/exams', async (c) => {
   const db = c.env.DB;
-  const { results } = await db.prepare(
-    `SELECT e.*,
+  const qLimit = c.req.query('limit');
+  const qOffset = c.req.query('offset');
+  const hasPagination = qLimit !== undefined || qOffset !== undefined;
+  const limit = Math.min(Math.max(Number(qLimit) || 50, 1), 200);
+  const offset = Math.max(Number(qOffset) || 0, 0);
+  // Ensure expired are closed before pagination (cron covers all, but lazy close here as fallback)
+  if (hasPagination) await autoCloseExpiredExams(db);
+  const sql = hasPagination
+    ? `SELECT e.*,
        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
        (SELECT COUNT(*) FROM submissions WHERE exam_id = e.id) as submission_count
-     FROM exams e ORDER BY e.created_at DESC`
-  ).all();
+     FROM exams e ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
+    : `SELECT e.*,
+       (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
+       (SELECT COUNT(*) FROM submissions WHERE exam_id = e.id) as submission_count
+     FROM exams e ORDER BY e.created_at DESC`;
+  const { results } = hasPagination
+    ? await db.prepare(sql).bind(limit, offset).all()
+    : await db.prepare(sql).all();
   // Lazy auto-close: if deadline has passed, flip active/scheduled → closed
   const now = Date.now();
   const expiredIds = [];
@@ -397,11 +410,14 @@ app.post('/api/exams/:id/duplicate', async (c) => {
   const { results: questions } = await db.prepare(
     `SELECT part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags FROM questions WHERE exam_id = ?`
   ).bind(c.req.param('id')).all();
-  for (const q of questions) {
-    await db.prepare(
-      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order, q.difficulty || '', q.topic || '', q.competency || '', q.tags || '').run();
+  if (questions.length) {
+    const stmts = questions.map(q =>
+      db.prepare(
+        `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(uuid(), newId, q.part, q.text, q.type, q.choices, q.answer, q.explain || '', q.sort_order, q.difficulty || '', q.topic || '', q.competency || '', q.tags || '')
+    );
+    await db.batch(stmts);
   }
   await log(db, 'exam_duplicated', 'Duplicated: ' + src.title + ' → ' + src.title + ' (copy)');
   return c.json({ id: newId }, 201);
@@ -505,16 +521,22 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
   const questions = body.questions || [];
   if (questions.length > 100) return c.json({ error: 'Bulk limit 100 questions' }, 400);
   const added = [];
+  const stmts = [];
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
     const id = uuid();
     const qType = q.type || 'multiple_choice';
-    await db.prepare(
-      `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, examId, q.part || 1, q.text, qType, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i, q.difficulty || '', q.topic || '', q.competency || '', JSON.stringify(q.tags || [])).run();
+    const err = validateQuestionBody({ ...q, type: qType });
+    if (err) return c.json({ error: `Question ${i + 1}: ${err}` }, 400);
+    stmts.push(
+      db.prepare(
+        `INSERT INTO questions (id, exam_id, part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, examId, q.part || 1, q.text, qType, JSON.stringify(q.choices || []), q.answer, q.explain || '', body.start_order + i || i, q.difficulty || '', q.topic || '', q.competency || '', JSON.stringify(q.tags || []))
+    );
     added.push(id);
   }
+  if (stmts.length) await db.batch(stmts);
   await log(db, 'bulk_import', 'Imported ' + added.length + ' questions into exam ' + examId);
   return c.json({ count: added.length, ids: added }, 201);
 });
@@ -567,9 +589,11 @@ app.delete('/api/bank/:id', async (c) => {
 app.get('/api/logs', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
+  const limit = Math.min(Math.max(Number(c.req.query('limit')) || 200, 1), 500);
+  const offset = Math.max(Number(c.req.query('offset')) || 0, 0);
   const { results } = await db.prepare(
-    `SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 200`
-  ).all();
+    `SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ? OFFSET ?`
+  ).bind(limit, offset).all();
   return c.json(results);
 });
 
@@ -940,33 +964,36 @@ app.get('/api/proctor/:examId', async (c) => {
   const examId = c.req.param('examId');
   const staleFloor = Math.floor((Date.now() - SESSION_STALE_MS) / 1000);
 
-  const { results: active } = await db.prepare(
-    `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
-     FROM exam_sessions
-     WHERE exam_id = ? AND active = 1
-       AND CAST(strftime('%s', last_seen) AS INTEGER) > ?
-     ORDER BY last_seen DESC`
-  ).bind(examId, staleFloor).all();
-
-  const { results: stale } = await db.prepare(
-    `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
-     FROM exam_sessions
-     WHERE exam_id = ? AND active = 1
-       AND CAST(strftime('%s', last_seen) AS INTEGER) <= ?
-     ORDER BY last_seen DESC`
-  ).bind(examId, staleFloor).all();
-
-  const { results: kicked } = await db.prepare(
-    `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
-     FROM exam_sessions
-     WHERE exam_id = ? AND kicked = 1
-     ORDER BY last_seen DESC`
-  ).bind(examId).all();
-
-  const { results: submitted } = await db.prepare(
-    `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at, reason, retry_allowed
-     FROM submissions WHERE exam_id = ? ORDER BY submitted_at DESC LIMIT 50`
-  ).bind(examId).all();
+  const [activeRes, staleRes, kickedRes, submittedRes] = await Promise.all([
+    db.prepare(
+      `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
+       FROM exam_sessions
+       WHERE exam_id = ? AND active = 1
+         AND CAST(strftime('%s', last_seen) AS INTEGER) > ?
+       ORDER BY last_seen DESC`
+    ).bind(examId, staleFloor).all(),
+    db.prepare(
+      `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
+       FROM exam_sessions
+       WHERE exam_id = ? AND active = 1
+         AND CAST(strftime('%s', last_seen) AS INTEGER) <= ?
+       ORDER BY last_seen DESC`
+    ).bind(examId, staleFloor).all(),
+    db.prepare(
+      `SELECT id, student_id, student_name, student_section, tab_switches, started_at, last_seen
+       FROM exam_sessions
+       WHERE exam_id = ? AND kicked = 1
+       ORDER BY last_seen DESC`
+    ).bind(examId).all(),
+    db.prepare(
+      `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at, reason, retry_allowed
+       FROM submissions WHERE exam_id = ? ORDER BY submitted_at DESC LIMIT 50`
+    ).bind(examId).all(),
+  ]);
+  const active = activeRes.results || [];
+  const stale = staleRes.results || [];
+  const kicked = kickedRes.results || [];
+  const submitted = submittedRes.results || [];
 
   return c.json({ active, stale, kicked, submitted });
 });
@@ -1349,18 +1376,23 @@ app.get('/api/classes/:id', async (c) => {
   const id = c.req.param('id');
   const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(id).first();
   if (!klass) return c.json({ error: 'Class not found' }, 404);
-  const { results: enrollments } = await db.prepare(
-    `SELECT student_id, student_name, student_section, created_at FROM enrollments WHERE class_id = ? ORDER BY student_name`
-  ).bind(id).all();
-  const { results: exams } = await db.prepare(
-    `SELECT id, title, deadline, (SELECT COUNT(*) FROM submissions s WHERE s.exam_id = exams.id) as submission_count
-     FROM exams WHERE class_id = ? ORDER BY created_at DESC`
-  ).bind(id).all();
-  const { results: sessions } = await db.prepare(
-    `SELECT s.id, s.title, s.date, s.access_code, s.expires_at,
-            (SELECT COUNT(*) FROM checkins ch WHERE ch.session_id = s.id) as checkin_count
-     FROM attendance_sessions s WHERE s.class_id = ? ORDER BY s.date DESC, s.created_at DESC`
-  ).bind(id).all();
+  const [enrollRes, examsRes, sessionsRes] = await Promise.all([
+    db.prepare(
+      `SELECT student_id, student_name, student_section, created_at FROM enrollments WHERE class_id = ? ORDER BY student_name`
+    ).bind(id).all(),
+    db.prepare(
+      `SELECT id, title, deadline, (SELECT COUNT(*) FROM submissions s WHERE s.exam_id = exams.id) as submission_count
+       FROM exams WHERE class_id = ? ORDER BY created_at DESC`
+    ).bind(id).all(),
+    db.prepare(
+      `SELECT s.id, s.title, s.date, s.access_code, s.expires_at,
+              (SELECT COUNT(*) FROM checkins ch WHERE ch.session_id = s.id) as checkin_count
+       FROM attendance_sessions s WHERE s.class_id = ? ORDER BY s.date DESC, s.created_at DESC`
+    ).bind(id).all(),
+  ]);
+  const enrollments = enrollRes.results || [];
+  const exams = examsRes.results || [];
+  const sessions = sessionsRes.results || [];
   return c.json({ ...klass, enrollments, exams, sessions });
 });
 
@@ -2008,15 +2040,20 @@ app.get('/api/classes/:id/attendance/history', async (c) => {
   const db = c.env.DB;
   const classId = c.req.param('id');
 
-  const { results: enrollments } = await db.prepare(
-    `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? ORDER BY student_name`
-  ).bind(classId).all();
-  const { results: dates } = await db.prepare(
-    `SELECT DISTINCT date FROM class_attendance WHERE class_id = ? ORDER BY date ASC`
-  ).bind(classId).all();
-  const { results: records } = await db.prepare(
-    `SELECT student_id, date, status, source FROM class_attendance WHERE class_id = ? ORDER BY date ASC`
-  ).bind(classId).all();
+  const [enrollRes, datesRes, recordsRes] = await Promise.all([
+    db.prepare(
+      `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? ORDER BY student_name`
+    ).bind(classId).all(),
+    db.prepare(
+      `SELECT DISTINCT date FROM class_attendance WHERE class_id = ? ORDER BY date ASC`
+    ).bind(classId).all(),
+    db.prepare(
+      `SELECT student_id, date, status, source FROM class_attendance WHERE class_id = ? ORDER BY date ASC`
+    ).bind(classId).all(),
+  ]);
+  const enrollments = enrollRes.results || [];
+  const dates = datesRes.results || [];
+  const records = recordsRes.results || [];
 
   const dateList = dates.map(d => d.date);
   const recMap = {};
@@ -2218,11 +2255,21 @@ app.get('/api/submissions/:examId', async (c) => {
   const examId = c.req.param('examId');
   const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
   const passing = exam ? Number(exam.passing_score) : 60;
-  const { results } = await db.prepare(
-    `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
+  const qLimit = c.req.query('limit');
+  const qOffset = c.req.query('offset');
+  const hasPagination = qLimit !== undefined || qOffset !== undefined;
+  const limit = Math.min(Math.max(Number(qLimit) || 100, 1), 500);
+  const offset = Math.max(Number(qOffset) || 0, 0);
+  const sql = hasPagination
+    ? `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
      FROM submissions WHERE exam_id = ?
-     ORDER BY submitted_at DESC`
-  ).bind(examId).all();
+     ORDER BY submitted_at DESC LIMIT ? OFFSET ?`
+    : `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
+     FROM submissions WHERE exam_id = ?
+     ORDER BY submitted_at DESC`;
+  const { results } = hasPagination
+    ? await db.prepare(sql).bind(examId, limit, offset).all()
+    : await db.prepare(sql).bind(examId).all();
 
   const { results: reviewRows } = await db.prepare(
     `SELECT submission_id, question_id, verdict FROM answer_reviews ar
@@ -2694,12 +2741,9 @@ app.post('/api/submissions/:id/review', async (c) => {
 
 // ── REGRADE ─────────────────────────────────────────
 app.post('/api/regrade/:examId', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
-
-  const auth = c.req.header('Authorization');
-  const expected = c.env.VITE_ADMIN_PASSWORD || 'admin123';
-  if (auth !== expected) return c.json({ error: 'Unauthorized' }, 401);
 
   const { results: questions } = await db.prepare(
     `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
@@ -2720,13 +2764,10 @@ app.post('/api/regrade/:examId', async (c) => {
   });
 
   const updated = [];
+  const stmts = [];
   for (const sub of submissions) {
     const { correctCount } = computeScore(questions, sub, overridesBySub[sub.id] || {});
-
-    await db.prepare(
-      `UPDATE submissions SET score = ? WHERE id = ?`
-    ).bind(correctCount, sub.id).run();
-
+    stmts.push(db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, sub.id));
     updated.push({
       name: sub.student_name,
       section: sub.student_section,
@@ -2735,6 +2776,7 @@ app.post('/api/regrade/:examId', async (c) => {
       total: sub.total,
     });
   }
+  if (stmts.length) await db.batch(stmts);
 
   await log(db, 'regrade', 'Regraded ' + updated.length + ' submissions for exam ' + examId);
   return c.json({ regraded: updated.length, results: updated });
