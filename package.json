@@ -11,6 +11,7 @@
     "deploy:pages": "pnpm build && wrangler pages deploy dist --project-name=exam-system --branch main"
   },
   "dependencies": {
+    "dompurify": "^3.4.14",
     "hono": "^4.12.27",
     "lucide-react": "^1.21.0",
     "qrcode": "^1.5.4",

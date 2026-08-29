@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { renderDatasets, parseChoices } from '../utils';
 import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
 
@@ -38,7 +39,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           ) : null}
         </div>
 
-        <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: renderDatasets(question.text, seed, index) }} />
+        <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderDatasets(question.text, seed, index)) }} />
 
         <input
           value={blankInput}
@@ -103,7 +104,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
         )}
       </div>
 
-      <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: renderDatasets(qData.text, seed, index) }} />
+      <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderDatasets(qData.text, seed, index)) }} />
 
       <div className="flex flex-col gap-2">
         {fixedChoices.map((c) => {

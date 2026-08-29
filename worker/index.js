@@ -229,6 +229,51 @@ function clampPassing(v) {
   return Math.max(0, Math.min(100, n));
 }
 
+// ── INPUT VALIDATION (P0) ──────────────────────────
+function hasXSS(s) {
+  const t = String(s || '').toLowerCase();
+  return /<\s*script|onerror\s*=|onload\s*=|javascript\s*:|<iframe|<object/i.test(t);
+}
+function validateExamBody(b) {
+  if (!b.title || !String(b.title).trim()) return 'Title is required';
+  if (String(b.title).length > 80) return 'Title must be ≤80 characters';
+  if (b.description && String(b.description).length > 1000) return 'Description must be ≤1000 characters';
+  if (b.time_limit !== undefined && (Number(b.time_limit) < 1 || Number(b.time_limit) > 600)) return 'Time limit must be 1–600 minutes';
+  if (hasXSS(b.title) || hasXSS(b.description)) return 'Title/description contains forbidden content';
+  return null;
+}
+function validateQuestionBody(b) {
+  if (!b.text || !String(b.text).trim()) return 'Question text is required';
+  if (String(b.text).length > 5000) return 'Question text must be ≤5000 characters';
+  if (hasXSS(b.text) || hasXSS(b.explain)) return 'Question contains forbidden content';
+  const qType = b.type || 'multiple_choice';
+  if (qType === 'fill_blank') {
+    if (!b.answer || !String(b.answer).trim()) return 'Fill-blank answer is required';
+    if (String(b.answer).length > 1000) return 'Answer must be ≤1000 characters';
+  } else {
+    const choices = b.choices || [];
+    if (!Array.isArray(choices) || choices.length < 2) return 'At least 2 choices required';
+    if (!b.answer) return 'Answer key is required';
+  }
+  return null;
+}
+
+// ── RATE LIMIT (P0) ────────────────────────────────
+const rateMap = new Map(); // ip -> {count, reset}
+function rateLimit(c, max = 30, windowMs = 60_000) {
+  const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
+  const key = `${c.req.path}:${ip}`;
+  const now = Date.now();
+  const entry = rateMap.get(key);
+  if (!entry || now > entry.reset) {
+    rateMap.set(key, { count: 1, reset: now + windowMs });
+    return true;
+  }
+  entry.count++;
+  if (entry.count > max) return false;
+  return true;
+}
+
 // ── EXAMS ──────────────────────────────────────────
 app.get('/api/exams', async (c) => {
   const db = c.env.DB;
@@ -258,8 +303,11 @@ app.get('/api/exams', async (c) => {
 
 app.post('/api/exams', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
+  const err = validateExamBody(body);
+  if (err) return c.json({ error: err }, 400);
   const id = uuid();
   const passing = clampPassing(body.passing_score);
   await db.prepare(
@@ -308,9 +356,12 @@ app.get('/api/exams/:id', async (c) => {
 
 app.put('/api/exams/:id', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('id');
   const body = await c.req.json();
+  const err = validateExamBody(body);
+  if (err) return c.json({ error: err }, 400);
   const old = await db.prepare(`SELECT title, status FROM exams WHERE id = ?`).bind(examId).first();
   const passing = clampPassing(body.passing_score);
   await db.prepare(
@@ -408,9 +459,12 @@ app.get('/api/exams/:id/student', async (c) => {
 // ── QUESTIONS ──────────────────────────────────────
 app.post('/api/exams/:examId/questions', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
+  const err = validateQuestionBody(body);
+  if (err) return c.json({ error: err }, 400);
   const id = uuid();
   const qType = body.type || 'multiple_choice';
   await db.prepare(
@@ -422,8 +476,11 @@ app.post('/api/exams/:examId/questions', async (c) => {
 
 app.put('/api/questions/:id', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
+  const err = validateQuestionBody(body);
+  if (err) return c.json({ error: err }, 400);
   const qType = body.type || 'multiple_choice';
   await db.prepare(
     `UPDATE questions SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, sort_order = ?, difficulty = ?, topic = ?, competency = ?, tags = ? WHERE id = ?`
@@ -441,10 +498,12 @@ app.delete('/api/questions/:id', async (c) => {
 // ── BULK IMPORT QUESTIONS ──────────────────────────
 app.post('/api/exams/:examId/questions/bulk', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
   const questions = body.questions || [];
+  if (questions.length > 100) return c.json({ error: 'Bulk limit 100 questions' }, 400);
   const added = [];
   for (let i = 0; i < questions.length; i++) {
     const q = questions[i];
@@ -516,6 +575,7 @@ app.get('/api/logs', async (c) => {
 
 // ── SUBMIT ─────────────────────────────────────────
 app.post('/api/submit', async (c) => {
+  if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
   const { exam_id, student_name, student_section, student_id = '', seed, answers, score: clientScore, total: clientTotal, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed' } = body;
@@ -702,6 +762,7 @@ app.post('/api/submit', async (c) => {
 const SESSION_STALE_MS = 75 * 1000; // a session is stale if no heartbeat for 75s
 
 app.post('/api/exams/:id/session/start', async (c) => {
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('id');
   const body = await c.req.json();
