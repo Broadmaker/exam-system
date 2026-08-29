@@ -25,8 +25,26 @@ const adminPass = () => import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
 const maybeAdminHeaders = () => {
   try { return sessionStorage.getItem('admin_auth') === 'true' ? { 'Authorization': adminPass() } : {}; } catch { return {}; }
 };
+
+// Simple memo cache with 30s TTL + dedupe for concurrent requests (P2)
+const _memo = new Map(); // key -> {data, ts}
+const _pending = new Map(); // key -> Promise
+async function memoRequest(path, options = {}, ttl = 30000) {
+  const key = path + JSON.stringify(options.headers || {});
+  const now = Date.now();
+  const hit = _memo.get(key);
+  if (hit && now - hit.ts < ttl) return hit.data;
+  if (_pending.has(key)) return _pending.get(key);
+  const p = request(path, options).then(data => {
+    _memo.set(key, { data, ts: Date.now() });
+    _pending.delete(key);
+    return data;
+  }).catch(e => { _pending.delete(key); throw e; });
+  _pending.set(key, p);
+  return p;
+}
 export const api = {
-  listExams: () => request('/exams'),
+  listExams: () => memoRequest('/exams', {}, 30000),
   getExam: (id) => request('/exams/' + id, { headers: { ...maybeAdminHeaders() } }),
   createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
@@ -43,7 +61,7 @@ export const api = {
   reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   regrade: (examId) => request('/regrade/' + examId, { method: 'POST', headers: { 'Authorization': adminPass() } }),
   // Question Bank
-  listBank: () => request('/bank', { headers: { 'Authorization': adminPass() } }),
+  listBank: () => memoRequest('/bank', { headers: { 'Authorization': adminPass() } }, 30000),
   addBank: (body) => request('/bank', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   updateBank: (id, body) => request('/bank/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   deleteBank: (id) => request('/bank/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),

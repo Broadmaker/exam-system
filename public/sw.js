@@ -1,5 +1,7 @@
-const CACHE = 'exam-portal-v5';
+const CACHE = 'exam-portal-v6';
 const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
+const MAX_CACHE_ENTRIES = 50;
+const CACHE_TTL_MS = 7 * 24 * 3600 * 1000; // 7 days
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -30,7 +32,12 @@ self.addEventListener('fetch', (event) => {
       fetch(request)
         .then((res) => {
           const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put('/index.html', copy));
+          caches.open(CACHE).then(async (cache) => {
+            await cache.put('/index.html', copy);
+            // LRU: evict oldest if over limit
+            const keys = await cache.keys();
+            if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
+          });
           return res;
         })
         .catch(() => caches.match('/index.html'))
@@ -38,14 +45,54 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first with background update.
+  // Static assets: cache-first with background update + LRU + TTL.
   event.respondWith(
-    caches.match(request).then((cached) => {
+    caches.match(request).then(async (cached) => {
+      // TTL check: evict stale cached entry >7d
+      if (cached) {
+        const date = cached.headers.get('date');
+        if (date) {
+          const age = Date.now() - new Date(date).getTime();
+          if (age > CACHE_TTL_MS) {
+            const cache = await caches.open(CACHE);
+            await cache.delete(request);
+          } else {
+            // Refresh in background even on hit
+            fetch(request).then((res) => {
+              if (res && res.status === 200) {
+                const copy = res.clone();
+                caches.open(CACHE).then(async (cache) => {
+                  await cache.put(request, copy);
+                  const keys = await cache.keys();
+                  if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
+                });
+              }
+            }).catch(() => {});
+            return cached;
+          }
+        } else {
+          // No date header, treat as hit and refresh
+          fetch(request).then((res) => {
+            if (res && res.status === 200) {
+              const copy = res.clone();
+              caches.open(CACHE).then(async (cache) => {
+                await cache.put(request, copy);
+                const keys = await cache.keys();
+                if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
+              });
+            }
+          }).catch(() => {});
+          return cached;
+        }
+      }
       const network = fetch(request)
-        .then((res) => {
+        .then(async (res) => {
           if (res && res.status === 200) {
             const copy = res.clone();
-            caches.open(CACHE).then((cache) => cache.put(request, copy));
+            const cache = await caches.open(CACHE);
+            await cache.put(request, copy);
+            const keys = await cache.keys();
+            if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
           }
           return res;
         })

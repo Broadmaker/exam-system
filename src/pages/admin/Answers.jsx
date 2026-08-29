@@ -112,11 +112,17 @@ function AnswersInner() {
   const [examList, setExamList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [examSearch, setExamSearch] = useState('');
   const [examPage, setExamPage] = useState(1);
   const EXAM_PAGE_SIZE = 6;
   const [openSub, setOpenSub] = useState(null);
   const [saving, setSaving] = useState(null);
+  // Debounce search 300ms to avoid 10k shuffles per keystroke (P2)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const load = async () => {
     if (!examId) return;
@@ -136,7 +142,7 @@ function AnswersInner() {
   const qs = exam?.questions || [];
   const rows = subs.map(sub => ({ sub, cells: buildCells(qs, sub) }));
   const filtered = rows
-    .filter(r => r.sub.student_name.toLowerCase().includes(search.toLowerCase()))
+    .filter(r => r.sub.student_name.toLowerCase().includes(debouncedSearch.toLowerCase()))
     .sort((a, b) => b.sub.score - a.sub.score);
   const open = openSub ? rows.find(r => r.sub.id === openSub) : null;
 
