@@ -426,21 +426,19 @@ export default function Exam() {
 
   const handleAnswer = useCallback((qid, displayKey) => {
     const empty = displayKey === undefined || String(displayKey).trim() === '';
-    setAnswers(prev => {
-      const next = { ...prev };
-      if (empty) delete next[qid];
-      else next[qid] = displayKey;
-      // Sync ref immediately so a submit clicked in the same tick sees B, not stale A
-      answersRef.current = next;
-      return next;
-    });
-    setAnsweredSet(prev => {
-      const n = new Set(prev);
-      if (empty) n.delete(qid);
-      else n.add(qid);
-      answeredSetRef.current = n;
-      return n;
-    });
+    // Build next values synchronously so refs are fresh before React flushes state
+    const cur = answersRef.current || {};
+    const next = { ...cur };
+    if (empty) delete next[qid];
+    else next[qid] = displayKey;
+    answersRef.current = next;
+    setAnswers(next);
+    const curSet = answeredSetRef.current || new Set();
+    const n = new Set(curSet);
+    if (empty) n.delete(qid);
+    else n.add(qid);
+    answeredSetRef.current = n;
+    setAnsweredSet(n);
   }, []);
 
   // Persist draft immediately on answer change so closing the browser/PWA doesn't lose work
@@ -459,9 +457,9 @@ export default function Exam() {
         // Only refresh if we have at least as many answers as the pending (avoid clobbering a fuller queue with empty)
         const pendingCount = pending.answers ? Object.keys(pending.answers).filter(k => String(pending.answers[k] ?? '').trim() !== '').length : 0;
         if (curCount >= pendingCount) {
-          pending.answers = answers;
-          localStorage.setItem('pending_submission_' + examId, JSON.stringify(pending));
-          setPendingSubmit(pending);
+          const updated = { ...pending, answers };
+          localStorage.setItem('pending_submission_' + examId, JSON.stringify(updated));
+          setPendingSubmit(updated);
         }
       }
     } catch {}
