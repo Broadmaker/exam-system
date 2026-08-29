@@ -3,7 +3,35 @@ import { cors } from 'hono/cors';
 
 const app = new Hono();
 
-app.use('/api/*', cors());
+app.use('/api/*', cors({
+  origin: ['https://exam-system.sanigkram24.workers.dev', 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+}));
+app.use('/api/*', async (c, next) => {
+  await next();
+  c.header('X-Content-Type-Options', 'nosniff');
+  c.header('X-Frame-Options', 'DENY');
+  c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+});
+
+// ── HEALTH + OBSERVABILITY (Phase 0) ────────────────
+app.get('/api/health', async (c) => {
+  const start = Date.now();
+  const db = c.env.DB;
+  try {
+    // Cheap D1 liveness check
+    await db.prepare(`SELECT 1 as ok LIMIT 1`).first();
+    const elapsed = Date.now() - start;
+    c.header('Server-Timing', `db;dur=${elapsed}`);
+    c.header('Cache-Control', 'no-store');
+    return c.json({ ok: true, db: true, latency_ms: elapsed, timestamp: new Date().toISOString() });
+  } catch (e) {
+    return c.json({ ok: false, error: String(e) }, 500);
+  }
+});
 
 function uuid() { return crypto.randomUUID(); }
 
@@ -185,8 +213,12 @@ async function triggerPushWithEnv(db, env, { class_id, student_id }) {
 
 function adminCheck(c) {
   const auth = c.req.header('Authorization');
-  const expected = c.env.VITE_ADMIN_PASSWORD || 'admin123';
-  return auth === expected;
+  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || 'admin123';
+  // Constant-time compare to avoid timing leak (best-effort in Workers)
+  if (!auth || !expected || auth.length !== expected.length) return false;
+  let ok = 0;
+  for (let i = 0; i < expected.length; i++) ok |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
+  return ok === 0;
 }
 
 // Clamp the passing score (percent) to a sane 0–100 range; empty/NaN/non-numeric
@@ -225,6 +257,7 @@ app.get('/api/exams', async (c) => {
 });
 
 app.post('/api/exams', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const id = uuid();
@@ -261,9 +294,11 @@ app.get('/api/exams/:id', async (c) => {
   const isAdmin = adminCheck(c);
   const roster = typeof exam.roster === 'string' ? exam.roster : JSON.stringify(exam.roster || []);
   const klass = exam.class_id ? await db.prepare(`SELECT name, subject, section FROM classes WHERE id = ?`).bind(exam.class_id).first() : null;
+  // Strip answers for non-admin to prevent leakage (Phase 1 security)
+  const safeQuestions = isAdmin ? questions : questions.map(q => ({ ...q, answer: undefined, explain: '' }));
   return c.json({
     ...exam,
-    questions,
+    questions: safeQuestions,
     class_name: klass ? [klass.name, klass.section].filter(Boolean).join(' — ') : '',
     access_code: isAdmin ? (exam.access_code || '') : undefined,
     has_access_code: !!(exam.access_code || ''),
@@ -272,6 +307,7 @@ app.get('/api/exams/:id', async (c) => {
 });
 
 app.put('/api/exams/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('id');
   const body = await c.req.json();
@@ -321,6 +357,7 @@ app.post('/api/exams/:id/duplicate', async (c) => {
 });
 
 app.delete('/api/exams/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const old = await db.prepare(`SELECT title FROM exams WHERE id = ?`).bind(c.req.param('id')).first();
   await db.prepare(`DELETE FROM exams WHERE id = ?`).bind(c.req.param('id')).run();
@@ -370,6 +407,7 @@ app.get('/api/exams/:id/student', async (c) => {
 
 // ── QUESTIONS ──────────────────────────────────────
 app.post('/api/exams/:examId/questions', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
@@ -383,6 +421,7 @@ app.post('/api/exams/:examId/questions', async (c) => {
 });
 
 app.put('/api/questions/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const qType = body.type || 'multiple_choice';
@@ -393,6 +432,7 @@ app.put('/api/questions/:id', async (c) => {
 });
 
 app.delete('/api/questions/:id', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM questions WHERE id = ?`).bind(c.req.param('id')).run();
   return c.json({ success: true });
@@ -400,6 +440,7 @@ app.delete('/api/questions/:id', async (c) => {
 
 // ── BULK IMPORT QUESTIONS ──────────────────────────
 app.post('/api/exams/:examId/questions/bulk', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
@@ -421,6 +462,7 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
 
 // ── QUESTION BANK ──────────────────────────────────
 app.get('/api/bank', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const { results } = await db.prepare(
     `SELECT * FROM question_bank ORDER BY created_at DESC`
@@ -464,6 +506,7 @@ app.delete('/api/bank/:id', async (c) => {
 
 // ── ACTIVITY LOG ───────────────────────────────────
 app.get('/api/logs', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const { results } = await db.prepare(
     `SELECT * FROM activity_log ORDER BY created_at DESC LIMIT 200`
@@ -2109,6 +2152,7 @@ app.get('/api/leaderboard/:examId', async (c) => {
 
 // ── SUBMISSIONS (admin) ────────────────────────────
 app.get('/api/submissions/:examId', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
@@ -2140,6 +2184,7 @@ app.get('/api/submissions/:examId', async (c) => {
 
 // ── ANALYTICS ───────────────────────────────────────
 app.get('/api/analytics/:examId', async (c) => {
+  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
 
