@@ -22,31 +22,34 @@ async function request(path, options = {}) {
 
 const adminPass = () => import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
 
+const maybeAdminHeaders = () => {
+  try { return sessionStorage.getItem('admin_auth') === 'true' ? { 'Authorization': adminPass() } : {}; } catch { return {}; }
+};
 export const api = {
   listExams: () => request('/exams'),
-  getExam: (id) => request('/exams/' + id),
-  createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body) }),
-  updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body) }),
-  deleteExam: (id) => request('/exams/' + id, { method: 'DELETE' }),
+  getExam: (id) => request('/exams/' + id, { headers: { ...maybeAdminHeaders() } }),
+  createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
   duplicateExam: (id) => request('/exams/' + id + '/duplicate', { method: 'POST', headers: { 'Authorization': adminPass() } }),
-  addQuestion: (examId, body) => request('/exams/' + examId + '/questions', { method: 'POST', body: JSON.stringify(body) }),
-  deleteQuestion: (id) => request('/questions/' + id, { method: 'DELETE' }),
-  updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body) }),
+  addQuestion: (examId, body) => request('/exams/' + examId + '/questions', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
+  deleteQuestion: (id) => request('/questions/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   bulkImportQuestions: (examId, questions, startOrder = 0) =>
-    request('/exams/' + examId + '/questions/bulk', { method: 'POST', body: JSON.stringify({ questions, start_order: startOrder }) }),
+    request('/exams/' + examId + '/questions/bulk', { method: 'POST', body: JSON.stringify({ questions, start_order: startOrder }), headers: { 'Authorization': adminPass() } }),
   submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body) }),
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
-  getSubmissions: (examId) => request('/submissions/' + examId),
+  getSubmissions: (examId) => request('/submissions/' + examId, { headers: { 'Authorization': adminPass() } }),
   reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   regrade: (examId) => request('/regrade/' + examId, { method: 'POST', headers: { 'Authorization': adminPass() } }),
   // Question Bank
-  listBank: () => request('/bank'),
+  listBank: () => request('/bank', { headers: { 'Authorization': adminPass() } }),
   addBank: (body) => request('/bank', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   updateBank: (id, body) => request('/bank/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   deleteBank: (id) => request('/bank/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
-  getAnalytics: (examId) => request('/analytics/' + examId),
+  getAnalytics: (examId) => request('/analytics/' + examId, { headers: { 'Authorization': adminPass() } }),
   // Activity Log
-  getLogs: () => request('/logs'),
+  getLogs: () => request('/logs', { headers: { 'Authorization': adminPass() } }),
   // Sessions (single-session lock, heartbeat, proctoring)
   startSession: (examId, body) => request('/exams/' + examId + '/session/start', { method: 'POST', body: JSON.stringify(body) }),
   heartbeat: (examId, body) => request('/exams/' + examId + '/session/heartbeat', { method: 'POST', body: JSON.stringify(body) }),
