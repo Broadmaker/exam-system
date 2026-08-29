@@ -430,12 +430,15 @@ export default function Exam() {
       const next = { ...prev };
       if (empty) delete next[qid];
       else next[qid] = displayKey;
+      // Sync ref immediately so a submit clicked in the same tick sees B, not stale A
+      answersRef.current = next;
       return next;
     });
     setAnsweredSet(prev => {
       const n = new Set(prev);
       if (empty) n.delete(qid);
       else n.add(qid);
+      answeredSetRef.current = n;
       return n;
     });
   }, []);
@@ -447,6 +450,21 @@ export default function Exam() {
       name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
       tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason,
     }));
+    // Keep pending_submission in sync so a retry doesn't revive stale A after B
+    try {
+      const raw = localStorage.getItem('pending_submission_' + examId);
+      if (raw) {
+        const pending = JSON.parse(raw);
+        const curCount = Object.keys(answers).filter(k => String(answers[k] ?? '').trim() !== '').length;
+        // Only refresh if we have at least as many answers as the pending (avoid clobbering a fuller queue with empty)
+        const pendingCount = pending.answers ? Object.keys(pending.answers).filter(k => String(pending.answers[k] ?? '').trim() !== '').length : 0;
+        if (curCount >= pendingCount) {
+          pending.answers = answers;
+          localStorage.setItem('pending_submission_' + examId, JSON.stringify(pending));
+          setPendingSubmit(pending);
+        }
+      }
+    } catch {}
   }, [answers, answeredSet, examId, started, submitted, name, section, studentId, accessCode, tabSwitches, totalSeconds, submitReason]);
 
   // If they close the tab/PWA, try to beacon the current answers so the server
@@ -479,19 +497,22 @@ export default function Exam() {
 
   const handleTimerTick = useCallback((s) => {
     setTotalSeconds(s);
-    // Debounced save
+    // Use refs so the 1s tick never overwrites a just-changed B with stale A
     if (started && !submitted) {
       localStorage.setItem('exam_state_' + examId, JSON.stringify({
-        name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+        name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: answersRef.current, answered: Array.from(answeredSetRef.current || []),
         tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false, submitReason,
       }));
     }
-  }, [started, submitted, name, section, studentId, answers, answeredSet, tabSwitches, accessCode, submitReason, examId]);
+  }, [started, submitted, name, section, studentId, tabSwitches, accessCode, submitReason, examId]);
 
   const handleSubmit = useCallback(async (reason = 'manual') => {
     if (submitted) return;
+    // Always read from refs so A->B flicker in the same tick is not lost
+    const curAnswers = answersRef.current || answers;
+    const curAnsweredSet = answeredSetRef.current || answeredSet;
     // Guard: manual submit with zero answers is almost always a bug (retry wipe + kick)
-    const curAnswerCount = Object.keys(answers).filter(k => String(answers[k] ?? '').trim() !== '').length;
+    const curAnswerCount = Object.keys(curAnswers).filter(k => String(curAnswers[k] ?? '').trim() !== '').length;
     if (reason === 'manual' && curAnswerCount === 0) {
       toast('No answers yet', 'Please answer at least one question before submitting.');
       setSubmitting(false);
@@ -508,11 +529,11 @@ export default function Exam() {
       const qType = q.type || 'multiple_choice';
       let isCorrect = false;
       if (qType === 'fill_blank') {
-        isCorrect = matchesAnswer(answers[q.id], q.answer);
+        isCorrect = matchesAnswer(curAnswers[q.id], q.answer);
       } else {
         // Choices are displayed in fixed (DB) order; the recorded answer is the
         // canonical choice key, so compare it directly against the answer key.
-        isCorrect = !!answers[q.id] && answers[q.id] === q.answer;
+        isCorrect = !!curAnswers[q.id] && curAnswers[q.id] === q.answer;
       }
       if (isCorrect) {
         total++;
@@ -527,13 +548,13 @@ export default function Exam() {
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
     localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: curAnswers, answered: Array.from(curAnsweredSet),
       tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true, submitReason: reason,
     }));
 
     const payload = {
       exam_id: examId, student_name: name, student_section: section, student_id: studentId.trim().toUpperCase(),
-      seed: String(seed), answers, score: total, total: qs.length,
+      seed: String(seed), answers: curAnswers, score: total, total: qs.length,
       tab_switches: tabSwitches, time_taken: timeTaken, started_at: startTimeRef.current || 0, reason,
       answer_scheme: 'fixed',
     };
@@ -551,7 +572,7 @@ export default function Exam() {
       localStorage.removeItem('pending_submission_' + examId);
       setPendingSubmit(null);
       // Backup confirmed answers so a later retry wipe can be recovered if needed
-      try { localStorage.setItem('exam_backup_' + examId, JSON.stringify({ answers, at: Date.now(), score: total })); } catch {}
+      try { localStorage.setItem('exam_backup_' + examId, JSON.stringify({ answers: curAnswers, at: Date.now(), score: total })); } catch {}
       setSubmitting(false);
       setSubmitted(true);
       return;
@@ -567,7 +588,7 @@ export default function Exam() {
         toast('Not submitted — previous score preserved', e.message);
         // Revert optimistic submitted flag so they can keep answering
         localStorage.setItem('exam_state_' + examId, JSON.stringify({
-          name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+          name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: curAnswers, answered: Array.from(curAnsweredSet),
           tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason: reason,
         }));
         setSubmitting(false);
