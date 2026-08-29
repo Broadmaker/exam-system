@@ -69,6 +69,7 @@ export default function Exam() {
   useEffect(() => { answersRef.current = answers; }, [answers]);
   const answeredSetRef = useRef(answeredSet);
   useEffect(() => { answeredSetRef.current = answeredSet; }, [answeredSet]);
+  const lastPersistRef = useRef(0);
 
   const enterFullscreen = useCallback(() => {
     if (!fsSupportedRef.current) return;
@@ -495,8 +496,11 @@ export default function Exam() {
 
   const handleTimerTick = useCallback((s) => {
     setTotalSeconds(s);
-    // Use refs so the 1s tick never overwrites a just-changed B with stale A
+    // Throttle localStorage writes to 5s (P2) + use refs to avoid stale A overwrite
     if (started && !submitted) {
+      const now = Date.now();
+      if (now - lastPersistRef.current < 5000) return;
+      lastPersistRef.current = now;
       localStorage.setItem('exam_state_' + examId, JSON.stringify({
         name, section: section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: answersRef.current, answered: Array.from(answeredSetRef.current || []),
         tabSwitches, totalSeconds: s, startedAt: startTimeRef.current, submitted: false, submitReason,
