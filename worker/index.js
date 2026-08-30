@@ -4,7 +4,19 @@ import { cors } from 'hono/cors';
 const app = new Hono();
 
 app.use('/api/*', cors({
-  origin: ['https://exam-system.sanigkram24.workers.dev', 'http://localhost:5173', 'http://127.0.0.1:5173'],
+  origin: (origin) => {
+    // Allow Workers, Pages, localhost, and any exam-system preview deployment
+    if (!origin) return origin;
+    const allow = [
+      'https://exam-system.sanigkram24.workers.dev',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ];
+    if (allow.includes(origin)) return origin;
+    if (/^https:\/\/exam-system.*\.pages\.dev$/.test(origin)) return origin;
+    if (/^https:\/\/.*\.exam-system.*\.pages\.dev$/.test(origin)) return origin;
+    return null;
+  },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: false,
