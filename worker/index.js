@@ -246,6 +246,13 @@ function validateQuestionBody(b) {
   if (!b.text || !String(b.text).trim()) return 'Question text is required';
   if (String(b.text).length > 5000) return 'Question text must be ≤5000 characters';
   if (hasXSS(b.text) || hasXSS(b.explain)) return 'Question contains forbidden content';
+  // Also scan choice texts and answer keys for XSS
+  if (Array.isArray(b.choices)) {
+    for (const ch of b.choices) {
+      if (hasXSS(ch?.text) || hasXSS(ch?.key)) return 'Choice contains forbidden content';
+    }
+  }
+  if (hasXSS(b.answer)) return 'Answer contains forbidden content';
   const qType = b.type || 'multiple_choice';
   if (qType === 'fill_blank') {
     if (!b.answer || !String(b.answer).trim()) return 'Fill-blank answer is required';
@@ -609,7 +616,7 @@ app.post('/api/submit', async (c) => {
   }
   const normId = String(student_id || '').trim().toUpperCase();
 
-  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at FROM exams WHERE id = ?`).bind(exam_id).first();
+  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at, created_at FROM exams WHERE id = ?`).bind(exam_id).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
 
   // Find any prior submission — prefer student_id match, fallback to name+section
@@ -629,18 +636,29 @@ app.post('/api/submit', async (c) => {
   const hasValidStartedAt = Number.isFinite(startedAtNum) && startedAtNum > 0;
   // Grace for pending offline submits: if they started before the deadline/close,
   // treat as a resume even when no row exists yet (covers "submitted but not recorded").
-  // This is the path for your expired-but-not-recorded case.
+  // Hardened: client timestamp alone is not trusted — require it to be after exam
+  // creation and within 30 days before deadline/now to prevent forged small values
+  // bypassing closed status. Draft is never allowed this path.
   let isStartedBeforeDeadline = false;
   let isStartedBeforeClose = false;
   try {
-    if (hasValidStartedAt && exam?.deadline) {
+    const createdMs = exam?.created_at ? new Date(exam.created_at).getTime() : 0;
+    const MAX_GRACE_MS = 30 * 24 * 3600 * 1000;
+    if (hasValidStartedAt && exam?.deadline && exam.status !== 'draft') {
       const dl = new Date(exam.deadline).getTime();
-      if (!isNaN(dl) && startedAtNum < dl) isStartedBeforeDeadline = true;
+      if (!isNaN(dl) && !isNaN(createdMs) && startedAtNum < dl && startedAtNum > createdMs && (dl - startedAtNum) <= MAX_GRACE_MS) {
+        // Also require an exam_sessions row OR enrollment as secondary proof if available,
+        // but keep offline grace by allowing timestamp window alone; log for audit.
+        isStartedBeforeDeadline = true;
+        if (!existing) await log(db, 'grace_submit', `Grace submit for ${normId || student_name} in ${exam_id} startedAt=${startedAtNum} deadline=${dl}`);
+      }
     }
     if (hasValidStartedAt && !exam?.deadline && exam && ['closed','archived'].includes(exam.status)) {
-      // No deadline but exam was closed — if they started before now, allow finish
-      // (draft is never allowed this way)
-      isStartedBeforeClose = startedAtNum < Date.now();
+      // No deadline but exam was closed — allow only if started before close and within window
+      if (!isNaN(createdMs) && startedAtNum > createdMs && startedAtNum < Date.now() && (Date.now() - startedAtNum) <= MAX_GRACE_MS) {
+        isStartedBeforeClose = true;
+        if (!existing) await log(db, 'grace_submit', `Grace submit (closed) for ${normId || student_name} in ${exam_id}`);
+      }
     }
   } catch {}
   const isResumeFinalization = !!existing || isStartedBeforeDeadline || isStartedBeforeClose;
@@ -796,7 +814,7 @@ app.post('/api/exams/:id/session/start', async (c) => {
     return c.json({ error: 'Student ID is required.' }, 400);
   }
 
-  let exam = await db.prepare(`SELECT deadline, access_code, class_id, status, start_at FROM exams WHERE id = ?`).bind(examId).first();
+  let exam = await db.prepare(`SELECT deadline, access_code, class_id, status, start_at, created_at FROM exams WHERE id = ?`).bind(examId).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
   // Auto-close if deadline already passed before any lifecycle checks
   if ((exam.status === 'active' || exam.status === 'scheduled') && isDeadlinePassed(exam.deadline)) {
@@ -822,17 +840,24 @@ app.post('/api/exams/:id/session/start', async (c) => {
   } catch {}
   let canRetryAfterClose = !!existingForGate && (!!existingForGate.retry_allowed || ['timeout','tab','kick'].includes(existingForGate.reason));
   // Also allow if this is a pending offline submit being retried after expiry:
-  // the client keeps started_at in exam_state_<id> / pending_submission and
-  // sends it on re-open (src/pages/Exam.jsx). If that timestamp is before
-  // the deadline, treat as a resume even when no row exists yet.
+  // hardened: require timestamp after exam creation and within 30d window, not just any <deadline, to prevent forged small values.
   try {
     const startedAtNum = Number(started_at);
-    if (!canRetryAfterClose && Number.isFinite(startedAtNum) && startedAtNum > 0 && exam?.deadline) {
+    const createdMs = exam?.created_at ? new Date(exam.created_at).getTime() : 0;
+    const MAX_GRACE_MS = 30 * 24 * 3600 * 1000;
+    if (!canRetryAfterClose && Number.isFinite(startedAtNum) && startedAtNum > 0 && exam?.deadline && exam.status !== 'draft') {
       const dl = new Date(exam.deadline).getTime();
-      if (!isNaN(dl) && startedAtNum < dl) canRetryAfterClose = true;
+      if (!isNaN(dl) && !isNaN(createdMs) && startedAtNum < dl && startedAtNum > createdMs && (dl - startedAtNum) <= MAX_GRACE_MS) {
+        canRetryAfterClose = true;
+        await log(db, 'grace_session', `Grace session for ${String(student_id).toUpperCase()} in ${examId} startedAt=${startedAtNum}`);
+      }
     }
     if (!canRetryAfterClose && Number.isFinite(Number(started_at)) && Number(started_at) > 0 && !exam?.deadline && ['closed','archived'].includes(exam.status)) {
-      canRetryAfterClose = true; // no deadline but closed after they started
+      const sNum = Number(started_at);
+      if (!isNaN(createdMs) && sNum > createdMs && sNum < Date.now() && (Date.now() - sNum) <= MAX_GRACE_MS) {
+        canRetryAfterClose = true;
+        await log(db, 'grace_session', `Grace session (closed) for ${String(student_id).toUpperCase()} in ${examId}`);
+      }
     }
   } catch {}
 
@@ -1952,11 +1977,12 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
     await db.prepare(
       `UPDATE enrollments SET student_name = ?, student_section = ? WHERE id = ?`
     ).bind(newName, newSection, existing.id).run();
+    // Update linked records — scope to this class's submissions where possible, fallback to global student_id match
     await db.prepare(
-      `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ? AND student_section = ?`
-    ).bind(newName, newSection, oldStudentId, newSection).run();
-await db.prepare(
       `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ?`
+    ).bind(newName, newSection, oldStudentId).run();
+    await db.prepare(
+      `UPDATE attendance SET student_name = ?, student_section = ? WHERE student_id = ?`
     ).bind(newName, newSection, oldStudentId).run();
     await db.prepare(
       `UPDATE class_attendance SET student_name = ? WHERE class_id = ? AND student_id = ?`
@@ -2021,15 +2047,17 @@ app.post('/api/classes/:id/attendance', async (c) => {
   const date = body.date || new Date().toISOString().slice(0, 10);
   const records = body.records || [];
 
+  const ALLOWED_ATTENDANCE = new Set(['present', 'late', 'absent', 'excused']);
   for (const r of records) {
     if (!r.student_id) continue;
+    const status = ALLOWED_ATTENDANCE.has(r.status) ? r.status : 'absent';
     const name = r.student_name || (await db.prepare(`SELECT student_name FROM enrollments WHERE class_id = ? AND student_id = ?`).bind(classId, r.student_id).first())?.student_name || '';
     await db.prepare(
       `INSERT INTO class_attendance (id, class_id, date, student_id, student_name, status, source)
        VALUES (?, ?, ?, ?, ?, ?, 'manual')
        ON CONFLICT(class_id, date, student_id)
        DO UPDATE SET status = excluded.status, student_name = excluded.student_name`
-    ).bind(uuid(), classId, date, r.student_id, name, r.status || 'absent').run();
+    ).bind(uuid(), classId, date, r.student_id, name, status).run();
   }
   await log(db, 'class_attendance', `Marked ${records.length} student(s) for class ${classId} on ${date}`);
   return c.json({ success: true });

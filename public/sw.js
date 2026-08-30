@@ -1,4 +1,4 @@
-const CACHE = 'exam-portal-v6';
+const CACHE = 'exam-portal-v7';
 const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
 const MAX_CACHE_ENTRIES = 50;
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000; // 7 days

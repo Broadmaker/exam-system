@@ -43,13 +43,17 @@ async function memoRequest(path, options = {}, ttl = 30000) {
   _pending.set(key, p);
   return p;
 }
+function invalidateMemo(prefix) {
+  for (const k of _memo.keys()) if (k.startsWith(prefix)) _memo.delete(k);
+  for (const k of _pending.keys()) if (k.startsWith(prefix)) _pending.delete(k);
+}
 export const api = {
   listExams: () => memoRequest('/exams', {}, 30000),
   getExam: (id) => request('/exams/' + id, { headers: { ...maybeAdminHeaders() } }),
-  createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
-  updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
-  deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
-  duplicateExam: (id) => request('/exams/' + id + '/duplicate', { method: 'POST', headers: { 'Authorization': adminPass() } }),
+  createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/exams'); return r; }),
+  updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/exams'); return r; }),
+  deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/exams'); return r; }),
+  duplicateExam: (id) => request('/exams/' + id + '/duplicate', { method: 'POST', headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/exams'); return r; }),
   addQuestion: (examId, body) => request('/exams/' + examId + '/questions', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
   deleteQuestion: (id) => request('/questions/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
   updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
@@ -62,9 +66,9 @@ export const api = {
   regrade: (examId) => request('/regrade/' + examId, { method: 'POST', headers: { 'Authorization': adminPass() } }),
   // Question Bank
   listBank: () => memoRequest('/bank', { headers: { 'Authorization': adminPass() } }, 30000),
-  addBank: (body) => request('/bank', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
-  updateBank: (id, body) => request('/bank/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }),
-  deleteBank: (id) => request('/bank/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }),
+  addBank: (body) => request('/bank', { method: 'POST', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/bank'); return r; }),
+  updateBank: (id, body) => request('/bank/' + id, { method: 'PUT', body: JSON.stringify(body), headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/bank'); return r; }),
+  deleteBank: (id) => request('/bank/' + id, { method: 'DELETE', headers: { 'Authorization': adminPass() } }).then(r => { invalidateMemo('/bank'); return r; }),
   getAnalytics: (examId) => request('/analytics/' + examId, { headers: { 'Authorization': adminPass() } }),
   // Activity Log
   getLogs: () => request('/logs', { headers: { 'Authorization': adminPass() } }),

@@ -7,7 +7,6 @@ import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
 import PublicLayout from '../components/PublicLayout';
 import { Button, Input, ConfirmDialog } from '../components/ui';
-import '../styles.css';
 import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar } from 'lucide-react';
 
 export default function Exam() {
