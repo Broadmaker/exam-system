@@ -6,7 +6,7 @@ const app = new Hono();
 app.use('/api/*', cors({
   origin: (origin) => {
     // Allow Workers, Pages, localhost, and any exam-system preview deployment
-    if (!origin) return origin;
+    if (!origin) return undefined;
     const allow = [
       'https://exam-system.sanigkram24.workers.dev',
       'http://localhost:5173',
@@ -14,7 +14,6 @@ app.use('/api/*', cors({
     ];
     if (allow.includes(origin)) return origin;
     if (/^https:\/\/exam-system.*\.pages\.dev$/.test(origin)) return origin;
-    if (/^https:\/\/.*\.exam-system.*\.pages\.dev$/.test(origin)) return origin;
     return null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -225,9 +224,10 @@ async function triggerPushWithEnv(db, env, { class_id, student_id }) {
 
 function adminCheck(c) {
   const auth = c.req.header('Authorization');
-  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || 'admin123';
+  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || '';
+  if (!auth || !expected) return false;
+  if (auth.length !== expected.length) return false;
   // Constant-time compare to avoid timing leak (best-effort in Workers)
-  if (!auth || !expected || auth.length !== expected.length) return false;
   let ok = 0;
   for (let i = 0; i < expected.length; i++) ok |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
   return ok === 0;
@@ -730,6 +730,10 @@ app.post('/api/submit', async (c) => {
     try { submittedAnswers = JSON.parse(submittedAnswers); } catch { submittedAnswers = {}; }
   }
   if (!submittedAnswers || typeof submittedAnswers !== 'object' || Array.isArray(submittedAnswers)) submittedAnswers = {};
+  // Size cap: prevent OOM via huge payload (audit gap)
+  if (Object.keys(submittedAnswers).length > questions.length * 2 + 10) {
+    return c.json({ error: 'Too many answers — payload too large.' }, 413);
+  }
   const answerCount = Object.keys(submittedAnswers).filter(k => {
     const v = submittedAnswers[k];
     return v !== undefined && v !== null && String(v).trim() !== '';

@@ -1,10 +1,13 @@
 const BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request(path, options = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
   const res = await fetch(BASE + path, {
     headers: { 'Content-Type': 'application/json', ...options.headers },
+    signal: controller.signal,
     ...options,
-  });
+  }).finally(() => clearTimeout(timeout));
   const text = await res.text();
   let data;
   try {

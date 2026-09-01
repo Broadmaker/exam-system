@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { ToastProvider, Spinner } from './components/ui';
 import FloatingInstall from './components/FloatingInstall';
+import ErrorBoundary from './components/ErrorBoundary';
 import Landing from './pages/Landing';
 const Exam = lazy(() => import('./pages/Exam'));
 const Leaderboard = lazy(() => import('./pages/Leaderboard'));
@@ -25,6 +26,7 @@ const Templates = lazy(() => import('./pages/admin/Templates'));
 export default function App() {
   return (
     <ToastProvider>
+      <ErrorBoundary>
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Spinner /></div>}>
         <Routes>
           <Route path="/" element={<Landing />} />
@@ -48,6 +50,7 @@ export default function App() {
           <Route path="/admin/templates" element={<Templates />} />
         </Routes>
       </Suspense>
+      </ErrorBoundary>
       <FloatingInstall />
     </ToastProvider>
   );
