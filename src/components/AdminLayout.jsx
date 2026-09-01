@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import AuthGate from './AuthGate';
 import ThemeToggle from './ThemeToggle';
 import { api } from '../api';
 import {
@@ -165,7 +164,6 @@ export default function AdminLayout({ children, title }) {
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   return (
-    <AuthGate>
       <div className="flex min-h-screen bg-canvas text-text">
         {/* Mobile overlay */}
         {drawerOpen && (
@@ -212,6 +210,5 @@ export default function AdminLayout({ children, title }) {
           <main className="flex-1">{children}</main>
         </div>
       </div>
-    </AuthGate>
   );
 }

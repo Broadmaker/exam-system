@@ -3,6 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { ToastProvider, Spinner } from './components/ui';
 import FloatingInstall from './components/FloatingInstall';
 import ErrorBoundary from './components/ErrorBoundary';
+import AuthGate from './components/AuthGate';
 import Landing from './pages/Landing';
 const Exam = lazy(() => import('./pages/Exam'));
 const Leaderboard = lazy(() => import('./pages/Leaderboard'));
@@ -36,18 +37,18 @@ export default function App() {
           <Route path="/enroll" element={<StudentEnroll />} />
           <Route path="/records" element={<StudentRecords />} />
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/admin" element={<Dashboard />} />
-          <Route path="/admin/create" element={<CreateExam />} />
-          <Route path="/admin/results" element={<Results />} />
-          <Route path="/admin/answers" element={<Answers />} />
-          <Route path="/admin/preview" element={<Preview />} />
-          <Route path="/admin/regrade" element={<Regrade />} />
-          <Route path="/admin/bank" element={<QuestionBank />} />
-          <Route path="/admin/logs" element={<ActivityLog />} />
-          <Route path="/admin/proctor" element={<Proctor />} />
-          <Route path="/admin/classes" element={<Classes />} />
-          <Route path="/admin/notifications" element={<AdminNotifications />} />
-          <Route path="/admin/templates" element={<Templates />} />
+          <Route path="/admin" element={<AuthGate><Dashboard /></AuthGate>} />
+          <Route path="/admin/create" element={<AuthGate><CreateExam /></AuthGate>} />
+          <Route path="/admin/results" element={<AuthGate><Results /></AuthGate>} />
+          <Route path="/admin/answers" element={<AuthGate><Answers /></AuthGate>} />
+          <Route path="/admin/preview" element={<AuthGate><Preview /></AuthGate>} />
+          <Route path="/admin/regrade" element={<AuthGate><Regrade /></AuthGate>} />
+          <Route path="/admin/bank" element={<AuthGate><QuestionBank /></AuthGate>} />
+          <Route path="/admin/logs" element={<AuthGate><ActivityLog /></AuthGate>} />
+          <Route path="/admin/proctor" element={<AuthGate><Proctor /></AuthGate>} />
+          <Route path="/admin/classes" element={<AuthGate><Classes /></AuthGate>} />
+          <Route path="/admin/notifications" element={<AuthGate><AdminNotifications /></AuthGate>} />
+          <Route path="/admin/templates" element={<AuthGate><Templates /></AuthGate>} />
         </Routes>
       </Suspense>
       </ErrorBoundary>
