@@ -366,6 +366,8 @@ function validateQuestionBody(b) {
 }
 
 // ── RATE LIMIT (P0) + ANALYTICS CACHE (P2) ─────
+// Finding 6 note: in-memory per-isolate only — bypassable across isolates/scale.
+// Production: add Cloudflare WAF rate-limiting rule 10 req/s on /api/* + Turnstile on POST /enroll, /submit.
 const analyticsCache = new Map(); // examId -> {data, ts}
 const rateMap = new Map(); // ip -> {count, reset}
 function rateLimit(c, max = 30, windowMs = 60_000) {
@@ -384,6 +386,7 @@ function rateLimit(c, max = 30, windowMs = 60_000) {
 
 // ── EXAMS ──────────────────────────────────────────
 app.get('/api/exams', async (c) => {
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const qLimit = c.req.query('limit');
   const qOffset = c.req.query('offset');
@@ -454,6 +457,7 @@ app.post('/api/exams', async (c) => {
 });
 
 app.get('/api/exams/:id', async (c) => {
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('id');
   let exam = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(examId).first();
@@ -670,6 +674,7 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
 
 // ── QUESTION BANK ──────────────────────────────────
 app.get('/api/bank', async (c) => {
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const qLimit = c.req.query('limit');
@@ -2135,6 +2140,7 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
 
 // Known students (from submissions + enrollments) to speed up enrollment.
 app.get('/api/students', async (c) => {
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const qLimit = c.req.query('limit');

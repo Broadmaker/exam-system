@@ -12,12 +12,12 @@
   },
   "dependencies": {
     "dompurify": "^3.4.14",
-    "hono": "^4.12.27",
+    "hono": "^4.12.34",
     "lucide-react": "^1.21.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0"
+    "react-router-dom": "^7.18.2"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -30,7 +30,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^4.3.1",
     "tailwindcss": "^4.3.3",
-    "vite": "^5.4.0",
-    "wrangler": "^3.114.17"
+    "vite": "^6.4.3",
+    "wrangler": "^4.127.1"
   }
 }
