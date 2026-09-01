@@ -1,17 +1,15 @@
 import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
-import { Home, CalendarCheck, UserPlus, Trophy, GraduationCap, ShieldCheck, Menu, X, Lock, Bell, Scan } from 'lucide-react';
+import { Home, UserPlus, Trophy, GraduationCap, ShieldCheck, Menu, X, Lock, Scan } from 'lucide-react';
 import BrowserBanner from './BrowserBanner';
 
 const navLinks = [
   { to: '/', label: 'Home', icon: Home, end: true },
   { to: '/scan', label: 'Scan QR', icon: Scan },
-  { to: '/checkin', label: 'Check In', icon: CalendarCheck },
   { to: '/enroll', label: 'Enroll', icon: UserPlus },
   { to: '/leaderboard', label: 'Scoreboard', icon: Trophy },
   { to: '/records', label: 'Records', icon: GraduationCap },
-  { to: '/notifications', label: 'Notifications', icon: Bell },
 ];
 
 export default function PublicLayout({ children, hideFooter = false }) {
