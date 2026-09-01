@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import AuthGate from './AuthGate';
 import ThemeToggle from './ThemeToggle';
+import { api } from '../api';
 import {
   LayoutDashboard, Users, BookOpen, Eye, RotateCcw, Radio, Clock, LogOut,
   Menu, X, ChevronLeft, GraduationCap, PanelLeftClose, PanelLeftOpen, ShieldCheck, Bell, Library,
@@ -101,7 +102,7 @@ function SidebarContent({ collapsed, onNavigate }) {
           <ChevronLeft size={16} className="shrink-0" />
           {!collapsed && 'Student Portal'}
         </a>
-        <button onClick={() => { sessionStorage.removeItem('admin_auth'); window.location.reload(); }}
+        <button onClick={async () => { try { await api.adminLogout(); } catch {} sessionStorage.removeItem('admin_auth'); window.location.reload(); }}
           className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-[13px] text-muted hover:text-danger hover:bg-danger-bg transition-colors cursor-pointer text-left"
           title={collapsed ? 'Logout' : undefined}>
           <LogOut size={16} className="shrink-0" />
@@ -145,7 +146,7 @@ function UserMenu() {
             <ChevronLeft size={14} /> Student Portal
           </a>
           <button
-            onClick={() => { sessionStorage.removeItem('admin_auth'); window.location.reload(); }}
+            onClick={async () => { try { await api.adminLogout(); } catch {} sessionStorage.removeItem('admin_auth'); window.location.reload(); }}
             className="w-full flex items-center gap-2 px-3.5 py-2 text-[13px] text-danger hover:bg-danger-bg transition-colors cursor-pointer text-left">
             <LogOut size={14} /> Logout
           </button>

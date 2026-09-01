@@ -18,7 +18,7 @@ app.use('/api/*', cors({
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
-  credentials: false,
+  credentials: true,
 }));
 app.use('/api/*', async (c, next) => {
   await next();
@@ -223,15 +223,73 @@ async function triggerPushWithEnv(db, env, { class_id, student_id }) {
   return { sent, gone, total: subs.length };
 }
 
-function adminCheck(c) {
-  const auth = c.req.header('Authorization');
+function bytesToB64url(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlToBytes(b64u) {
+  b64u = b64u.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64u.length % 4) b64u += '=';
+  const bin = atob(b64u);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function strToB64url(str) { return bytesToB64url(new TextEncoder().encode(str)); }
+function b64urlToStr(b64u) { return new TextDecoder().decode(b64urlToBytes(b64u)); }
+function getCookie(c, name) {
+  const cookie = c.req.header('Cookie') || '';
+  const m = cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+  return m ? decodeURIComponent(m[1]) : '';
+}
+async function createAdminToken(env) {
+  const exp = Date.now() + 3600 * 1000;
+  const payload = JSON.stringify({ exp, rnd: crypto.randomUUID() });
+  const payloadB64 = strToB64url(payload);
+  const keyMaterial = new TextEncoder().encode(env.ADMIN_PASSWORD || env.VITE_ADMIN_PASSWORD || '');
+  const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadB64));
+  return payloadB64 + '.' + bytesToB64url(new Uint8Array(sig));
+}
+async function verifyAdminToken(token, env) {
+  const parts = token.split('.');
+  if (parts.length !== 2) return false;
+  const [payloadB64, sigB64] = parts;
+  let payload;
+  try { payload = JSON.parse(b64urlToStr(payloadB64)); } catch { return false; }
+  if (!payload.exp || Date.now() > payload.exp) return false;
+  const keyMaterial = new TextEncoder().encode(env.ADMIN_PASSWORD || env.VITE_ADMIN_PASSWORD || '');
+  if (!keyMaterial.length) return false;
+  const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  const data = new TextEncoder().encode(payloadB64);
+  const sig = b64urlToBytes(sigB64);
+  try { return await crypto.subtle.verify('HMAC', key, sig, data); } catch { return false; }
+}
+async function adminCheck(c) {
+  // 1) HttpOnly cookie session
+  const cookieToken = getCookie(c, 'admin_session');
+  if (cookieToken) {
+    try { if (await verifyAdminToken(cookieToken, c.env)) return true; } catch {}
+  }
+  // 2) Bearer token
+  const auth = c.req.header('Authorization') || '';
+  if (auth.startsWith('Bearer ')) {
+    const bearer = auth.slice(7).trim();
+    try { if (await verifyAdminToken(bearer, c.env)) return true; } catch {}
+  }
+  // 3) Legacy direct password (deprecated, kept for transition)
   const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || '';
-  if (!auth || !expected) return false;
-  if (auth.length !== expected.length) return false;
-  // Constant-time compare to avoid timing leak (best-effort in Workers)
-  let ok = 0;
-  for (let i = 0; i < expected.length; i++) ok |= auth.charCodeAt(i) ^ expected.charCodeAt(i);
-  return ok === 0;
+  // support both raw password and legacy "Bearer <password>" stripped above already handled
+  const legacy = auth.startsWith('Bearer ') ? '' : auth;
+  if (legacy && expected) {
+    if (legacy.length === expected.length) {
+      let ok = 0;
+      for (let i = 0; i < expected.length; i++) ok |= legacy.charCodeAt(i) ^ expected.charCodeAt(i);
+      if (ok === 0) return true;
+    }
+  }
+  return false;
 }
 
 // Clamp the passing score (percent) to a sane 0–100 range; empty/NaN/non-numeric
@@ -241,6 +299,35 @@ function clampPassing(v) {
   const n = Number(v);
   return Math.max(0, Math.min(100, n));
 }
+
+// ── ADMIN AUTH: HttpOnly session (Finding 1 fix) ─────
+async function handleAdminLogin(c) {
+  if (!rateLimit(c, 10, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const pw = String(body.password || '').trim();
+  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || '';
+  if (!expected) return c.json({ error: 'Admin password not configured' }, 500);
+  // constant-time compare
+  if (pw.length !== expected.length) return c.json({ error: 'Incorrect password' }, 401);
+  let ok = 0;
+  for (let i = 0; i < expected.length; i++) ok |= pw.charCodeAt(i) ^ expected.charCodeAt(i);
+  if (ok !== 0) return c.json({ error: 'Incorrect password' }, 401);
+  const token = await createAdminToken(c.env);
+  const isSecure = c.req.url.startsWith('https://');
+  c.header('Set-Cookie', `admin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600${isSecure ? '; Secure' : ''}`);
+  return c.json({ success: true, token });
+}
+async function handleAdminLogout(c) {
+  c.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+  return c.json({ success: true });
+}
+async function handleAdminMe(c) {
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  return c.json({ ok: true });
+}
+app.post('/api/admin/login', handleAdminLogin);
+app.post('/api/admin/logout', handleAdminLogout);
+app.get('/api/admin/me', handleAdminMe);
 
 // ── INPUT VALIDATION (P0) ──────────────────────────
 function hasXSS(s) {
@@ -337,7 +424,7 @@ app.get('/api/exams', async (c) => {
 });
 
 app.post('/api/exams', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
@@ -374,7 +461,7 @@ app.get('/api/exams/:id', async (c) => {
     `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
   ).bind(examId).all();
 
-  const isAdmin = adminCheck(c);
+  const isAdmin = await adminCheck(c);
   const roster = typeof exam.roster === 'string' ? exam.roster : JSON.stringify(exam.roster || []);
   const klass = exam.class_id ? await db.prepare(`SELECT name, subject, section FROM classes WHERE id = ?`).bind(exam.class_id).first() : null;
   // Strip answers for non-admin to prevent leakage (Phase 1 security)
@@ -390,7 +477,7 @@ app.get('/api/exams/:id', async (c) => {
 });
 
 app.put('/api/exams/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('id');
@@ -419,7 +506,7 @@ app.put('/api/exams/:id', async (c) => {
 // The copy is reset to draft, with no deadline and no scheduled start, so the
 // instructor can edit and republish it freely.
 app.post('/api/exams/:id/duplicate', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const src = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(c.req.param('id')).first();
   if (!src) return c.json({ error: 'Exam not found' }, 404);
@@ -446,7 +533,7 @@ app.post('/api/exams/:id/duplicate', async (c) => {
 });
 
 app.delete('/api/exams/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const old = await db.prepare(`SELECT title FROM exams WHERE id = ?`).bind(c.req.param('id')).first();
   await db.prepare(`DELETE FROM exams WHERE id = ?`).bind(c.req.param('id')).run();
@@ -496,7 +583,7 @@ app.get('/api/exams/:id/student', async (c) => {
 
 // ── QUESTIONS ──────────────────────────────────────
 app.post('/api/exams/:examId/questions', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('examId');
@@ -513,7 +600,7 @@ app.post('/api/exams/:examId/questions', async (c) => {
 });
 
 app.put('/api/questions/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
@@ -527,7 +614,7 @@ app.put('/api/questions/:id', async (c) => {
 });
 
 app.delete('/api/questions/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM questions WHERE id = ?`).bind(c.req.param('id')).run();
   return c.json({ success: true });
@@ -535,7 +622,7 @@ app.delete('/api/questions/:id', async (c) => {
 
 // ── BULK IMPORT QUESTIONS ──────────────────────────
 app.post('/api/exams/:examId/questions/bulk', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const examId = c.req.param('examId');
@@ -565,7 +652,7 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
 
 // ── QUESTION BANK ──────────────────────────────────
 app.get('/api/bank', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const qLimit = c.req.query('limit');
   const qOffset = c.req.query('offset');
@@ -584,7 +671,7 @@ app.get('/api/bank', async (c) => {
 });
 
 app.post('/api/bank', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const id = uuid();
@@ -598,7 +685,7 @@ app.post('/api/bank', async (c) => {
 });
 
 app.put('/api/bank/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const qType = body.type || 'multiple_choice';
@@ -610,7 +697,7 @@ app.put('/api/bank/:id', async (c) => {
 });
 
 app.delete('/api/bank/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM question_bank WHERE id = ?`).bind(c.req.param('id')).run();
   await log(db, 'bank_deleted', 'Deleted bank question ' + c.req.param('id'));
@@ -619,7 +706,7 @@ app.delete('/api/bank/:id', async (c) => {
 
 // ── ACTIVITY LOG ───────────────────────────────────
 app.get('/api/logs', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const limit = Math.min(Math.max(Number(c.req.query('limit')) || 200, 1), 500);
   const offset = Math.max(Number(c.req.query('offset')) || 0, 0);
@@ -1014,7 +1101,7 @@ app.post('/api/exams/:id/session/end', async (c) => {
 
 // ── PROCTORING (admin) ──────────────────────────────
 app.get('/api/proctor/:examId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const staleFloor = Math.floor((Date.now() - SESSION_STALE_MS) / 1000);
@@ -1054,7 +1141,7 @@ app.get('/api/proctor/:examId', async (c) => {
 });
 
 app.post('/api/proctor/:examId/kick', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
@@ -1088,7 +1175,7 @@ app.post('/api/proctor/:examId/kick', async (c) => {
 
 // Clear stale sessions without marking as kicked (safe cleanup for old rows)
 app.post('/api/proctor/:examId/cleanup-stale', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const staleFloor = Math.floor((Date.now() - SESSION_STALE_MS) / 1000);
@@ -1102,7 +1189,7 @@ app.post('/api/proctor/:examId/cleanup-stale', async (c) => {
 
 // Allow/deny a retry for an already-submitted student. Body: { student_id, allow }.
 app.post('/api/proctor/:examId/retry', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const body = await c.req.json();
@@ -1121,7 +1208,7 @@ app.post('/api/proctor/:examId/retry', async (c) => {
 
 // ── ATTENDANCE (admin) ──────────────────────────────
 app.get('/api/exams/:examId/attendance', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
 
@@ -1172,7 +1259,7 @@ app.get('/api/exams/:examId/attendance', async (c) => {
 
 // ── STANDALONE ATTENDANCE SESSIONS ──────────────────
 app.get('/api/attendance-sessions', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const { results } = await db.prepare(
     `SELECT s.*, (SELECT COUNT(*) FROM checkins ch WHERE ch.session_id = s.id) as checkin_count
@@ -1182,7 +1269,7 @@ app.get('/api/attendance-sessions', async (c) => {
 });
 
 app.post('/api/attendance-sessions', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   if (!body.title || !body.title.trim()) return c.json({ error: 'Title is required' }, 400);
@@ -1196,7 +1283,7 @@ app.post('/api/attendance-sessions', async (c) => {
 });
 
 app.put('/api/attendance-sessions/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const id = c.req.param('id');
   const body = await c.req.json();
@@ -1208,7 +1295,7 @@ app.put('/api/attendance-sessions/:id', async (c) => {
 });
 
 app.delete('/api/attendance-sessions/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM attendance_sessions WHERE id = ?`).bind(c.req.param('id')).run();
   await log(db, 'attendance_session_deleted', 'Deleted attendance session ' + c.req.param('id'));
@@ -1291,7 +1378,7 @@ app.post('/api/attendance-sessions/:id/checkin', async (c) => {
 });
 
 app.get('/api/attendance-sessions/:id/report', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const id = c.req.param('id');
 
@@ -1332,7 +1419,7 @@ app.get('/api/attendance-sessions/:id/report', async (c) => {
 
 // ── CLASSES ─────────────────────────────────────────
 app.get('/api/classes', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const { results } = await db.prepare(
     `SELECT c.*,
@@ -1344,7 +1431,7 @@ app.get('/api/classes', async (c) => {
 });
 
 app.post('/api/classes', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   if (!body.name || !body.name.trim()) return c.json({ error: 'Class name is required' }, 400);
@@ -1359,7 +1446,7 @@ app.post('/api/classes', async (c) => {
 });
 
 app.put('/api/classes/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const id = c.req.param('id');
   const body = await c.req.json();
@@ -1373,7 +1460,7 @@ app.put('/api/classes/:id', async (c) => {
 });
 
 app.delete('/api/classes/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM classes WHERE id = ?`).bind(c.req.param('id')).run();
   await log(db, 'class_deleted', 'Deleted class ' + c.req.param('id'));
@@ -1428,7 +1515,7 @@ app.post('/api/classes/enroll', async (c) => {
 
 // ── ENROLLMENTS ─────────────────────────────────────
 app.get('/api/classes/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const id = c.req.param('id');
   const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(id).first();
@@ -1459,7 +1546,7 @@ app.get('/api/classes/:id', async (c) => {
 // and a per-student overall average (mean of exam percentages).
 // When weighted categories are configured (§41), also returns weighted averages.
 app.get('/api/classes/:id/gradebook', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(c.req.param('id')).first();
   if (!klass) return c.json({ error: 'Class not found' }, 404);
@@ -1601,7 +1688,7 @@ app.get('/api/classes/:id/gradebook', async (c) => {
 
 // ── GRADE CATEGORIES (Upscale.md §41) ────────────
 app.get('/api/classes/:id/grade-categories', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(classId).first();
@@ -1619,7 +1706,7 @@ app.get('/api/classes/:id/grade-categories', async (c) => {
 });
 
 app.put('/api/classes/:id/grade-categories', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(classId).first();
@@ -1660,7 +1747,7 @@ app.put('/api/classes/:id/grade-categories', async (c) => {
 
 // ── NOTIFICATIONS (Upscale.md §42-43, §72) ──────
 app.post('/api/notifications', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const title = String(body.title || '').trim();
@@ -1727,7 +1814,7 @@ app.post('/api/push/unsubscribe', async (c) => {
 });
 
 app.post('/api/push/test', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json().catch(()=>({}));
   const student_id = String(body.student_id || '').trim().toUpperCase();
@@ -1744,7 +1831,7 @@ app.get('/api/notifications', async (c) => {
   const class_id = String(q.class_id || '').trim();
   const type = String(q.type || '').trim();
   const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 100);
-  const isAdmin = adminCheck(c);
+  const isAdmin = await adminCheck(c);
 
   // Student view: needs student_id to see personal + class broadcasts
   if (student_id) {
@@ -1827,7 +1914,7 @@ app.post('/api/notifications/read-all', async (c) => {
 });
 
 app.delete('/api/notifications/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(c.req.param('id')).run();
   await log(db, 'notification_deleted', `Deleted notification ${c.req.param('id')}`);
@@ -1836,7 +1923,7 @@ app.delete('/api/notifications/:id', async (c) => {
 
 // ── EXAM TEMPLATES (Upscale.md §66) ────────────
 app.get('/api/templates', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const { results } = await db.prepare(
     `SELECT t.*, (SELECT COUNT(*) FROM exam_template_questions q WHERE q.template_id = t.id) as question_count FROM exam_templates t ORDER BY t.updated_at DESC`
@@ -1845,7 +1932,7 @@ app.get('/api/templates', async (c) => {
 });
 
 app.get('/api/templates/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const tpl = await db.prepare(`SELECT * FROM exam_templates WHERE id = ?`).bind(c.req.param('id')).first();
   if (!tpl) return c.json({ error: 'Template not found' }, 404);
@@ -1854,7 +1941,7 @@ app.get('/api/templates/:id', async (c) => {
 });
 
 app.post('/api/templates', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const body = await c.req.json();
   const title = String(body.title || '').trim();
@@ -1889,7 +1976,7 @@ app.post('/api/templates', async (c) => {
 });
 
 app.put('/api/templates/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const tplId = c.req.param('id');
   const body = await c.req.json();
@@ -1904,7 +1991,7 @@ app.put('/api/templates/:id', async (c) => {
 });
 
 app.delete('/api/templates/:id', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(`DELETE FROM exam_templates WHERE id = ?`).bind(c.req.param('id')).run();
   await log(db, 'template_deleted', `Deleted template ${c.req.param('id')}`);
@@ -1912,7 +1999,7 @@ app.delete('/api/templates/:id', async (c) => {
 });
 
 app.post('/api/templates/:id/use', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const tplId = c.req.param('id');
   const body = await c.req.json().catch(() => ({}));
@@ -1937,7 +2024,7 @@ app.post('/api/templates/:id/use', async (c) => {
 });
 
 app.post('/api/classes/:id/enroll', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const body = await c.req.json();
@@ -1960,7 +2047,7 @@ app.post('/api/classes/:id/enroll', async (c) => {
 });
 
 app.delete('/api/classes/:id/enroll/:studentId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   await db.prepare(
     `DELETE FROM enrollments WHERE class_id = ? AND student_id = ?`
@@ -1970,7 +2057,7 @@ app.delete('/api/classes/:id/enroll/:studentId', async (c) => {
 
 // Update an enrolled student's details (ID, name, or section).
 app.put('/api/classes/:id/enroll/:studentId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const oldStudentId = c.req.param('studentId');
@@ -2026,7 +2113,7 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
 
 // Known students (from submissions + enrollments) to speed up enrollment.
 app.get('/api/students', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const qLimit = c.req.query('limit');
   const qOffset = c.req.query('offset');
@@ -2052,7 +2139,7 @@ app.get('/api/students', async (c) => {
 
 // ── CLASS ATTENDANCE (manual) ───────────────────────
 app.get('/api/classes/:id/attendance', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const date = c.req.query('date') || new Date().toISOString().slice(0, 10);
@@ -2078,7 +2165,7 @@ app.get('/api/classes/:id/attendance', async (c) => {
 });
 
 app.post('/api/classes/:id/attendance', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
   const body = await c.req.json();
@@ -2102,7 +2189,7 @@ app.post('/api/classes/:id/attendance', async (c) => {
 });
 
 app.get('/api/classes/:id/attendance/history', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const classId = c.req.param('id');
 
@@ -2333,7 +2420,7 @@ app.get('/api/leaderboard/:examId', async (c) => {
 
 // ── SUBMISSIONS (admin) ────────────────────────────
 app.get('/api/submissions/:examId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
   const exam = await db.prepare(`SELECT passing_score FROM exams WHERE id = ?`).bind(examId).first();
@@ -2375,7 +2462,7 @@ app.get('/api/submissions/:examId', async (c) => {
 
 // ── ANALYTICS ───────────────────────────────────────
 app.get('/api/analytics/:examId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   // 60s in-memory cache for O(Q*S) analytics (bottleneck)
   const cached = analyticsCache.get(c.req.param('examId'));
   if (cached && Date.now() - cached.ts < 60_000) {
@@ -2787,7 +2874,7 @@ function computeScore(questions, sub, overrides = {}) {
 
 // ── REVIEW (manual grade) ───────────────────────────
 app.post('/api/submissions/:id/review', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const subId = c.req.param('id');
   const body = await c.req.json();
@@ -2838,7 +2925,7 @@ app.post('/api/submissions/:id/review', async (c) => {
 
 // ── REGRADE ─────────────────────────────────────────
 app.post('/api/regrade/:examId', async (c) => {
-  if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
   const examId = c.req.param('examId');
 

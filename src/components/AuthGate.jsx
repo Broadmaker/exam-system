@@ -1,9 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, AlertTriangle, ArrowLeft, Eye, EyeOff, GraduationCap, LayoutDashboard, Radio } from 'lucide-react';
 import { Button, Input } from './ui';
-
-const PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'admin123';
+import { api } from '../api';
 
 export default function AuthGate({ children }) {
   const [authed, setAuthed] = useState(sessionStorage.getItem('admin_auth') === 'true');
@@ -12,20 +11,29 @@ export default function AuthGate({ children }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const login = () => {
+  useEffect(() => {
+    if (authed) {
+      api.adminMe().catch(() => {
+        sessionStorage.removeItem('admin_auth');
+        setAuthed(false);
+      });
+    }
+  }, []);
+
+  const login = async () => {
     if (!pw.trim()) { setError('Please enter the admin password.'); return; }
     setLoading(true);
     setError('');
-    setTimeout(() => {
-      if (pw === PASSWORD) {
-        sessionStorage.setItem('admin_auth', 'true');
-        setAuthed(true);
-        setPw('');
-      } else {
-        setError('Incorrect password. Please try again.');
-        setLoading(false);
-      }
-    }, 400);
+    try {
+      await api.adminLogin(pw);
+      sessionStorage.setItem('admin_auth', 'true');
+      setAuthed(true);
+      setPw('');
+    } catch (e) {
+      setError(e.message || 'Incorrect password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!authed) {
