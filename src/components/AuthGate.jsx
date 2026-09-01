@@ -1,24 +1,31 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Lock, AlertTriangle, ArrowLeft, Eye, EyeOff, GraduationCap, LayoutDashboard, Radio } from 'lucide-react';
-import { Button, Input } from './ui';
+import { Button, Input, Spinner } from './ui';
 import { api } from '../api';
 
 export default function AuthGate({ children }) {
-  const [authed, setAuthed] = useState(sessionStorage.getItem('admin_auth') === 'true');
+  // `checking` stays true until the remembered session is confirmed valid via
+  // admin/me — this keeps the page's data calls (listClasses, listStudents, …)
+  // from firing before auth, which avoided a burst of spurious 401s when the
+  // HttpOnly cookie had expired but sessionStorage still said "authed".
+  const [checking, setChecking] = useState(sessionStorage.getItem('admin_auth') === 'true');
+  const [authed, setAuthed] = useState(false);
   const [pw, setPw] = useState('');
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (authed) {
-      api.adminMe().catch(() => {
+    if (!checking) return;
+    api.adminMe()
+      .then(() => setAuthed(true))
+      .catch(() => {
         sessionStorage.removeItem('admin_auth');
         setAuthed(false);
-      });
-    }
-  }, []);
+      })
+      .finally(() => setChecking(false));
+  }, [checking]);
 
   const login = async () => {
     if (!pw.trim()) { setError('Please enter the admin password.'); return; }
@@ -35,6 +42,18 @@ export default function AuthGate({ children }) {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <div className="min-h-screen flex items-center justify-center"
+        style={{ background: 'linear-gradient(135deg, #0b1b3a 0%, #143a8a 45%, #1a4fad 100%)' }}>
+        <div className="flex flex-col items-center gap-3 text-white">
+          <Spinner />
+          <span className="text-[13px] text-white/70">Checking admin session…</span>
+        </div>
+      </div>
+    );
+  }
 
   if (!authed) {
     return (
