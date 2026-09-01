@@ -1521,15 +1521,15 @@ app.get('/api/classes/:id/gradebook', async (c) => {
       let weightedSum = 0;
       categoryAverages = activeCategories.map(cat => {
         const catExams = exams.filter(ex => cat.types.includes(ex.type));
-        const pcts = catExams.map(ex => {
+        let takenInCat = 0;
+        const pctsWithZeros = catExams.map(ex => {
           const cell = best[e.student_id + '::' + ex.id];
-          if (!cell) return null;
+          if (!cell) return 0;
+          takenInCat++;
           return cell.total ? (cell.score / cell.total) * 100 : 0;
-        }).filter(v => v !== null);
-        // If student took nothing in this category, treat as 0 (penalize missing work).
-        // This keeps weighted total out of 100% even when skipping — matches LMS convention.
-        const catAvg = pcts.length ? +((pcts.reduce((a, b) => a + b, 0) / pcts.length).toFixed(1)) : 0;
-        const takenInCat = pcts.length;
+        });
+        // Missing work counts as 0 within category (penalize) — denominator is total exams in category.
+        const catAvg = catExams.length ? +((pctsWithZeros.reduce((a, b) => a + b, 0) / catExams.length).toFixed(1)) : 0;
         weightedSum += catAvg * (Number(cat.weight) || 0);
         return { categoryId: cat.id, name: cat.name, weight: Number(cat.weight) || 0, average: catAvg, taken: takenInCat, total: catExams.length };
       });

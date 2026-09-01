@@ -1149,7 +1149,7 @@ function GradebookTab({ classId }) {
                 <span key={cat.id}>{cat.name}: <strong className="text-navy-800">{cat.types.length ? cat.types.map(t => EXAM_TYPE_LABELS[t] || t).join(', ') : '— no types —'}</strong></span>
               ))}
             </div>
-            {hasWeighted && <p className="text-[11px] text-faint mt-2">Weighted grade = Σ (category average × weight) ÷ {data.totalWeight}%. Missing work in a category counts as 0% for that category. Ungrouped exams (types not in any category) only affect the simple average.</p>}
+            {hasWeighted && <p className="text-[11px] text-faint mt-2">Weighted grade = Σ (category average × weight) ÷ {data.totalWeight}%. Missing work counts as 0% within its category (category average = sum with zeros ÷ total exams in category). Ungrouped exams (types not in any category) only affect the simple average.</p>}
           </div>
         ) : (
           <div className="mb-4 rounded-lg border border-dashed border-border bg-canvas/30 px-3.5 py-3 flex items-center gap-3">
@@ -1224,7 +1224,7 @@ function GradebookTab({ classId }) {
                   ))}
                   <td className="px-3 py-2 text-center">
                     {(() => {
-                      const avgs = data.exams.map(e => e.average).filter(a => a !== null);
+                      const avgs = data.rows.map(r => r.average).filter(a => a !== null);
                       const overall = avgs.length ? Math.round(avgs.reduce((a, b) => a + b, 0) / avgs.length * 10) / 10 : null;
                       return overall === null ? <span className="text-faint">—</span> : <span className={`font-bold ${overall >= 60 ? 'text-success' : 'text-danger'}`}>{overall}%</span>;
                     })()}
