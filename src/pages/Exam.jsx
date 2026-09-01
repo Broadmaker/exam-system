@@ -415,10 +415,30 @@ export default function Exam() {
       return;
     }
     setGateError('');
+    // Finding 3 fix: if questions were locked (access_code/status), re-fetch with code to get them
+    let qsSource = examData.questions || [];
+    if ((!qsSource.length || examData.questions_locked) && examData.has_access_code) {
+      try {
+        const refreshed = await api.getExam(examId, accessCode.trim());
+        if (refreshed.questions?.length) {
+          setExamData(refreshed);
+          qsSource = refreshed.questions;
+        } else if (refreshed.questions_locked) {
+          setGateError('This exam is not yet open, is closed, or the access code is incorrect.');
+          return;
+        }
+      } catch (e) {
+        setGateError(e.message || 'Could not load exam questions.');
+        return;
+      }
+    }
+    if (!qsSource.length && examData.questions_locked) {
+      setGateError('This exam is not yet available — please check the schedule or access code.');
+      return;
+    }
     const s = hashStr(effName.toLowerCase().replace(/\s/g, '') + effSection.toLowerCase() + examId);
     setSeed(s);
-    const qs = examData.questions || [];
-    setQuestions(shuffleWithSeed(qs, s));
+    const qs = qsSource;
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();

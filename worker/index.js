@@ -471,11 +471,22 @@ app.get('/api/exams/:id', async (c) => {
   const isAdmin = await adminCheck(c);
   const roster = typeof exam.roster === 'string' ? exam.roster : JSON.stringify(exam.roster || []);
   const klass = exam.class_id ? await db.prepare(`SELECT name, subject, section FROM classes WHERE id = ?`).bind(exam.class_id).first() : null;
-  // Strip answers for non-admin to prevent leakage (Phase 1 security)
-  const safeQuestions = isAdmin ? questions : questions.map(q => ({ ...q, answer: undefined, explain: '' }));
+  // Finding 3 fix: gate questions for non-admin until status active/open and access_code (if any) matches
+  const queryCode = (c.req.query('code') || '').trim().toUpperCase();
+  const nowMs = Date.now();
+  let canSeeQuestions = isAdmin;
+  if (!isAdmin) {
+    if (exam.status === 'draft' || exam.status === 'archived') canSeeQuestions = false;
+    else if (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > nowMs) canSeeQuestions = false;
+    else if (exam.status === 'closed') canSeeQuestions = false;
+    else if (exam.access_code && queryCode !== String(exam.access_code).trim().toUpperCase()) canSeeQuestions = false;
+    else canSeeQuestions = true;
+  }
+  const safeQuestions = !canSeeQuestions ? [] : (isAdmin ? questions : questions.map(q => ({ ...q, answer: undefined, explain: '' })));
   return c.json({
     ...exam,
     questions: safeQuestions,
+    questions_locked: !canSeeQuestions,
     class_name: klass ? [klass.name, klass.section].filter(Boolean).join(' — ') : '',
     access_code: isAdmin ? (exam.access_code || '') : undefined,
     has_access_code: !!(exam.access_code || ''),
