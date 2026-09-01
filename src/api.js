@@ -52,7 +52,13 @@ function invalidateMemo(prefix) {
 }
 export const api = {
   listExams: () => memoRequest('/exams', {}, 30000),
-  getExam: (id, code) => request('/exams/' + id + (code ? '?code=' + encodeURIComponent(code) : ''), { credentials: 'include' }),
+  getExam: (id, code, studentId) => {
+    const qs = new URLSearchParams();
+    if (code) qs.set('code', code);
+    if (studentId) qs.set('student_id', studentId);
+    const q = qs.toString();
+    return request('/exams/' + id + (q ? '?' + q : ''), { credentials: 'include' });
+  },
   createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),

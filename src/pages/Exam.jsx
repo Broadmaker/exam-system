@@ -415,11 +415,11 @@ export default function Exam() {
       return;
     }
     setGateError('');
-    // Finding 3 fix: if questions were locked (access_code/status), re-fetch with code to get them
+    // Finding 3+2 fix: if questions were locked (access_code/status/enrollment), re-fetch with code+student proof
     let qsSource = examData.questions || [];
-    if ((!qsSource.length || examData.questions_locked) && examData.has_access_code) {
+    if (!qsSource.length || examData.questions_locked) {
       try {
-        const refreshed = await api.getExam(examId, accessCode.trim());
+        const refreshed = await api.getExam(examId, accessCode.trim(), studentId.trim().toUpperCase());
         if (refreshed.questions?.length) {
           setExamData(refreshed);
           qsSource = refreshed.questions;
@@ -432,8 +432,8 @@ export default function Exam() {
         return;
       }
     }
-    if (!qsSource.length && examData.questions_locked) {
-      setGateError('This exam is not yet available — please check the schedule or access code.');
+    if (!qsSource.length && (examData.questions_locked || !qsSource.length)) {
+      setGateError('This exam is not yet available — check schedule, access code, or enrollment.');
       return;
     }
     const s = hashStr(effName.toLowerCase().replace(/\s/g, '') + effSection.toLowerCase() + examId);

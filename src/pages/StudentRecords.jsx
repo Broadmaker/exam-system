@@ -55,7 +55,7 @@ export default function StudentRecords() {
                   onKeyDown={e => e.key === 'Enter' && look(e)} />
               </div>
               <div className="flex-1">
-                <Input label="Class Code (optional, for verification)" value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())}
+                <Input label="Class Code *" value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())}
                   placeholder="e.g. ABC123" className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface"
                   onKeyDown={e => e.key === 'Enter' && look(e)} />
               </div>
@@ -63,7 +63,7 @@ export default function StudentRecords() {
                 {loading ? 'Searching…' : 'View Records'}
               </Button>
             </div>
-            <p className="text-[11px] text-muted">Add your class code to verify ownership (required soon). Admins bypass.</p>
+            <p className="text-[11px] text-muted">Class code required to verify ownership (admins bypass).</p>
           </div>
           {error && <div className="mt-3 text-[12px] text-white bg-danger/90 border border-white/10 rounded-xl px-3.5 py-2.5 inline-flex items-center gap-2">{error}</div>}
         </div>

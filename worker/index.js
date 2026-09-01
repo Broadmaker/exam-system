@@ -267,27 +267,9 @@ async function verifyAdminToken(token, env) {
   try { return await crypto.subtle.verify('HMAC', key, sig, data); } catch { return false; }
 }
 async function adminCheck(c) {
-  // 1) HttpOnly cookie session
   const cookieToken = getCookie(c, 'admin_session');
   if (cookieToken) {
     try { if (await verifyAdminToken(cookieToken, c.env)) return true; } catch {}
-  }
-  // 2) Bearer token
-  const auth = c.req.header('Authorization') || '';
-  if (auth.startsWith('Bearer ')) {
-    const bearer = auth.slice(7).trim();
-    try { if (await verifyAdminToken(bearer, c.env)) return true; } catch {}
-  }
-  // 3) Legacy direct password (deprecated, kept for transition)
-  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || '';
-  // support both raw password and legacy "Bearer <password>" stripped above already handled
-  const legacy = auth.startsWith('Bearer ') ? '' : auth;
-  if (legacy && expected) {
-    if (legacy.length === expected.length) {
-      let ok = 0;
-      for (let i = 0; i < expected.length; i++) ok |= legacy.charCodeAt(i) ^ expected.charCodeAt(i);
-      if (ok === 0) return true;
-    }
   }
   return false;
 }
@@ -315,7 +297,7 @@ async function handleAdminLogin(c) {
   const token = await createAdminToken(c.env);
   const isSecure = c.req.url.startsWith('https://');
   c.header('Set-Cookie', `admin_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=3600${isSecure ? '; Secure' : ''}`);
-  return c.json({ success: true, token });
+  return c.json({ success: true });
 }
 async function handleAdminLogout(c) {
   c.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
@@ -484,7 +466,20 @@ app.get('/api/exams/:id', async (c) => {
     else if (exam.status === 'scheduled' && exam.start_at && new Date(exam.start_at).getTime() > nowMs) canSeeQuestions = false;
     else if (exam.status === 'closed') canSeeQuestions = false;
     else if (exam.access_code && queryCode !== String(exam.access_code).trim().toUpperCase()) canSeeQuestions = false;
-    else canSeeQuestions = true;
+    else if (exam.class_id) {
+      // Class-linked active exam without access_code still requires enrollment/session proof
+      const sid = (c.req.query('student_id') || '').trim().toUpperCase();
+      let enrolled = false;
+      if (sid) {
+        enrolled = !!(await db.prepare(`SELECT 1 FROM enrollments WHERE class_id = ? AND student_id = ? LIMIT 1`).bind(exam.class_id, sid).first());
+        if (!enrolled) {
+          const sess = await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? AND active = 1 LIMIT 1`).bind(examId, sid).first();
+          if (sess) enrolled = true;
+        }
+      }
+      if (!enrolled) canSeeQuestions = false;
+      else canSeeQuestions = true;
+    } else canSeeQuestions = true;
   }
   const safeQuestions = !canSeeQuestions ? [] : (isAdmin ? questions : questions.map(q => ({ ...q, answer: undefined, explain: '' })));
   return c.json({
@@ -2270,14 +2265,13 @@ app.get('/api/classes/:id/attendance/history', async (c) => {
 app.get('/api/student/:studentId', async (c) => {
   const db = c.env.DB;
   const studentId = c.req.param('studentId').trim().toUpperCase();
-  // Finding 5 fix: rate-limit + optional class code proof (admin bypass)
+  // Finding 5 fix: rate-limit + mandatory class code proof (admin bypass)
   if (!await adminCheck(c)) {
     if (!rateLimit(c, 10, 60_000)) return c.json({ error: 'Too many requests' }, 429);
     const code = (c.req.query('code') || '').trim().toUpperCase();
-    if (code) {
-      const ok = await db.prepare(`SELECT 1 FROM enrollments JOIN classes ON classes.id = enrollments.class_id WHERE enrollments.student_id = ? AND classes.access_code = ? LIMIT 1`).bind(studentId, code).first();
-      if (!ok) return c.json({ error: 'Invalid class code for this student' }, 403);
-    }
+    if (!code) return c.json({ error: 'Class code required. Provide ?code=YOUR_CLASS_CODE to view student records.' }, 401);
+    const ok = await db.prepare(`SELECT 1 FROM enrollments JOIN classes ON classes.id = enrollments.class_id WHERE enrollments.student_id = ? AND classes.access_code = ? LIMIT 1`).bind(studentId, code).first();
+    if (!ok) return c.json({ error: 'Invalid class code for this student' }, 403);
   }
 
   const { results: enrollments } = await db.prepare(
