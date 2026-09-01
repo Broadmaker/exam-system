@@ -632,6 +632,8 @@ function AttendanceTab({ classId, onChanged }) {
         <>
           <div className="flex gap-1.5 mb-3 items-center flex-wrap">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-success-bg text-success text-[12px] font-semibold">✓ {data.present} present</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-warning-bg text-warning text-[12px] font-semibold">◷ {data.students.filter(s => (marks[s.student_id]||s.status)==='late').length} late</span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-info-bg text-info text-[12px] font-semibold">✓ {data.students.filter(s => (marks[s.student_id]||s.status)==='excused').length} excused</span>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-danger-bg text-danger text-[12px] font-semibold">✗ {data.absent} absent</span>
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-info-bg text-info text-[12px] font-semibold" title="Auto-recorded from taking a class exam">Exam auto {data.students.filter(s => s.source === 'exam').length}</span>
             <div className="ml-auto flex gap-1.5">
@@ -672,7 +674,7 @@ function AttendanceTab({ classId, onChanged }) {
                           </div>
                         )}
                         <div className="flex gap-1 flex-1 sm:flex-none ml-auto sm:ml-0">
-                          {[['present', 'Present', 'bg-success text-white border-success'], ['late', 'Late', 'bg-warning text-white border-warning'], ['absent', 'Absent', 'bg-danger text-white border-danger']].map(([val, label, activeCls]) => (
+                          {[['present', 'Present', 'bg-success text-white border-success'], ['late', 'Late', 'bg-warning text-white border-warning'], ['excused', 'Excused', 'bg-info text-white border-info'], ['absent', 'Absent', 'bg-danger text-white border-danger']].map(([val, label, activeCls]) => (
                             <button key={val} onClick={() => setMarks({ ...marks, [s.student_id]: val })}
                               className={`flex-1 sm:flex-none px-3 py-1.5 rounded-full text-[11px] font-semibold cursor-pointer transition-all border ${st === val ? `${activeCls} shadow-sm` : 'bg-surface border-border text-faint hover:text-navy-800 hover:border-navy-700/20 hover:bg-navy-50'}`}>
                               {label}
