@@ -567,6 +567,16 @@ app.post('/api/exams/:examId/questions/bulk', async (c) => {
 app.get('/api/bank', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
+  const qLimit = c.req.query('limit');
+  const qOffset = c.req.query('offset');
+  if (qLimit !== undefined || qOffset !== undefined) {
+    const limit = Math.min(Math.max(Number(qLimit) || 50, 1), 200);
+    const offset = Math.max(Number(qOffset) || 0, 0);
+    const { results } = await db.prepare(
+      `SELECT * FROM question_bank ORDER BY created_at DESC LIMIT ? OFFSET ?`
+    ).bind(limit, offset).all();
+    return c.json(results);
+  }
   const { results } = await db.prepare(
     `SELECT * FROM question_bank ORDER BY created_at DESC`
   ).all();
@@ -2018,19 +2028,26 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
 app.get('/api/students', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
+  const qLimit = c.req.query('limit');
+  const qOffset = c.req.query('offset');
+  const hasPagination = qLimit !== undefined || qOffset !== undefined;
+  const limit = Math.min(Math.max(Number(qLimit) || 200, 1), 500);
+  const offset = Math.max(Number(qOffset) || 0, 0);
   const { results: fromSubs } = await db.prepare(
     `SELECT DISTINCT student_id, student_name, student_section FROM submissions
-     WHERE student_id != '' ORDER BY student_name`
-  ).all();
+     WHERE student_id != '' ORDER BY student_name ${hasPagination ? 'LIMIT ? OFFSET ?' : ''}`
+  ).bind(...(hasPagination ? [limit, offset] : [])).all();
   const { results: fromEnroll } = await db.prepare(
-    `SELECT DISTINCT student_id, student_name, student_section FROM enrollments ORDER BY student_name`
-  ).all();
+    `SELECT DISTINCT student_id, student_name, student_section FROM enrollments ORDER BY student_name ${hasPagination ? 'LIMIT ? OFFSET ?' : ''}`
+  ).bind(...(hasPagination ? [limit, offset] : [])).all();
   const map = {};
   [...fromSubs, ...fromEnroll].forEach(r => {
     if (!r.student_id || map[r.student_id]) return;
     map[r.student_id] = { student_id: r.student_id, student_name: r.student_name, student_section: r.student_section || '' };
   });
-  return c.json(Object.values(map));
+  const vals = Object.values(map);
+  if (hasPagination) vals.splice(limit);
+  return c.json(vals);
 });
 
 // ── CLASS ATTENDANCE (manual) ───────────────────────
