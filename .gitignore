@@ -1,8 +1,11 @@
 node_modules
 dist
 .env
+.env.production
 *.local
 .DS_Store
 .wrangler
-wrangler.toml
 backups
+.dev.vars
+.reasonix/
+reasonix.toml

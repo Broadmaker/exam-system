@@ -1,6 +1,6 @@
 name = "exam-system"
 main = "worker/index.js"
-compatibility_date = "2026-08-24"
+compatibility_date = "2026-09-01"
 compatibility_flags = ["nodejs_compat"]
 assets = { directory = "dist", binding = "ASSETS", not_found_handling = "single-page-application" }
 
@@ -17,7 +17,7 @@ VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"
 enabled = true
 
 [triggers]
-crons = ["* * * * *"]
+crons = ["0 * * * *"]
 
 [[d1_databases]]
 binding = "DB"

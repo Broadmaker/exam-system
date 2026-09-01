@@ -303,12 +303,13 @@ app.get('/api/exams', async (c) => {
   const offset = Math.max(Number(qOffset) || 0, 0);
   // Ensure expired are closed before pagination (cron covers all, but lazy close here as fallback)
   if (hasPagination) await autoCloseExpiredExams(db);
+  const examCols = `e.id, e.title, e.description, e.time_limit, e.questions_per_set, e.show_answers, e.deadline, e.access_code, e.class_id, e.type, e.status, e.passing_score, e.start_at, e.created_at, e.updated_at`;
   const sql = hasPagination
-    ? `SELECT e.*,
+    ? `SELECT ${examCols},
        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
        (SELECT COUNT(*) FROM submissions WHERE exam_id = e.id) as submission_count
      FROM exams e ORDER BY e.created_at DESC LIMIT ? OFFSET ?`
-    : `SELECT e.*,
+    : `SELECT ${examCols},
        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
        (SELECT COUNT(*) FROM submissions WHERE exam_id = e.id) as submission_count
      FROM exams e ORDER BY e.created_at DESC`;
@@ -2824,11 +2825,17 @@ app.post('/api/regrade/:examId', async (c) => {
 
 // ── SPA FALLBACK: served via fetch handler below (non-/api → ASSETS) ────────
 
-// ── SCHEDULED CRON: auto-close expired exams ────────
+// ── SCHEDULED CRON: auto-close expired exams + retention (Phase 4 cost) ────────
 async function handleScheduled(event, env, ctx) {
   const db = env.DB;
   if (!db) return;
   try { await autoCloseExpiredExams(db); } catch {}
+  try {
+    await db.prepare(`DELETE FROM activity_log WHERE created_at < datetime('now', '-90 days')`).run();
+  } catch {}
+  try {
+    await db.prepare(`DELETE FROM exam_sessions WHERE active = 0 AND last_seen < datetime('now', '-7 days')`).run();
+  } catch {}
 }
 
 export default {
