@@ -278,7 +278,8 @@ function validateQuestionBody(b) {
   return null;
 }
 
-// ── RATE LIMIT (P0) ────────────────────────────────
+// ── RATE LIMIT (P0) + ANALYTICS CACHE (P2) ─────
+const analyticsCache = new Map(); // examId -> {data, ts}
 const rateMap = new Map(); // ip -> {count, reset}
 function rateLimit(c, max = 30, windowMs = 60_000) {
   const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown';
@@ -815,6 +816,7 @@ app.post('/api/submit', async (c) => {
   }
 
   await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
+  invalidateAnalytics(exam_id);
   return c.json({ id, score: serverScore, total: serverTotal }, existing ? 200 : 201);
 });
 
@@ -2357,6 +2359,13 @@ app.get('/api/submissions/:examId', async (c) => {
 // ── ANALYTICS ───────────────────────────────────────
 app.get('/api/analytics/:examId', async (c) => {
   if (!adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  // 60s in-memory cache for O(Q*S) analytics (bottleneck)
+  const cached = analyticsCache.get(c.req.param('examId'));
+  if (cached && Date.now() - cached.ts < 60_000) {
+    c.header('Cache-Control', 'private, max-age=60');
+    c.header('X-Cache', 'HIT');
+    return c.json(cached.data);
+  }
   const db = c.env.DB;
   const examId = c.req.param('examId');
 
@@ -2436,8 +2445,14 @@ app.get('/api/analytics/:examId', async (c) => {
     };
   });
 
+  analyticsCache.set(examId, { data: analytics, ts: Date.now() });
+  c.header('Cache-Control', 'private, max-age=60');
+  c.header('X-Cache', 'MISS');
   return c.json(analytics);
 });
+
+// Invalidate analytics cache on regrade/review
+function invalidateAnalytics(examId) { analyticsCache.delete(examId); }
 
 // ── Shared utility functions ───────────────────────
 function seededRandom(seed) {
@@ -2792,6 +2807,7 @@ app.post('/api/submissions/:id/review', async (c) => {
 
   const { correctCount } = computeScore(questions, sub, overrides);
   await db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, subId).run();
+  invalidateAnalytics(sub.exam_id);
   await log(db, 'submission_reviewed', `Manual review on ${sub.student_name}: Q ${question_id} → ${verdict || 'auto'}`);
   // Notify student of grade change (Upscale §42 grade_changed)
   const examForNotif = await db.prepare(`SELECT title, class_id FROM exams WHERE id = ?`).bind(sub.exam_id).first();
@@ -2845,6 +2861,7 @@ app.post('/api/regrade/:examId', async (c) => {
       await db.batch(stmts.slice(i, i + 80));
     }
   }
+  invalidateAnalytics(examId);
 
   await log(db, 'regrade', 'Regraded ' + updated.length + ' submissions for exam ' + examId);
   return c.json({ regraded: updated.length, results: updated });

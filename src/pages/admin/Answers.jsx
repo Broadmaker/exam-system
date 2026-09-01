@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
@@ -118,11 +118,14 @@ function AnswersInner() {
   const EXAM_PAGE_SIZE = 6;
   const [openSub, setOpenSub] = useState(null);
   const [saving, setSaving] = useState(null);
+  const [studentPage, setStudentPage] = useState(1);
+  const STUDENT_PAGE_SIZE = 30;
   // Debounce search 300ms to avoid 10k shuffles per keystroke (P2)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(t);
   }, [search]);
+  useEffect(() => { setStudentPage(1); }, [debouncedSearch, subs]);
 
   const load = async () => {
     if (!examId) return;
@@ -140,11 +143,14 @@ function AnswersInner() {
   useEffect(() => { setExamPage(1); }, [examSearch]);
 
   const qs = exam?.questions || [];
-  const rows = subs.map(sub => ({ sub, cells: buildCells(qs, sub) }));
-  const filtered = rows
+  const rows = useMemo(() => subs.map(sub => ({ sub, cells: buildCells(qs, sub) })), [subs, qs]);
+  const filtered = useMemo(() => rows
     .filter(r => r.sub.student_name.toLowerCase().includes(debouncedSearch.toLowerCase()))
-    .sort((a, b) => b.sub.score - a.sub.score);
+    .sort((a, b) => b.sub.score - a.sub.score), [rows, debouncedSearch]);
   const open = openSub ? rows.find(r => r.sub.id === openSub) : null;
+  const totalStudentPages = Math.max(1, Math.ceil(filtered.length / STUDENT_PAGE_SIZE));
+  const safeStudentPage = Math.min(studentPage, totalStudentPages);
+  const pagedRows = filtered.slice((safeStudentPage - 1) * STUDENT_PAGE_SIZE, safeStudentPage * STUDENT_PAGE_SIZE);
 
   const handleReview = async (subId, questionId, verdict) => {
     setSaving(subId + '|' + questionId);
@@ -351,7 +357,7 @@ function AnswersInner() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r, rowIdx) => {
+                {pagedRows.map((r, rowIdx) => {
                   const reviewedCount = r.cells.filter(c => c.reviewed).length;
                   return (
                   <tr key={r.sub.id} onClick={() => setOpenSub(r.sub.id)} className="cursor-pointer">
@@ -414,6 +420,18 @@ function AnswersInner() {
             <span className="inline-flex items-center gap-1"><span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold"><CheckCircle size={10} /> n</span> Reviewed count</span>
             <span className="ml-auto hidden sm:inline">Click a row for full details and review controls.</span>
           </div>
+          {filtered.length > STUDENT_PAGE_SIZE && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-3">
+              <span className="text-[11px] text-faint order-2 sm:order-1">Showing <strong className="text-navy-800">{(safeStudentPage-1)*STUDENT_PAGE_SIZE+1}–{Math.min(safeStudentPage*STUDENT_PAGE_SIZE, filtered.length)}</strong> of {filtered.length}</span>
+              <div className="flex items-center gap-1 order-1 sm:order-2">
+                <button onClick={()=>setStudentPage(1)} disabled={safeStudentPage<=1} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsLeft size={14}/></button>
+                <button onClick={()=>setStudentPage(p=>Math.max(1,p-1))} disabled={safeStudentPage<=1} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronLeft size={14}/></button>
+                <span className="text-[11px] font-semibold text-navy-800 px-2">{safeStudentPage} / {totalStudentPages}</span>
+                <button onClick={()=>setStudentPage(p=>Math.min(totalStudentPages,p+1))} disabled={safeStudentPage>=totalStudentPages} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronRight size={14}/></button>
+                <button onClick={()=>setStudentPage(totalStudentPages)} disabled={safeStudentPage>=totalStudentPages} className="w-7 h-7 flex items-center justify-center rounded-lg border text-muted bg-surface border-border hover:bg-navy-50 disabled:opacity-40 disabled:cursor-not-allowed"><ChevronsRight size={14}/></button>
+              </div>
+            </div>
+          )}
         </Card>
         </>
       )}
