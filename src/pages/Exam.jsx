@@ -45,6 +45,9 @@ export default function Exam() {
   const [offline, setOffline] = useState(!navigator.onLine);
   const [pendingSubmit, setPendingSubmit] = useState(null);
   const [serverRetry, setServerRetry] = useState(false);
+  const [qPage, setQPage] = useState(0);
+  const QUESTIONS_PER_PAGE = 15;
+  useEffect(() => { setQPage(0); }, [examId]);
 
   const cooldownRef = useRef(false);
   const resizeCooldownRef = useRef(false);
@@ -1115,19 +1118,26 @@ export default function Exam() {
       </header>
 
       {/* Question jump nav */}
-      {!reviewMode && (
+      {!reviewMode && (() => {
+        const totalPages = Math.max(1, Math.ceil(questions.length / QUESTIONS_PER_PAGE));
+        return (
         <div className="max-w-[860px] mx-auto px-4 pt-3 sm:pt-4 sticky top-[57px] sm:top-[64px] z-[20] bg-canvas/95 backdrop-blur supports-[backdrop-filter]:bg-canvas/80">
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-2">
             <span className="text-[11px] font-semibold tracking-[.08em] uppercase text-faint shrink-0 mr-1">Jump:</span>
             {questions.map((q, i) => {
               const isAnswered = answeredSet.has(q.id);
-              const isCurrent = i === 0; // simple highlight first
+              const pageOf = Math.floor(i / QUESTIONS_PER_PAGE);
+              const isCurrentPage = pageOf === qPage;
               return (
                 <button
                   key={q.id}
-                  onClick={() => document.getElementById(`q-${q.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  onClick={() => {
+                    const targetPage = Math.floor(i / QUESTIONS_PER_PAGE);
+                    if (targetPage !== qPage) setQPage(targetPage);
+                    setTimeout(() => document.getElementById(`q-${q.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+                  }}
                   className={`shrink-0 w-8 h-8 rounded-full border text-[12px] font-bold transition-colors ${
-                    isAnswered ? 'bg-navy-700 text-white border-navy-700 shadow-sm' : 'bg-surface text-muted border-border hover:border-navy-700/30 hover:text-navy-800'
+                    isAnswered ? 'bg-navy-700 text-white border-navy-700 shadow-sm' : isCurrentPage ? 'bg-navy-50 text-navy-800 border-navy-300' : 'bg-surface text-muted border-border hover:border-navy-700/30 hover:text-navy-800'
                   }`}
                   aria-label={`Go to question ${i + 1}`}
                 >
@@ -1135,14 +1145,17 @@ export default function Exam() {
                 </button>
               );
             })}
-            <span className="ml-2 text-[11px] text-faint shrink-0">{answeredCount}/{totalQ} done</span>
+            <span className="ml-2 text-[11px] text-faint shrink-0">{answeredCount}/{totalQ} done{Math.ceil(questions.length / QUESTIONS_PER_PAGE) > 1 ? ` · page ${qPage + 1}/${totalPages}` : ''}</span>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       <main className="max-w-[860px] mx-auto px-4 py-6 pb-28">
         <div className="flex flex-col gap-4">
-          {questions.map((q, i) => (
+          {questions.slice(qPage * QUESTIONS_PER_PAGE, (qPage + 1) * QUESTIONS_PER_PAGE).map((q, idx) => {
+            const i = qPage * QUESTIONS_PER_PAGE + idx;
+            return (
             <div key={q.id} id={`q-${q.id}`} className="scroll-mt-28">
               <QuestionCard
                 question={q}
@@ -1154,8 +1167,16 @@ export default function Exam() {
                 showAnswers={examData?.show_answers !== 0}
               />
             </div>
-          ))}
+            );
+          })}
         </div>
+        {Math.ceil(questions.length / QUESTIONS_PER_PAGE) > 1 && (
+          <div className="flex items-center justify-between gap-3 mt-4 bg-surface border border-border rounded-xl px-4 py-3">
+            <button onClick={() => setQPage(p => Math.max(0, p - 1))} disabled={qPage === 0} className="px-3 py-1.5 rounded-lg border text-sm bg-surface border-border disabled:opacity-40">← Prev</button>
+            <span className="text-[12px] font-semibold text-navy-800">Page {qPage + 1} of {Math.ceil(questions.length / QUESTIONS_PER_PAGE)} · {questions.slice(qPage * QUESTIONS_PER_PAGE, (qPage + 1) * QUESTIONS_PER_PAGE).length} questions</span>
+            <button onClick={() => setQPage(p => Math.min(Math.ceil(questions.length / QUESTIONS_PER_PAGE) - 1, p + 1))} disabled={qPage >= Math.ceil(questions.length / QUESTIONS_PER_PAGE) - 1} className="px-3 py-1.5 rounded-lg border text-sm bg-surface border-border disabled:opacity-40">Next →</button>
+          </div>
+        )}
 
         <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-[16px] p-4 shadow-card sticky bottom-4 sm:static sm:mt-8 sm:rounded-[14px]">
           <div className="text-[13px] text-muted">
