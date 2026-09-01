@@ -114,7 +114,7 @@ export const api = {
   saveClassAttendance: (classId, date, records) => request('/classes/' + classId + '/attendance', { method: 'POST', body: JSON.stringify({ date, records }), credentials: 'include' }),
   getClassAttendanceHistory: (classId) => request('/classes/' + classId + '/attendance/history', { credentials: 'include' }),
   // Student records portal
-  getStudentRecords: (studentId) => request('/student/' + encodeURIComponent(studentId)),
+  getStudentRecords: (studentId, code) => request('/student/' + encodeURIComponent(studentId) + (code ? '?code=' + encodeURIComponent(code) : '')),
   // Notifications (§42-43)
   listNotifications: (params = {}) => {
     const qs = new URLSearchParams(params).toString();

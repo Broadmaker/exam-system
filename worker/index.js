@@ -2264,6 +2264,15 @@ app.get('/api/classes/:id/attendance/history', async (c) => {
 app.get('/api/student/:studentId', async (c) => {
   const db = c.env.DB;
   const studentId = c.req.param('studentId').trim().toUpperCase();
+  // Finding 5 fix: rate-limit + optional class code proof (admin bypass)
+  if (!await adminCheck(c)) {
+    if (!rateLimit(c, 10, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+    const code = (c.req.query('code') || '').trim().toUpperCase();
+    if (code) {
+      const ok = await db.prepare(`SELECT 1 FROM enrollments JOIN classes ON classes.id = enrollments.class_id WHERE enrollments.student_id = ? AND classes.access_code = ? LIMIT 1`).bind(studentId, code).first();
+      if (!ok) return c.json({ error: 'Invalid class code for this student' }, 403);
+    }
+  }
 
   const { results: enrollments } = await db.prepare(
     `SELECT class_id FROM enrollments WHERE student_id = ?`

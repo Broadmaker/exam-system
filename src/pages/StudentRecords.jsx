@@ -7,6 +7,7 @@ import { Search, User, GraduationCap, ClipboardList, CalendarCheck, UserRound, C
 
 export default function StudentRecords() {
   const [studentId, setStudentId] = useState('');
+  const [classCode, setClassCode] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -16,7 +17,7 @@ export default function StudentRecords() {
     if (!studentId.trim()) return;
     setLoading(true); setError(''); setData(null);
     try {
-      const res = await api.getStudentRecords(studentId.trim());
+      const res = await api.getStudentRecords(studentId.trim(), classCode.trim().toUpperCase() || undefined);
       if (!res.exams.length && !res.classes.length) {
         setError('No records found for that Student ID.');
       } else {
@@ -46,15 +47,23 @@ export default function StudentRecords() {
             </div>
           </div>
 
-          <div className="mt-6 bg-surface rounded-[16px] shadow-modal border border-border p-4 sm:p-5 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
-            <div className="flex-1">
-              <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
-                placeholder="e.g. 2019-12345" icon={Search} className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface"
-                onKeyDown={e => e.key === 'Enter' && look(e)} />
+          <div className="mt-6 bg-surface rounded-[16px] shadow-modal border border-border p-4 sm:p-5 flex flex-col gap-3">
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+              <div className="flex-1">
+                <Input label="Student ID" value={studentId} onChange={e => setStudentId(e.target.value.toUpperCase())}
+                  placeholder="e.g. 2019-12345" icon={Search} className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface"
+                  onKeyDown={e => e.key === 'Enter' && look(e)} />
+              </div>
+              <div className="flex-1">
+                <Input label="Class Code (optional, for verification)" value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. ABC123" className="!font-mono !uppercase !tracking-wide !bg-canvas focus:!bg-surface"
+                  onKeyDown={e => e.key === 'Enter' && look(e)} />
+              </div>
+              <Button onClick={look} loading={loading} icon={loading ? null : Search} className="!py-3 sm:!py-2.5 !text-[14px] shrink-0">
+                {loading ? 'Searching…' : 'View Records'}
+              </Button>
             </div>
-            <Button onClick={look} loading={loading} icon={loading ? null : Search} className="!py-3 sm:!py-2.5 !text-[14px] shrink-0">
-              {loading ? 'Searching…' : 'View Records'}
-            </Button>
+            <p className="text-[11px] text-muted">Add your class code to verify ownership (required soon). Admins bypass.</p>
           </div>
           {error && <div className="mt-3 text-[12px] text-white bg-danger/90 border border-white/10 rounded-xl px-3.5 py-2.5 inline-flex items-center gap-2">{error}</div>}
         </div>
