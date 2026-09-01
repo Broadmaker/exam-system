@@ -694,6 +694,8 @@ app.post('/api/bank', async (c) => {
   const body = await c.req.json();
   const id = uuid();
   const qType = body.type || 'multiple_choice';
+  const err = validateQuestionBody({ ...body, type: qType });
+  if (err) return c.json({ error: err }, 400);
   await db.prepare(
     `INSERT INTO question_bank (id, part, text, type, choices, answer, explain, difficulty, topic, competency, tags)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -707,6 +709,8 @@ app.put('/api/bank/:id', async (c) => {
   const db = c.env.DB;
   const body = await c.req.json();
   const qType = body.type || 'multiple_choice';
+  const err2 = validateQuestionBody({ ...body, type: qType });
+  if (err2) return c.json({ error: err2 }, 400);
   await db.prepare(
     `UPDATE question_bank SET part = ?, text = ?, type = ?, choices = ?, answer = ?, explain = ?, difficulty = ?, topic = ?, competency = ?, tags = ? WHERE id = ?`
   ).bind(body.part, body.text, qType, JSON.stringify(body.choices || []), body.answer, body.explain || '', body.difficulty || '', body.topic || '', body.competency || '', JSON.stringify(body.tags || []), c.req.param('id')).run();

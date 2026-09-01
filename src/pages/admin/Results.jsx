@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, StatCard, Card, Badge, Button, Table, EmptyState, Spinner, useToast } from '../../components/ui';
+import DOMPurify from 'dompurify';
 import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat, CheckCircle2, XCircle } from 'lucide-react';
 
 export default function Results() {
@@ -127,7 +128,7 @@ function ResultsInner() {
                     {q.correct}/{q.total} correct ({Math.round((q.correct / q.total) * 100)}%)
                   </span>
                 </div>
-                <div className="text-[13px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: q.text }} />
+                <div className="text-[13px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.text) }} />
                 {q.type === 'fill_blank' ? (
                   <div className="text-[12px] text-muted">Correct answer: <strong>{q.answer}</strong></div>
                 ) : (

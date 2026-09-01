@@ -4,6 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { shuffleWithSeed, parseChoices, matchesAnswer, examTypeLabel, EXAM_STATUS_LABELS, EXAM_STATUS_TONES, effectiveExamStatus } from '../../utils';
 import { PageHeader, Card, Button, Badge, Select, EmptyState, Spinner, Modal, useToast } from '../../components/ui';
+import DOMPurify from 'dompurify';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { PillsContainer, Pill } from '../../components/ui/Pills';
 import { Search, RefreshCw, Eye, CheckCircle, XCircle, X, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users, Clock, CalendarClock, GraduationCap, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
@@ -476,7 +477,7 @@ function AnswersInner() {
                     </span>
                   </div>
                   <div className="p-4">
-                    <div className="text-[13.5px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: q.text }} />
+                    <div className="text-[13.5px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.text) }} />
                     <div className="flex flex-col gap-1 text-[13px] border-t border-border pt-2.5">
                       <div className="text-muted">Student's answer: <strong className={statusColor}>{studentAnswerText(cell)}</strong></div>
                       <div className="text-muted">

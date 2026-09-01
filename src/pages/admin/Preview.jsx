@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
+import DOMPurify from 'dompurify';
 import { parseChoices } from '../../utils';
 import { PageHeader, Spinner, Card, EmptyState, Button } from '../../components/ui';
 import { FileText, FolderOpen, Lightbulb, CheckCircle2, HelpCircle, ArrowLeft } from 'lucide-react';
@@ -70,7 +71,7 @@ function PreviewInner() {
                 return (
                   <Card key={q.id} className="!p-5 mb-3">
                     <div className="font-mono text-[10px] text-muted mb-2 tracking-wide">Q{i + 1}</div>
-                    <div className="text-[14.5px] leading-relaxed mb-3.5" dangerouslySetInnerHTML={{ __html: q.text }} />
+                    <div className="text-[14.5px] leading-relaxed mb-3.5" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.text) }} />
                     {qType === 'fill_blank' ? (
                       <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-[1.5px] border-dashed border-navy-700 rounded-md text-[14px] bg-navy-50 text-navy-700">
                         Answer: <strong>{q.answer}</strong>
