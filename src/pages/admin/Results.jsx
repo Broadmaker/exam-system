@@ -23,8 +23,14 @@ function ResultsInner() {
   const [passingScore, setPassingScore] = useState(60);
   const [analytics, setAnalytics] = useState([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const toast = useToast();
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const load = async () => {
     if (!examId) return;
@@ -67,7 +73,7 @@ function ResultsInner() {
   });
 
   const filtered = subs
-    .filter(r => r.student_name.toLowerCase().includes(search.toLowerCase()))
+    .filter(r => r.student_name.toLowerCase().includes(debouncedSearch.toLowerCase()))
     .sort((a, b) => b.score - a.score || a.time_taken - b.time_taken);
 
   const exportCSV = () => {

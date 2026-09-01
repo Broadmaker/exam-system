@@ -1,23 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import DOMPurify from 'dompurify';
-import { renderDatasets, parseChoices } from '../utils';
+import { renderDatasets, parseChoices, matchesAnswer } from '../utils';
 import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
 
 export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers }) {
   const qType = question.type || 'multiple_choice';
   const [blankInput, setBlankInput] = useState(chosenKey || '');
   useEffect(() => { setBlankInput(chosenKey || ''); }, [chosenKey]);
+  const sanitizedHtml = useMemo(() => DOMPurify.sanitize(renderDatasets(question.text, seed, index)), [question.text, seed, index]);
+  const qDataMemo = useMemo(() => ({ ...question, choices: parseChoices(question.choices) }), [question]);
+  const fixedChoicesMemo = useMemo(() => qDataMemo.choices.map((c) => ({ ...c, displayKey: c.key })), [qDataMemo.choices]);
 
   if (qType === 'fill_blank') {
-    const isCorrect = submitted && chosenKey !== undefined && String(chosenKey).trim().toLowerCase() === String(question.answer || '').trim().toLowerCase();
+    const isCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(question.answer || ''));
     const isWrong = submitted && chosenKey !== undefined && !isCorrect;
     const answered = chosenKey !== undefined && String(chosenKey).trim() !== '';
-
     const handleBlur = () => { if (!submitted) onAnswer(question.id, blankInput.trim()); };
     const handleChange = (e) => {
       const val = e.target.value;
       setBlankInput(val);
-      if (!submitted) onAnswer(question.id, val.trim());
     };
 
     return (
@@ -39,7 +40,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           ) : null}
         </div>
 
-        <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderDatasets(question.text, seed, index)) }} />
+        <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
 
         <input
           value={blankInput}
@@ -71,10 +72,8 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
     );
   }
 
-  const qData = { ...question, choices: parseChoices(question.choices) };
-  // Choices are shown in their fixed (DB) order: the display letter IS the choice's
-  // canonical key (A=first choice, B=second, …), so the letter and label always align.
-  const fixedChoices = qData.choices.map((c) => ({ ...c, displayKey: c.key }));
+  const qData = qDataMemo;
+  const fixedChoices = fixedChoicesMemo;
   const correctKey = qData.answer;
 
   const handleChange = (displayKey) => { if (!submitted) onAnswer(qData.id, displayKey); };
@@ -104,7 +103,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
         )}
       </div>
 
-      <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(renderDatasets(qData.text, seed, index)) }} />
+      <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
 
       <div className="flex flex-col gap-2">
         {fixedChoices.map((c) => {

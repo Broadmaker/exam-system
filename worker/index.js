@@ -2158,24 +2158,36 @@ app.get('/api/student/:studentId', async (c) => {
   subs.forEach(s => { if (s.class_id) classIds.add(s.class_id); });
 
   const classes = [];
-  for (const cid of classIds) {
-    const klass = await db.prepare(`SELECT * FROM classes WHERE id = ?`).bind(cid).first();
-    if (!klass) continue;
-    const { results: att } = await db.prepare(
-      `SELECT date, status, source FROM class_attendance WHERE class_id = ? AND student_id = ? ORDER BY date`
-    ).bind(cid, studentId).all();
-    const examResults = subs.filter(s => s.class_id === cid).map(s => ({
-      exam_id: s.exam_id, title: s.title, score: s.score, total: s.total,
-      submitted_at: s.submitted_at, time_taken: s.time_taken, tab_switches: s.tab_switches,
-      type: s.type, status: s.status, passing_score: s.passing_score, passed: passedFor(s),
-    }));
-    const presentDays = att.filter(a => a.status !== 'absent').length;
-    classes.push({
-      class_id: cid,
-      name: klass.name, subject: klass.subject, section: klass.section, instructor: klass.instructor,
-      attendance: { total: att.length, present: presentDays, absent: att.length - presentDays, records: att },
-      exam_results: examResults,
-    });
+  if (classIds.size) {
+    const ids = [...classIds];
+    const ph = ids.map(() => '?').join(',');
+    const { results: klassRows } = await db.prepare(`SELECT * FROM classes WHERE id IN (${ph})`).bind(...ids).all();
+    const klassMap = new Map((klassRows || []).map(r => [r.id, r]));
+    const { results: attAll } = await db.prepare(
+      `SELECT class_id, date, status, source FROM class_attendance WHERE class_id IN (${ph}) AND student_id = ? ORDER BY date`
+    ).bind(...ids, studentId).all();
+    const attByClass = new Map();
+    for (const a of (attAll || [])) {
+      if (!attByClass.has(a.class_id)) attByClass.set(a.class_id, []);
+      attByClass.get(a.class_id).push(a);
+    }
+    for (const cid of ids) {
+      const klass = klassMap.get(cid);
+      if (!klass) continue;
+      const att = attByClass.get(cid) || [];
+      const examResults = subs.filter(s => s.class_id === cid).map(s => ({
+        exam_id: s.exam_id, title: s.title, score: s.score, total: s.total,
+        submitted_at: s.submitted_at, time_taken: s.time_taken, tab_switches: s.tab_switches,
+        type: s.type, status: s.status, passing_score: s.passing_score, passed: passedFor(s),
+      }));
+      const presentDays = att.filter(a => a.status !== 'absent').length;
+      classes.push({
+        class_id: cid,
+        name: klass.name, subject: klass.subject, section: klass.section, instructor: klass.instructor,
+        attendance: { total: att.length, present: presentDays, absent: att.length - presentDays, records: att },
+        exam_results: examResults,
+      });
+    }
   }
 
   const profile = subs[0] || (enrollments.length
@@ -2207,10 +2219,15 @@ app.get('/api/student/:studentId', async (c) => {
   // Must mirror computeScore: questions are ordered, then seed-shuffled, and
   // the choice seed uses the SHUFFLED question index (matching the client).
   const competencyBuckets = {}; // competency -> { correct, total }
+  const qCache = new Map();
   for (const s of subs) {
-    const qs = (await db.prepare(
-      `SELECT id, type, choices, answer, competency, sort_order FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
-    ).bind(s.exam_id).all()).results;
+    let qs = qCache.get(s.exam_id);
+    if (!qs) {
+      qs = (await db.prepare(
+        `SELECT id, type, choices, answer, competency, sort_order FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
+      ).bind(s.exam_id).all()).results;
+      qCache.set(s.exam_id, qs || []);
+    }
     if (!qs.length) continue;
     let submittedAnswers = {};
     try {
@@ -2821,7 +2838,11 @@ app.post('/api/regrade/:examId', async (c) => {
       total: sub.total,
     });
   }
-  if (stmts.length) await db.batch(stmts);
+  if (stmts.length) {
+    for (let i = 0; i < stmts.length; i += 80) {
+      await db.batch(stmts.slice(i, i + 80));
+    }
+  }
 
   await log(db, 'regrade', 'Regraded ' + updated.length + ' submissions for exam ' + examId);
   return c.json({ regraded: updated.length, results: updated });
