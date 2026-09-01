@@ -5,7 +5,6 @@ const app = new Hono();
 
 app.use('/api/*', cors({
   origin: (origin) => {
-    // Allow Workers, Pages, localhost, and any exam-system preview deployment
     if (!origin) return undefined;
     const allow = [
       'https://exam-system.sanigkram24.workers.dev',
@@ -13,11 +12,12 @@ app.use('/api/*', cors({
       'http://127.0.0.1:5173',
     ];
     if (allow.includes(origin)) return origin;
-    if (/^https:\/\/exam-system.*\.pages\.dev$/.test(origin)) return origin;
+    if (/^https:\/\/exam-system-4h2\.pages\.dev$/.test(origin)) return origin;
+    if (/^https:\/\/[a-z0-9-]+\.exam-system-4h2\.pages\.dev$/.test(origin)) return origin;
     return null;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
+  allowHeaders: ['Content-Type'],
   credentials: true,
 }));
 app.use('/api/*', async (c, next) => {
@@ -243,11 +243,20 @@ function getCookie(c, name) {
   const m = cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
   return m ? decodeURIComponent(m[1]) : '';
 }
+function getAdminPassword(env) {
+  const v = env.ADMIN_PASSWORD || '';
+  if (v && v !== 'change_me_via_wrangler_secret') return v;
+  const fallback = env.VITE_ADMIN_PASSWORD || '';
+  if (fallback && fallback !== 'change_me_via_wrangler_secret') return fallback;
+  return '';
+}
 async function createAdminToken(env) {
   const exp = Date.now() + 3600 * 1000;
   const payload = JSON.stringify({ exp, rnd: crypto.randomUUID() });
   const payloadB64 = strToB64url(payload);
-  const keyMaterial = new TextEncoder().encode(env.ADMIN_PASSWORD || env.VITE_ADMIN_PASSWORD || '');
+  const pw = getAdminPassword(env);
+  if (!pw) throw new Error('ADMIN_PASSWORD not configured');
+  const keyMaterial = new TextEncoder().encode(pw);
   const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadB64));
   return payloadB64 + '.' + bytesToB64url(new Uint8Array(sig));
@@ -259,8 +268,9 @@ async function verifyAdminToken(token, env) {
   let payload;
   try { payload = JSON.parse(b64urlToStr(payloadB64)); } catch { return false; }
   if (!payload.exp || Date.now() > payload.exp) return false;
-  const keyMaterial = new TextEncoder().encode(env.ADMIN_PASSWORD || env.VITE_ADMIN_PASSWORD || '');
-  if (!keyMaterial.length) return false;
+  const pw = getAdminPassword(env);
+  if (!pw) return false;
+  const keyMaterial = new TextEncoder().encode(pw);
   const key = await crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
   const data = new TextEncoder().encode(payloadB64);
   const sig = b64urlToBytes(sigB64);
@@ -282,17 +292,17 @@ function clampPassing(v) {
   return Math.max(0, Math.min(100, n));
 }
 
-// ── ADMIN AUTH: HttpOnly session (Finding 1 fix) ─────
+// ── ADMIN AUTH: HttpOnly session ─────
 async function handleAdminLogin(c) {
   if (!rateLimit(c, 10, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const body = await c.req.json().catch(() => ({}));
   const pw = String(body.password || '').trim();
-  const expected = c.env.ADMIN_PASSWORD || c.env.VITE_ADMIN_PASSWORD || '';
+  const expected = getAdminPassword(c.env);
   if (!expected) return c.json({ error: 'Admin password not configured' }, 500);
-  // constant-time compare
-  if (pw.length !== expected.length) return c.json({ error: 'Incorrect password' }, 401);
-  let ok = 0;
-  for (let i = 0; i < expected.length; i++) ok |= pw.charCodeAt(i) ^ expected.charCodeAt(i);
+  // constant-time compare without length leak (always compare over max length)
+  let ok = pw.length ^ expected.length;
+  const len = Math.max(pw.length, expected.length);
+  for (let i = 0; i < len; i++) ok |= (pw.charCodeAt(i) || 0) ^ (expected.charCodeAt(i) || 0);
   if (ok !== 0) return c.json({ error: 'Incorrect password' }, 401);
   const token = await createAdminToken(c.env);
   const isSecure = c.req.url.startsWith('https://');
@@ -300,7 +310,8 @@ async function handleAdminLogin(c) {
   return c.json({ success: true });
 }
 async function handleAdminLogout(c) {
-  c.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
+  const isSecure = c.req.url.startsWith('https://');
+  c.header('Set-Cookie', `admin_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${isSecure ? '; Secure' : ''}`);
   return c.json({ success: true });
 }
 async function handleAdminMe(c) {
@@ -424,10 +435,11 @@ app.post('/api/exams', async (c) => {
   if (err) return c.json({ error: err }, 400);
   const id = uuid();
   const passing = clampPassing(body.passing_score);
+  const normalizedCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
     `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '').run();
+  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '').run();
   await log(db, 'exam_created', 'Created exam: ' + body.title);
   // Auto-notify class when a non-draft exam is created + real push
   const s = body.status || 'draft';
@@ -503,10 +515,11 @@ app.put('/api/exams/:id', async (c) => {
   if (err) return c.json({ error: err }, 400);
   const old = await db.prepare(`SELECT title, status FROM exams WHERE id = ?`).bind(examId).first();
   const passing = clampPassing(body.passing_score);
+  const normalizedCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
     `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, type = ?, status = ?, passing_score = ?, start_at = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', examId).run();
+  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', examId).run();
   await log(db, 'exam_updated', 'Updated: ' + (old?.title || examId));
   // Notify on publish/activate transition (draft→active/scheduled/published) + real push
   const prev = old?.status || 'draft';
@@ -781,17 +794,36 @@ app.post('/api/submit', async (c) => {
     if (hasValidStartedAt && exam?.deadline && exam.status !== 'draft') {
       const dl = new Date(exam.deadline).getTime();
       if (!isNaN(dl) && !isNaN(createdMs) && startedAtNum < dl && startedAtNum > createdMs && (dl - startedAtNum) <= MAX_GRACE_MS) {
-        // Also require an exam_sessions row OR enrollment as secondary proof if available,
-        // but keep offline grace by allowing timestamp window alone; log for audit.
-        isStartedBeforeDeadline = true;
-        if (!existing) await log(db, 'grace_submit', `Grace submit for ${normId || student_name} in ${exam_id} startedAt=${startedAtNum} deadline=${dl}`);
+        // Require server-side proof: prior session or enrollment, not just client timestamp
+        let hasProof = false;
+        if (normId) {
+          const sess = await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
+          if (sess) hasProof = true;
+          else if (exam.class_id) {
+            const enr = await db.prepare(`SELECT 1 FROM enrollments WHERE class_id = ? AND student_id = ? LIMIT 1`).bind(exam.class_id, normId).first();
+            if (enr) hasProof = true;
+          } else {
+            // Standalone exam without class — require existing submission already checked, so no grace without session
+            hasProof = false;
+          }
+        }
+        if (hasProof) {
+          isStartedBeforeDeadline = true;
+          if (!existing) await log(db, 'grace_submit', `Grace submit for ${normId || student_name} in ${exam_id} startedAt=${startedAtNum} deadline=${dl}`);
+        }
       }
     }
     if (hasValidStartedAt && !exam?.deadline && exam && ['closed','archived'].includes(exam.status)) {
-      // No deadline but exam was closed — allow only if started before close and within window
       if (!isNaN(createdMs) && startedAtNum > createdMs && startedAtNum < Date.now() && (Date.now() - startedAtNum) <= MAX_GRACE_MS) {
-        isStartedBeforeClose = true;
-        if (!existing) await log(db, 'grace_submit', `Grace submit (closed) for ${normId || student_name} in ${exam_id}`);
+        let hasProof = false;
+        if (normId) {
+          const sess = await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
+          if (sess) hasProof = true;
+        }
+        if (hasProof) {
+          isStartedBeforeClose = true;
+          if (!existing) await log(db, 'grace_submit', `Grace submit (closed) for ${normId || student_name} in ${exam_id}`);
+        }
       }
     }
   } catch {}
@@ -822,7 +854,8 @@ app.post('/api/submit', async (c) => {
   }
 
   const safeReason = ['manual', 'timeout', 'tab', 'kick'].includes(reason) ? reason : 'manual';
-  const safeScheme = answer_scheme === 'fixed' ? 'fixed' : 'shuffled';
+  // Derive answer_scheme server-side — ignore client-supplied value to prevent grading branch manipulation
+  const safeScheme = existing?.answer_scheme === 'shuffled' ? 'shuffled' : 'fixed';
   // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
   // or the proctor explicitly granted a retry for this student.
   if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
@@ -898,41 +931,53 @@ app.post('/api/submit', async (c) => {
   }
 
   const id = existing ? existing.id : uuid();
+  const batchStmts = [];
   if (existing) {
-    await db.prepare(
-      `UPDATE submissions
-       SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, submitted_at = datetime('now')
-       WHERE id = ?`
-    ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, id).run();
+    batchStmts.push(
+      db.prepare(
+        `UPDATE submissions
+         SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, submitted_at = datetime('now')
+         WHERE id = ?`
+      ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, id)
+    );
     // Answers changed, so discard any manual reviews tied to the old attempt.
-    await db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id).run();
+    batchStmts.push(db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id));
   } else {
-    await db.prepare(
-      `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme).run();
+    batchStmts.push(
+      db.prepare(
+        `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme)
+    );
   }
 
   // Mark attendance as submitted and close the student's active session(s).
-  await db.prepare(
-    `UPDATE attendance SET status = 'submitted', submitted_at = datetime('now')
-     WHERE exam_id = ? AND (student_id = ? OR (student_name = ? AND student_section = ?))`
-  ).bind(exam_id, normId, student_name, student_section).run();
+  batchStmts.push(
+    db.prepare(
+      `UPDATE attendance SET status = 'submitted', submitted_at = datetime('now')
+       WHERE exam_id = ? AND (student_id = ? OR (student_name = ? AND student_section = ?))`
+    ).bind(exam_id, normId, student_name, student_section)
+  );
   // Close by both student_id and session device binding to avoid stale rows
-  await db.prepare(
-    `UPDATE exam_sessions SET active = 0 WHERE exam_id = ? AND (student_id = ? OR student_name = ?)`
-  ).bind(exam_id, normId, student_name).run();
+  batchStmts.push(
+    db.prepare(
+      `UPDATE exam_sessions SET active = 0 WHERE exam_id = ? AND (student_id = ? OR student_name = ?)`
+    ).bind(exam_id, normId, student_name)
+  );
 
   // Auto-record class attendance when this exam belongs to a class.
   if (exam.class_id) {
     const today = new Date().toISOString().slice(0, 10);
-    await db.prepare(
-      `INSERT INTO class_attendance (id, class_id, date, student_id, student_name, status, source)
-       VALUES (?, ?, ?, ?, ?, 'present', 'exam')
-       ON CONFLICT(class_id, date, student_id)
-       DO UPDATE SET student_name = excluded.student_name`
-    ).bind(uuid(), exam.class_id, today, normId, student_name).run();
+    batchStmts.push(
+      db.prepare(
+        `INSERT INTO class_attendance (id, class_id, date, student_id, student_name, status, source)
+         VALUES (?, ?, ?, ?, ?, 'present', 'exam')
+         ON CONFLICT(class_id, date, student_id)
+         DO UPDATE SET student_name = excluded.student_name, status = excluded.status, source = excluded.source`
+      ).bind(uuid(), exam.class_id, today, normId, student_name)
+    );
   }
+  if (batchStmts.length) await db.batch(batchStmts);
 
   await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
   invalidateAnalytics(exam_id);
@@ -987,15 +1032,24 @@ app.post('/api/exams/:id/session/start', async (c) => {
     if (!canRetryAfterClose && Number.isFinite(startedAtNum) && startedAtNum > 0 && exam?.deadline && exam.status !== 'draft') {
       const dl = new Date(exam.deadline).getTime();
       if (!isNaN(dl) && !isNaN(createdMs) && startedAtNum < dl && startedAtNum > createdMs && (dl - startedAtNum) <= MAX_GRACE_MS) {
-        canRetryAfterClose = true;
-        await log(db, 'grace_session', `Grace session for ${String(student_id).toUpperCase()} in ${examId} startedAt=${startedAtNum}`);
+        // Require prior session proof for grace — not just client timestamp
+        const nid = String(student_id || '').trim().toUpperCase();
+        const hasPriorSession = nid ? await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(examId, nid).first() : null;
+        if (hasPriorSession) {
+          canRetryAfterClose = true;
+          await log(db, 'grace_session', `Grace session for ${String(student_id).toUpperCase()} in ${examId} startedAt=${startedAtNum}`);
+        }
       }
     }
     if (!canRetryAfterClose && Number.isFinite(Number(started_at)) && Number(started_at) > 0 && !exam?.deadline && ['closed','archived'].includes(exam.status)) {
       const sNum = Number(started_at);
       if (!isNaN(createdMs) && sNum > createdMs && sNum < Date.now() && (Date.now() - sNum) <= MAX_GRACE_MS) {
-        canRetryAfterClose = true;
-        await log(db, 'grace_session', `Grace session (closed) for ${String(student_id).toUpperCase()} in ${examId}`);
+        const nid = String(student_id || '').trim().toUpperCase();
+        const hasPriorSession = nid ? await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(examId, nid).first() : null;
+        if (hasPriorSession) {
+          canRetryAfterClose = true;
+          await log(db, 'grace_session', `Grace session (closed) for ${String(student_id).toUpperCase()} in ${examId}`);
+        }
       }
     }
   } catch {}
@@ -1035,7 +1089,9 @@ app.post('/api/exams/:id/session/start', async (c) => {
   const enrolledName = body.student_name;
   const enrolledSection = body.student_section;
 
-  if (exam.access_code && body.access_code !== exam.access_code) {
+  const normalizedBodyCode = String(body.access_code || '').trim().toUpperCase();
+  const normalizedExamCode = String(exam.access_code || '').trim().toUpperCase();
+  if (exam.access_code && normalizedBodyCode !== normalizedExamCode) {
     return c.json({ error: 'Invalid access code. Ask your proctor for the correct code.' }, 403);
   }
 
@@ -1296,10 +1352,11 @@ app.post('/api/attendance-sessions', async (c) => {
   const body = await c.req.json();
   if (!body.title || !body.title.trim()) return c.json({ error: 'Title is required' }, 400);
   const id = uuid();
+  const normalizedCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
     `INSERT INTO attendance_sessions (id, title, date, access_code, roster, class_id, expires_at)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.title.trim(), body.date || new Date().toISOString().slice(0, 10), body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.expires_at || '').run();
+  ).bind(id, body.title.trim(), body.date || new Date().toISOString().slice(0, 10), normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.expires_at || '').run();
   await log(db, 'attendance_session_created', 'Created attendance session: ' + body.title);
   return c.json({ id }, 201);
 });
@@ -1309,9 +1366,10 @@ app.put('/api/attendance-sessions/:id', async (c) => {
   const db = c.env.DB;
   const id = c.req.param('id');
   const body = await c.req.json();
+  const normalizedUpdateCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
     `UPDATE attendance_sessions SET title = ?, date = ?, access_code = ?, roster = ?, class_id = ?, expires_at = ? WHERE id = ?`
-  ).bind(body.title || '', body.date || '', body.access_code || '', JSON.stringify(body.roster || []), body.class_id || '', body.expires_at || '', id).run();
+  ).bind(body.title || '', body.date || '', normalizedUpdateCode, JSON.stringify(body.roster || []), body.class_id || '', body.expires_at || '', id).run();
   await log(db, 'attendance_session_updated', 'Updated attendance session: ' + id);
   return c.json({ success: true });
 });
@@ -1368,7 +1426,9 @@ app.post('/api/attendance-sessions/:id/checkin', async (c) => {
   if (!student_id || !student_name || !student_section) {
     return c.json({ error: 'Student ID, name and section are required.' }, 400);
   }
-  if (session.access_code && body.access_code !== session.access_code) {
+  const normalizedSessionCode = String(session.access_code || '').trim().toUpperCase();
+  const normalizedBodyCode = String(body.access_code || '').trim().toUpperCase();
+  if (session.access_code && normalizedBodyCode !== normalizedSessionCode) {
     return c.json({ error: 'Invalid access code. Ask your instructor for the correct code.' }, 403);
   }
 
@@ -1391,7 +1451,7 @@ app.post('/api/attendance-sessions/:id/checkin', async (c) => {
       `INSERT INTO class_attendance (id, class_id, date, student_id, student_name, status, source)
        VALUES (?, ?, ?, ?, ?, 'present', 'checkin')
        ON CONFLICT(class_id, date, student_id)
-       DO UPDATE SET student_name = excluded.student_name`
+       DO UPDATE SET student_name = excluded.student_name, status = excluded.status, source = excluded.source`
     ).bind(uuid(), session.class_id, session.date || new Date().toISOString().slice(0, 10), student_id, student_name).run();
   }
 
@@ -2553,7 +2613,10 @@ app.get('/api/analytics/:examId', async (c) => {
       if (sub.answer_scheme === 'fixed') {
         chosenKey = stored;
       } else {
-        const choiceSeed = studentSeed + qIdx * 7919;
+        // Legacy shuffled: choice order depends on shuffled question position, not original qIdx
+        const shuffledQs = shuffleWithSeed(questions, studentSeed);
+        const shuffledIdx = shuffledQs.findIndex(qq => qq.id === q.id);
+        const choiceSeed = studentSeed + (shuffledIdx >= 0 ? shuffledIdx : qIdx) * 7919;
         const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
           ...c, displayKey: String.fromCharCode(65 + ci),
         }));

@@ -6,9 +6,9 @@ assets = { directory = "dist", binding = "ASSETS", not_found_handling = "single-
 
 [vars]
 # Public vars — set secrets via `wrangler secret put <NAME>` (never commit private keys).
-# Required secrets: ADMIN_PASSWORD (or VITE_ADMIN_PASSWORD), VAPID_PRIVATE_KEY, VAPID_PUBLIC_KEY
+# Required secrets: ADMIN_PASSWORD, VAPID_PRIVATE_KEY (VAPID_PRIVATE_KEY must be secret)
 # Example: wrangler secret put VAPID_PRIVATE_KEY / wrangler secret put ADMIN_PASSWORD
-VITE_ADMIN_PASSWORD = "change_me_via_wrangler_secret"
+# NOTE: VITE_ADMIN_PASSWORD var removed — default leaked auth. Use `wrangler secret put ADMIN_PASSWORD` only.
 VAPID_PUBLIC_KEY = "BBFq3Yg0rjPgCRXaB_L6Gl2vD8-iwvCh3zekOG26RWZBZRVdw1KfK7Pu1rv77lb7p5dxCLC01Ek5FqeVjOf6jqE"
 # VAPID_PRIVATE_KEY must be set as a secret, NOT here — `wrangler secret put VAPID_PRIVATE_KEY`
 VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"

@@ -71,6 +71,8 @@ export default function Exam() {
   useEffect(() => { answersRef.current = answers; }, [answers]);
   const answeredSetRef = useRef(answeredSet);
   useEffect(() => { answeredSetRef.current = answeredSet; }, [answeredSet]);
+  const questionsRef = useRef(questions);
+  useEffect(() => { questionsRef.current = questions; }, [questions]);
   const lastPersistRef = useRef(0);
 
   const enterFullscreen = useCallback(() => {
@@ -229,7 +231,7 @@ export default function Exam() {
   useEffect(() => {
     if (!started || submitted || !sessionIdRef.current || !examId) return;
     const beat = async () => {
-      if (kickedRef.current || document.hidden) return;
+      if (kickedRef.current) return;
       try {
         const res = await api.heartbeat(examId, { session_id: sessionIdRef.current, tab_switches: tabSwitches });
         if (res.kicked && !kickedRef.current) {
@@ -246,7 +248,16 @@ export default function Exam() {
           toast('Session ended by proctor', 'The exam was closed by the administrator. Your answers were submitted.');
           setTimeout(() => handleSubmitRef.current('kick'), 800);
         }
-      } catch {}
+      } catch (e) {
+        if (e && (e.status === 401 || e.status === 403)) {
+          // Session expired or invalid — treat as kick to preserve work
+          if (!kickedRef.current) {
+            kickedRef.current = true;
+            setKicked(true);
+            toast('Session expired', 'Your session is no longer valid. Please re-enter the exam.');
+          }
+        }
+      }
     };
     beat();
     const t = setInterval(beat, 15000);
@@ -438,7 +449,7 @@ export default function Exam() {
     }
     const s = hashStr(effName.toLowerCase().replace(/\s/g, '') + effSection.toLowerCase() + examId);
     setSeed(s);
-    const qs = qsSource;
+    setQuestions(shuffleWithSeed(qsSource, s));
     startTimeRef.current = Date.now();
     setStarted(true);
     enterFullscreen();
@@ -548,7 +559,7 @@ export default function Exam() {
 
     let total = 0;
     const partScores = {};
-    const qs = questions;
+    const qs = questionsRef.current || questions;
     qs.forEach((q, idx) => {
       const qType = q.type || 'multiple_choice';
       let isCorrect = false;

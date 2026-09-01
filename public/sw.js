@@ -1,11 +1,11 @@
-const CACHE = 'exam-portal-v7';
+const CACHE = 'exam-portal-v8';
 const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
 const MAX_CACHE_ENTRIES = 50;
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000; // 7 days
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE).then((cache) => cache.addAll(SHELL).catch(() => {})).then(() => self.skipWaiting())
   );
 });
 
@@ -31,13 +31,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then(async (cache) => {
-            await cache.put('/index.html', copy);
-            // LRU: evict oldest if over limit
-            const keys = await cache.keys();
-            if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
-          });
+          if (res && res.ok) {
+            const copy = res.clone();
+            caches.open(CACHE).then(async (cache) => {
+              await cache.put('/index.html', copy);
+              // LRU: evict oldest if over limit
+              const keys = await cache.keys();
+              if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
+            });
+          }
           return res;
         })
         .catch(() => caches.match('/index.html'))
@@ -56,10 +58,22 @@ self.addEventListener('fetch', (event) => {
           if (age > CACHE_TTL_MS) {
             const cache = await caches.open(CACHE);
             await cache.delete(request);
+            // Try network but fallback to stale cached if fetch fails
+            try {
+              const res = await fetch(request);
+              if (res && res.ok) {
+                const copy = res.clone();
+                const c = await caches.open(CACHE);
+                await c.put(request, copy);
+                const keys = await c.keys();
+                if (keys.length > MAX_CACHE_ENTRIES) await c.delete(keys[0]);
+              }
+              return res.ok ? res : cached;
+            } catch { return cached; }
           } else {
             // Refresh in background even on hit
             fetch(request).then((res) => {
-              if (res && res.status === 200) {
+              if (res && res.ok) {
                 const copy = res.clone();
                 caches.open(CACHE).then(async (cache) => {
                   await cache.put(request, copy);
@@ -73,7 +87,7 @@ self.addEventListener('fetch', (event) => {
         } else {
           // No date header, treat as hit and refresh
           fetch(request).then((res) => {
-            if (res && res.status === 200) {
+            if (res && res.ok) {
               const copy = res.clone();
               caches.open(CACHE).then(async (cache) => {
                 await cache.put(request, copy);
@@ -85,19 +99,17 @@ self.addEventListener('fetch', (event) => {
           return cached;
         }
       }
-      const network = fetch(request)
-        .then(async (res) => {
-          if (res && res.status === 200) {
-            const copy = res.clone();
-            const cache = await caches.open(CACHE);
-            await cache.put(request, copy);
-            const keys = await cache.keys();
-            if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
-          }
-          return res;
-        })
-        .catch(() => cached);
-      return cached || network;
+      try {
+        const res = await fetch(request);
+        if (res && res.ok) {
+          const copy = res.clone();
+          const cache = await caches.open(CACHE);
+          await cache.put(request, copy);
+          const keys = await cache.keys();
+          if (keys.length > MAX_CACHE_ENTRIES) await cache.delete(keys[0]);
+        }
+        return res;
+      } catch { return cached; }
     })
   );
 });

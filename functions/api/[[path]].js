@@ -25,16 +25,36 @@ export async function onRequest(context) {
   const origin = (context.env.WORKER_ORIGIN || FALLBACK).replace(/\/+$/, '');
   const target = origin + url.pathname + url.search;
 
-  // Forward the browser's Cookie header so the Worker sees the admin session.
-  // Drop Host so the outbound fetch uses the Worker origin.
   const headers = new Headers(request.headers);
   headers.delete('host');
+  headers.delete('x-forwarded-host');
+  headers.delete('x-real-ip');
 
-  // Forward the request body/method. request.body streams through in Workerd.
-  return fetch(target, {
-    method: request.method,
-    headers,
-    body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
-    redirect: 'manual',
-  });
+  let body;
+  if (!['GET', 'HEAD'].includes(request.method)) {
+    try { body = await request.arrayBuffer(); } catch { body = undefined; }
+    if (body && body.byteLength === 0) body = undefined;
+  }
+
+  try {
+    const res = await fetch(target, {
+      method: request.method,
+      headers,
+      body,
+      redirect: 'manual',
+    });
+    // Preserve Set-Cookie (may be multiple) — Pages needs explicit forwarding via getSetCookie
+    const outHeaders = new Headers(res.headers);
+    // If multiple Set-Cookie, ensure they are preserved (getSetCookie where available)
+    try {
+      const cookies = res.headers.getSetCookie ? res.headers.getSetCookie() : [];
+      if (cookies.length > 1) {
+        outHeaders.delete('set-cookie');
+        for (const c of cookies) outHeaders.append('set-cookie', c);
+      }
+    } catch {}
+    return new Response(res.body, { status: res.status, headers: outHeaders });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Worker unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } });
+  }
 }

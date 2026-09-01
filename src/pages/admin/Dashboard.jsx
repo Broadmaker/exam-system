@@ -511,7 +511,8 @@ export default function Dashboard() {
               <Button size="sm" variant="outline" icon={Printer} onClick={() => {
                 const w = window.open('', '_blank', 'width=400,height=500');
                 if (!w) { window.print(); return; }
-                w.document.write(`<html><head><title>${qrExam.title} — QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px}img{width:320px;height:320px}h1{font-size:16px;margin:12px 0 4px}p{font-size:11px;color:#64748b;word-break:break-all}</style></head><body><h1>${qrExam.title}</h1><p>${window.location.origin + '/exam?id=' + qrExam.id}</p><p style="font-family:monospace;font-size:10px">${qrExam.id}</p><img src="${qr}" /><p>Scan to take the exam</p><script>window.onload=()=>window.print()<\/script></body></html>`);
+                const esc = (s) => String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+                w.document.write(`<html><head><title>${esc(qrExam.title)} — QR</title><style>body{font-family:system-ui,sans-serif;text-align:center;padding:24px}img{width:320px;height:320px}h1{font-size:16px;margin:12px 0 4px}p{font-size:11px;color:#64748b;word-break:break-all}</style></head><body><h1>${esc(qrExam.title)}</h1><p>${esc(window.location.origin + '/exam?id=' + qrExam.id)}</p><p style="font-family:monospace;font-size:10px">${esc(qrExam.id)}</p><img src="${qr}" /><p>Scan to take the exam</p><script>window.onload=()=>window.print()<\/script></body></html>`);
                 w.document.close();
               }}>
                 Print

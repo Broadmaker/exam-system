@@ -3,11 +3,25 @@ const BASE = import.meta.env.VITE_API_URL || '/api';
 async function request(path, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 7000);
-  const res = await fetch(BASE + path, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
-    signal: controller.signal,
-    ...options,
-  }).finally(() => clearTimeout(timeout));
+  const hasBody = options.body !== undefined && options.body !== null;
+  const headers = { ...(hasBody ? { 'Content-Type': 'application/json' } : {}), ...options.headers };
+  let res;
+  try {
+    res = await fetch(BASE + path, {
+      credentials: 'include',
+      ...options,
+      headers,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeout));
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === 'AbortError') {
+      const err = new Error('Request timed out (7s). Worker not responding.');
+      err.status = 408;
+      throw err;
+    }
+    throw e;
+  }
   const text = await res.text();
   let data;
   try {
@@ -16,24 +30,24 @@ async function request(path, options = {}) {
     throw new Error(text.includes('<!DOCTYPE') ? 'API server is not running. Start the Worker with `npx wrangler dev`.' : text.slice(0, 200));
   }
   if (!res.ok) {
-    const e = new Error(data.error || 'Request failed');
+    const e = new Error(data.error || data.message || 'Request failed');
     e.status = res.status;
     throw e;
   }
   return data;
 }
 
-const adminPass = () => ''; // deprecated — server now uses HttpOnly cookie via POST /api/admin/login
+// Deprecated — auth now via HttpOnly cookie (POST /api/admin/login); do NOT reintroduce Authorization header
+const adminPass = () => '';
+const maybeAdminHeaders = () => { return {}; };
 
-const maybeAdminHeaders = () => {
-  return {};
-};
-
-// Simple memo cache with 30s TTL + dedupe for concurrent requests (P2)
+// Simple memo cache with 30s TTL + dedupe for concurrent requests (P2) — GET only, key includes method
 const _memo = new Map(); // key -> {data, ts}
 const _pending = new Map(); // key -> Promise
 async function memoRequest(path, options = {}, ttl = 30000) {
-  const key = path + JSON.stringify(options.headers || {});
+  const method = (options.method || 'GET').toUpperCase();
+  if (method !== 'GET') return request(path, options);
+  const key = method + ':' + path + ':' + JSON.stringify(options.headers || {}) + ':' + (options.credentials || 'include');
   const now = Date.now();
   const hit = _memo.get(key);
   if (hit && now - hit.ts < ttl) return hit.data;
