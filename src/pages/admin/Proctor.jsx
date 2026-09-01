@@ -29,8 +29,15 @@ export default function Proctor() {
   useEffect(() => {
     if (!examId) { setData(null); return; }
     load();
-    const t = setInterval(load, 5000);
-    return () => clearInterval(t);
+    const jitter = () => 8000 + Math.random() * 4000; // 8-12s with jitter
+    let t;
+    const schedule = () => {
+      t = setTimeout(() => { if (!document.hidden) load(); schedule(); }, jitter());
+    };
+    schedule();
+    const onVis = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVis);
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onVis); };
   }, [examId, load]);
 
   const exam = useMemo(() => exams.find(e => e.id === examId), [exams, examId]);

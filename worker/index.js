@@ -26,6 +26,7 @@ app.use('/api/*', async (c, next) => {
   c.header('X-Frame-Options', 'DENY');
   c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  c.header('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'");
 });
 
 // ── HEALTH + OBSERVABILITY (Phase 0) ────────────────
@@ -244,7 +245,7 @@ function clampPassing(v) {
 // ── INPUT VALIDATION (P0) ──────────────────────────
 function hasXSS(s) {
   const t = String(s || '').toLowerCase();
-  return /<\s*script|onerror\s*=|onload\s*=|javascript\s*:|<iframe|<object/i.test(t);
+  return /<\s*script|on\w+\s*=|javascript\s*:|<iframe|<object|<svg|<img|<math|data\s*:\s*text\/html/i.test(t);
 }
 function validateExamBody(b) {
   if (!b.title || !String(b.title).trim()) return 'Title is required';
@@ -1230,6 +1231,7 @@ app.post('/api/attendance-sessions/lookup', async (c) => {
 });
 
 app.post('/api/attendance-sessions/:id/checkin', async (c) => {
+  if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const id = c.req.param('id');
   const body = await c.req.json();
@@ -1376,6 +1378,7 @@ app.get('/api/classes/code/:code', async (c) => {
 });
 
 app.post('/api/classes/enroll', async (c) => {
+  if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
   const code = (body.access_code || '').trim().toUpperCase();
@@ -1980,13 +1983,13 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
     await db.prepare(
       `UPDATE enrollments SET student_id = ?, student_name = ?, student_section = ? WHERE id = ?`
     ).bind(newStudentId, newName, newSection, existing.id).run();
-    // Keep linked records in sync with the corrected ID/name.
+    // Keep linked records in sync with the corrected ID/name — scoped to this class's exams to avoid cross-class clobber.
     await db.prepare(
-      `UPDATE submissions SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ?`
-    ).bind(newStudentId, newName, newSection, oldStudentId).run();
+      `UPDATE submissions SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ? AND exam_id IN (SELECT id FROM exams WHERE class_id = ?)`
+    ).bind(newStudentId, newName, newSection, oldStudentId, classId).run();
     await db.prepare(
-      `UPDATE attendance SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ?`
-    ).bind(newStudentId, newName, newSection, oldStudentId).run();
+      `UPDATE attendance SET student_id = ?, student_name = ?, student_section = ? WHERE student_id = ? AND exam_id IN (SELECT id FROM exams WHERE class_id = ?)`
+    ).bind(newStudentId, newName, newSection, oldStudentId, classId).run();
     await db.prepare(
       `UPDATE class_attendance SET student_id = ?, student_name = ? WHERE class_id = ? AND student_id = ?`
     ).bind(newStudentId, newName, classId, oldStudentId).run();
@@ -1994,13 +1997,12 @@ app.put('/api/classes/:id/enroll/:studentId', async (c) => {
     await db.prepare(
       `UPDATE enrollments SET student_name = ?, student_section = ? WHERE id = ?`
     ).bind(newName, newSection, existing.id).run();
-    // Update linked records — scope to this class's submissions where possible, fallback to global student_id match
     await db.prepare(
-      `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ?`
-    ).bind(newName, newSection, oldStudentId).run();
+      `UPDATE submissions SET student_name = ?, student_section = ? WHERE student_id = ? AND exam_id IN (SELECT id FROM exams WHERE class_id = ?)`
+    ).bind(newName, newSection, oldStudentId, classId).run();
     await db.prepare(
-      `UPDATE attendance SET student_name = ?, student_section = ? WHERE student_id = ?`
-    ).bind(newName, newSection, oldStudentId).run();
+      `UPDATE attendance SET student_name = ?, student_section = ? WHERE student_id = ? AND exam_id IN (SELECT id FROM exams WHERE class_id = ?)`
+    ).bind(newName, newSection, oldStudentId, classId).run();
     await db.prepare(
       `UPDATE class_attendance SET student_name = ? WHERE class_id = ? AND student_id = ?`
     ).bind(newName, classId, oldStudentId).run();
