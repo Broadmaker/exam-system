@@ -9,6 +9,7 @@ const Exam = lazy(() => import('./pages/Exam'));
 const Leaderboard = lazy(() => import('./pages/Leaderboard'));
 const Checkin = lazy(() => import('./pages/Checkin'));
 const StudentEnroll = lazy(() => import('./pages/StudentEnroll'));
+const Scan = lazy(() => import('./pages/Scan'));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard'));
 const CreateExam = lazy(() => import('./pages/admin/CreateExam'));
 const Results = lazy(() => import('./pages/admin/Results'));
@@ -31,6 +32,7 @@ export default function App() {
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><Spinner /></div>}>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/scan" element={<Scan />} />
           <Route path="/exam" element={<Exam />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/checkin" element={<Checkin />} />

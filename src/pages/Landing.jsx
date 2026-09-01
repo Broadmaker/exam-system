@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus, ArrowRight, Search, ShieldCheck, BarChart3, Clock3, Layers, QrCode, Bell } from 'lucide-react';
+import { FileText, Trophy, Lock, CalendarCheck, GraduationCap, UserPlus, ArrowRight, Search, ShieldCheck, BarChart3, Clock3, Layers, QrCode, Bell, Scan } from 'lucide-react';
 import PublicLayout from '../components/PublicLayout';
 import { Button } from '../components/ui';
 
@@ -14,10 +14,10 @@ export default function Landing() {
   };
 
   const features = [
+    { to: '/scan', label: 'Scan QR', desc: 'Scan exam or check-in QR with camera — stay inside the app.', icon: Scan, tone: 'bg-navy-700 text-white' },
     { to: '/checkin', label: 'Attendance Check-in', desc: 'Scan the QR or enter the code your instructor shares.', icon: CalendarCheck, tone: 'bg-success-bg text-success' },
     { to: '/enroll', label: 'Enroll in a Class', desc: 'Join your class with the code from your instructor.', icon: UserPlus, tone: 'bg-navy-100 text-navy-700' },
     { to: '/leaderboard', label: 'Live Scoreboard', desc: 'See rankings update in real time after exams.', icon: Trophy, tone: 'bg-warning-bg text-warning' },
-    { to: '/notifications', label: 'Notifications', desc: 'New exams, grade updates & announcements.', icon: Bell, tone: 'bg-info-bg text-info' },
   ];
 
   return (
@@ -122,6 +122,9 @@ export default function Landing() {
             <p className="text-[11px] text-faint mt-2.5 leading-relaxed">
               Exam IDs are shared by your proctor. Class codes work too — you’ll be guided to enroll.
             </p>
+            <Link to="/scan" className="mt-3 flex items-center justify-center gap-1.5 w-full bg-navy-700 hover:bg-navy-800 text-white rounded-xl py-2.5 text-[13px] font-semibold transition-colors no-underline">
+              <Scan size={14} /> Scan QR with camera — stay in app
+            </Link>
 
             <div className="grid grid-cols-3 gap-2 mt-5 pt-5 border-t border-border">
               <Link to="/checkin" className="group flex flex-col items-center gap-1.5 rounded-xl bg-canvas hover:bg-navy-50 border border-transparent hover:border-border px-2 py-3 text-center transition-colors no-underline">
