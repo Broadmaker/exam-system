@@ -4,12 +4,13 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
   if (mode === 'production') {
-    // Same-origin /api is REQUIRED: an absolute VITE_API_URL (e.g. a stale
-    // .env.production in the Pages build cache) breaks the SameSite=Strict
-    // admin_session cookie -> 401s on all admin routes. process.env vars take
-    // precedence over .env files in Vite, so force relative /api unless the
-    // build environment explicitly provides a URL.
-    process.env.VITE_API_URL ??= '';
+    // Same-origin /api is REQUIRED: an absolute VITE_API_URL breaks the
+    // SameSite=Strict admin_session cookie -> 401s on all admin routes. The
+    // absolute URL can come from a stale .env.production in the build cache OR
+    // from a VITE_API_URL env var set in the Cloudflare dashboard — both survive
+    // cache clears and process.env precedence. Force relative /api so every
+    // production build is correct regardless of the build environment.
+    process.env.VITE_API_URL = '';
   }
   return {
     plugins: [react(), tailwindcss()],
