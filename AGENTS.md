@@ -30,13 +30,21 @@ A web assessment-first academic management platform (exam + quiz + attendance + 
 
 ## Conventions
 - **Grading parity:** the fill-in matching logic exists **twice** — client (`src/utils.js`) and server (`worker/index.js`) — keep them in sync. Per-student question/choice randomization uses a hash seed; server reproduces it for grading.
-- **Admin auth:** use `adminCheck(c)` on the worker and pass `{ headers: { Authorization: adminPass() } }` on the client for admin-only calls. Never trust frontend-only permissions.
+- **Admin auth:** admin sessions use an **HttpOnly cookie** (`admin_session`) issued via `POST /api/admin/login`, verified by `adminCheck(c)` on the worker. Client admin calls send `{ credentials: 'include' }` (no `Authorization` header — the old `Authorization: adminPass()` flow was removed by the security fix). `src/components/AuthGate.jsx` verifies the session via `/api/admin/me` before mounting admin pages. Never trust frontend-only permissions.
+- **Same-origin `/api` is REQUIRED:** the frontend API base must be the **relative `/api`** (`import.meta.env.VITE_API_URL || '/api'`), never an absolute `workers.dev` URL. The `admin_session` cookie is `SameSite=Strict`, so cross-origin calls to the Worker 401 and admin data won't load. Don't set `VITE_API_URL` to a workers.dev origin in production builds.
 - **Exam lifecycle:** `type` (assessment kind), `status` (draft→scheduled→active→closed→archived), `passing_score` (0-100, clamped), `start_at` (scheduled open). New exam access enforced at `/session/start` and `/submit`; mid-session students must always be able to finish (don't hard-block finalize for resumed sessions).
 - **Response shape:** `submissions` and `leaderboard` return `{ passing_score, results[] }` (not a bare array) — read `data.results` in consumers. Each submission carries a `passed` flag.
 - **Theme:** UI colors come from CSS variables in `src/styles/tokens.css` (e.g. `var(--color-surface)`, `--color-success`, `--color-navy-700`). Prefer these over hardcoded hex so dark mode works. Use Tailwind utility classes or inline vars consistently.
-- **PWA/offline:** `public/sw.js` (cache version `exam-portal-v2`), registered only in PROD (`src/main.jsx`). Bump cache version when the shell changes. Exam state cached as `cached_exam_<id>` / `exam_state_<id>` / `pending_submission_` in localStorage.
+- **PWA/offline:** `public/sw.js` (cache version `exam-portal-v7`), registered only in PROD (`src/main.jsx`). Bump cache version when the shell changes. Exam state cached as `cached_exam_<id>` / `exam_state_<id>` / `pending_submission_` in localStorage.
 - **Secrets:** never commit `VITE_ADMIN_PASSWORD` / DB credentials into AGENTS.md or source. Values live in `.env`, `.env.production`, `wrangler.toml` (referenced, not echoed).
 - **Data:** `activity_log` is the append-only audit log; new admin writes should `await log(db, action, details)`.
 
 ## Notes
-- (add later)
+- **Two separate deployments:** the **Worker** (`pnpm run deploy:worker`, serves `/api` + D1) and **Cloudflare Pages** (`pnpm run deploy:pages`, serves the SPA from `dist/` + `functions/`) are separate sites/URLs (pages.dev vs workers.dev). Do not conflate them.
+- **Live URLs:** Pages = `exam-system-4h2.pages.dev` (the frontend you use); Worker API = `exam-system.sanigkram24.workers.dev` (used as API origin).
+- **`functions/api/[[path]].js`** is the Pages→Worker proxy: any `/api/*` request to Pages is forwarded to the Worker with Cookie/Set-Cookie pass-through. Keep it (Pages has no native API; without it `/api/*` returns the SPA fallback).
+- **`.env.production` is gitignored** — not in the repo. The GitHub/cloud build relies on the committed default `VITE_API_URL=''` → relative `/api`, so a fresh cloud build is correct as long as you DON'T rely on an absolute workers URL.
+- **CI (`build` job) only validates code** (`node --check` + `pnpm build` + `wrangler deploy --dry-run`, no token needed) — it does NOT deploy Pages. A `deploy-pages` job was added then removed; deploys are manual via `pnpm run deploy:pages`.
+- **Deploying Pages reliably:** `pnpm run deploy:pages` pushes the verified local `dist/` + the proxy. The Pages **GitHub auto-deploy can serve a stale/wrong build** (e.g. an old absolute `/api` build), which breaks admin data. If you use manual deploy, prefer disabling Pages auto-deploy to avoid stale builds overwriting good ones.
+- **If admin data is empty / 401s appear:** first reconfirm the live Pages build uses relative `/api` (not an absolute workers URL) and the `functions/` proxy is deployed; then hard-refresh / incognito + re-login (stale cookies/SW are the usual cause once the build is correct).
+- **Admin password rotation:** the value used during verification is in this repo's conversation log; rotate `ADMIN_PASSWORD` in the Cloudflare dashboard when convenient.
