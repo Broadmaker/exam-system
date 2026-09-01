@@ -65,7 +65,7 @@ export default function AuthGate({ children }) {
         <div className="relative max-w-[1000px] mx-auto w-full px-4 py-8 sm:py-10 grid lg:grid-cols-[1fr_420px] gap-6 lg:gap-8 items-center">
           {/* Info panel */}
           <div className="text-white text-center lg:text-left">
-            <img src="/product_brand_logo.png" alt="WMSU Exam System" className="h-11 sm:h-12 w-auto object-contain mx-auto lg:mx-0" />
+            <img src="/splash-screen-logo.png" alt="WMSU Exam System" className="h-11 sm:h-12 w-auto object-contain mx-auto lg:mx-0" />
             <h1 className="text-white text-[28px] sm:text-[32px] lg:text-[34px] font-bold leading-[1.05] tracking-tight mt-6">
               Admin Access
             </h1>
