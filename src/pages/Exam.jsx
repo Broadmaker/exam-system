@@ -7,7 +7,7 @@ import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
 import PublicLayout from '../components/PublicLayout';
 import { Button, Input, ConfirmDialog } from '../components/ui';
-import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar } from 'lucide-react';
+import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar, Scan } from 'lucide-react';
 
 export default function Exam() {
   const [params] = useSearchParams();
@@ -930,6 +930,9 @@ export default function Exam() {
               </div>
               {gateError && <div className="text-[12px] text-danger mb-3 flex items-center gap-1.5"><AlertTriangle size={12} /> {gateError}</div>}
               <Button className="!w-full !py-3.5 !text-[15px]" onClick={startExam}>Start Exam →</Button>
+              <button onClick={() => navigate('/scan')} className="w-full mt-2.5 inline-flex items-center justify-center gap-1.5 bg-canvas border border-border hover:bg-navy-50 text-navy-700 rounded-xl py-2.5 text-[13px] font-semibold transition-colors cursor-pointer">
+                <Scan size={14} /> Scan QR instead
+              </button>
             </div>
           </div>
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import ThemeToggle from './ThemeToggle';
 import { Home, CalendarCheck, UserPlus, Trophy, GraduationCap, ShieldCheck, Menu, X, Lock, Bell, Scan } from 'lucide-react';
+import BrowserBanner from './BrowserBanner';
 
 const navLinks = [
   { to: '/', label: 'Home', icon: Home, end: true },
@@ -121,6 +122,7 @@ export default function PublicLayout({ children, hideFooter = false }) {
         />
       )}
 
+      <BrowserBanner />
       <main className="flex-1 flex flex-col">{children}</main>
 
       {!hideFooter && (
