@@ -420,7 +420,14 @@ app.get('/api/exams', async (c) => {
     }
     for (const ex of results) if (expiredIds.includes(ex.id)) ex.status = 'closed';
   }
-  return c.json(results);
+  // Finding 2 fix: strip access_code for public, return has_access_code only
+  const isAdminList = await adminCheck(c);
+  const safeResults = (results || []).map(r => ({
+    ...r,
+    has_access_code: !!r.access_code,
+    access_code: isAdminList ? r.access_code : undefined,
+  }));
+  return c.json(safeResults);
 });
 
 app.post('/api/exams', async (c) => {
