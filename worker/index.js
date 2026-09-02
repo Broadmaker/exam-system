@@ -2720,6 +2720,7 @@ function canonicalizeSequence(s) {
   s = s.replace(/[\u00b2\u00b3\u00b9\u2070\u2074\u2075\u2076\u2077\u2078\u2079]/g, d => '^' + sup[d]);
   s = s.replace(/\u221a([0-9]+(?:[.,][0-9]+)?|\([^()]*\)|[a-z][a-z0-9_]*)/g, (_, g) => 'sqrt(' + (g[0] === '(' ? g.slice(1, -1) : g) + ')');
   s = s.replace(/[\u03c0\u03a0]/g, 'pi').replace(/\u03c4/g, 'tau');
+  s = s.replace(/\^\{([^}]+)\}/g, '^($1)');
   return s;
 }
 
@@ -2910,6 +2911,7 @@ function sampleCompare(sExpr, cExpr) {
     } catch {
       continue;
     }
+    if (!isFinite(a) || !isFinite(b)) continue;
     compared++;
     if (!almostEqual(a, b)) return false;
     if (compared >= 12) break;
@@ -2921,6 +2923,9 @@ function sortFactors(s) {
   return s.split('*').filter(Boolean).sort().join('*');
 }
 
+function groupExponents(expr) {
+  return expr.replace(/\^([a-z0-9_]*[a-z][a-z0-9_]*[+\-][a-z0-9_+\-]+)/g, (m, g1) => '^(' + g1 + ')');
+}
 function matchesAnswer(studentAnswer, correctAnswer) {
   const s = canonicalize(studentAnswer);
   const c = canonicalize(correctAnswer);
@@ -2929,12 +2934,32 @@ function matchesAnswer(studentAnswer, correctAnswer) {
   if (s === c) return true;
 
   const numeric = numericCompare(s, c);
-  if (numeric !== null) return numeric;
+  if (numeric === true) return true;
 
   const sampled = sampleCompare(s, c);
-  if (sampled !== null) return sampled;
+  if (sampled === true) return true;
 
-  return sortFactors(s) === sortFactors(c);
+  if (sortFactors(s) === sortFactors(c)) return true;
+
+  const sG = groupExponents(s);
+  const cG = groupExponents(c);
+  if (sG !== s || cG !== c) {
+    if (sG === c || s === cG || sG === cG) return true;
+    const n2 = numericCompare(sG, cG);
+    if (n2 === true) return true;
+    const s2 = sampleCompare(sG, cG);
+    if (s2 === true) return true;
+    const s3 = sampleCompare(sG, c);
+    if (s3 === true) return true;
+    const s4 = sampleCompare(s, cG);
+    if (s4 === true) return true;
+    if (sortFactors(sG) === sortFactors(cG)) return true;
+  }
+
+  if (numeric === false) return false;
+  if (sampled === false) return false;
+
+  return false;
 }
 
 // ── AI ASSIST (fill_blank partial credit) ───────────

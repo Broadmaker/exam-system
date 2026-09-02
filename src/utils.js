@@ -66,6 +66,8 @@ function canonicalizeSequence(s) {
   s = s.replace(/[\u00b2\u00b3\u00b9\u2070\u2074\u2075\u2076\u2077\u2078\u2079]/g, d => '^' + sup[d]); // ²³⁹ → ^n
   s = s.replace(/\u221a([0-9]+(?:[.,][0-9]+)?|\([^()]*\)|[a-z][a-z0-9_]*)/g, (_, g) => 'sqrt(' + (g[0] === '(' ? g.slice(1, -1) : g) + ')'); // √4 → sqrt(4)
   s = s.replace(/[\u03c0\u03a0]/g, 'pi').replace(/\u03c4/g, 'tau'); // π τ
+  // LaTeX ^{m+n} → ^(m+n) for mobile / typed LaTeX
+  s = s.replace(/\^\{([^}]+)\}/g, '^($1)');
   return s;
 }
 
@@ -268,6 +270,7 @@ function sampleCompare(sExpr, cExpr) {
     } catch {
       continue; // undefined at this point (e.g. division by zero) — skip it
     }
+    if (!isFinite(a) || !isFinite(b)) continue; // skip NaN/Infinity (e.g. (-0.5)^(-0.5))
     compared++;
     if (!almostEqual(a, b)) return false;
     if (compared >= 12) break;
@@ -280,6 +283,16 @@ function sortFactors(s) {
   return s.split('*').filter(Boolean).sort().join('*');
 }
 
+function groupExponents(expr) {
+  // Wrap bare ^m+n style exponents: a^m+n → a^(m+n) when m/n are variables (not just numbers)
+  // Only when ^ is not already followed by '(' and exponent contains + or - with a letter
+  return expr.replace(/\^([a-z0-9_]*[a-z][a-z0-9_]*[+\-][a-z0-9_+\-]+)/g, (m, g1) => {
+    // Avoid double-wrapping if next char is already '(' - handled by not matching '('
+    // Ensure we stop before next * / ^ etc - our charset excludes them
+    return '^(' + g1 + ')';
+  });
+}
+
 export function matchesAnswer(studentAnswer, correctAnswer) {
   const s = canonicalize(studentAnswer);
   const c = canonicalize(correctAnswer);
@@ -288,12 +301,34 @@ export function matchesAnswer(studentAnswer, correctAnswer) {
   if (s === c) return true;     // identical after canonicalization
 
   const numeric = numericCompare(s, c);
-  if (numeric !== null) return numeric;
+  if (numeric === true) return true;
 
   const sampled = sampleCompare(s, c);
-  if (sampled !== null) return sampled;
+  if (sampled === true) return true;
 
-  return sortFactors(s) === sortFactors(c);
+  if (sortFactors(s) === sortFactors(c)) return true;
+
+  // Try exponent-grouped variants for math: a^m+n vs a^(m+n) / a^{m+n}
+  const sG = groupExponents(s);
+  const cG = groupExponents(c);
+  if (sG !== s || cG !== c) {
+    if (sG === c || s === cG || sG === cG) return true;
+    const n2 = numericCompare(sG, cG);
+    if (n2 === true) return true;
+    const s2 = sampleCompare(sG, cG);
+    if (s2 === true) return true;
+    const s3 = sampleCompare(sG, c);
+    if (s3 === true) return true;
+    const s4 = sampleCompare(s, cG);
+    if (s4 === true) return true;
+    if (sortFactors(sG) === sortFactors(cG)) return true;
+  }
+
+  // If numeric/sample was definitively false, return false now
+  if (numeric === false) return false;
+  if (sampled === false) return false;
+
+  return false;
 }
 
 // Assessment type metadata (Upscale.md §9) — shared across admin + student views.
