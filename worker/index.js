@@ -913,14 +913,24 @@ app.post('/api/submit', async (c) => {
   }
 
   // Authoritative score — ignore client-supplied score/total
+  // Includes AI partial 0.5 for fill_blank >=0.85 similarity (free Workers AI)
   let serverScore = 0;
+  let aiPartials = 0;
   try {
     const tmpSub = { seed: String(seed || ''), answers: submittedAnswers, answer_scheme: safeScheme };
-    const computed = computeScore(questions, tmpSub);
+    const computed = await computeScoreWithAI(questions, tmpSub, {}, c.env);
     serverScore = computed.correctCount;
+    aiPartials = computed.perQuestion.filter(p => p.aiSuggested).length;
+    if (aiPartials) await log(db, 'ai_partial', `AI gave ${aiPartials} x 0.5 partial for ${student_name} (${normId}) in ${exam_id}`);
   } catch (e) {
-    // Fallback: if grading crashes, log and keep client score but clamp
-    serverScore = Math.max(0, Math.min(questions.length, Number(clientScore) || 0));
+    // Fallback sync (no AI) if AI path crashes
+    try {
+      const tmpSub = { seed: String(seed || ''), answers: submittedAnswers, answer_scheme: safeScheme };
+      const computed = computeScore(questions, tmpSub);
+      serverScore = computed.correctCount;
+    } catch {
+      serverScore = Math.max(0, Math.min(questions.length, Number(clientScore) || 0));
+    }
     await log(db, 'grading_fallback', `Grading failed for ${student_name} (${normId}) in ${exam_id}: ${String(e)}`);
   }
   const serverTotal = questions.length;
@@ -2924,10 +2934,89 @@ function matchesAnswer(studentAnswer, correctAnswer) {
   return sortFactors(s) === sortFactors(c);
 }
 
+// ── AI ASSIST (fill_blank partial credit) ───────────
+// Threshold 0.85 -> 0.5 credit. Uses Workers AI embeddings when available,
+// falls back to normalized Levenshtein for local dev / offline so tests still pass.
+const AI_THRESHOLD = 0.85;
+const AI_PARTIAL = 0.5;
+const aiCache = new Map(); // `${student}|||${correct}` -> similarity 0..1 (LRU approx, cap 2k)
+
+function cosineSim(a, b) {
+  let dot = 0, na = 0, nb = 0;
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  return denom ? dot / denom : 0;
+}
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = new Array(n + 1), cur = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[n];
+}
+function stringSimilarity(a, b) {
+  const sa = String(a || '').toLowerCase().trim();
+  const sb = String(b || '').toLowerCase().trim();
+  if (!sa || !sb) return 0;
+  if (sa === sb) return 1;
+  // Quick early exit for numeric answers - don't fuzzy match numbers
+  if (/^[0-9.\-+e*\/^()]+$/.test(sa) && /^[0-9.\-+e*\/^()]+$/.test(sb)) return 0;
+  const maxLen = Math.max(sa.length, sb.length);
+  const dist = levenshtein(sa, sb);
+  return 1 - dist / maxLen;
+}
+
+async function getAiSimilarity(studentAnswer, correctAnswer, env) {
+  const sRaw = String(studentAnswer || '').trim();
+  const cRaw = String(correctAnswer || '').trim();
+  if (!sRaw || !cRaw) return 0;
+  if (matchesAnswer(sRaw, cRaw)) return 1;
+  const key = sRaw.toLowerCase() + '|||' + cRaw.toLowerCase();
+  if (aiCache.has(key)) return aiCache.get(key);
+  let sim = 0;
+  // 1) Workers AI embeddings (free tier) -> cosine
+  if (env && env.AI) {
+    try {
+      const res = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: [sRaw, cRaw] });
+      const vecs = res?.data || res?.embeddings || res?.vectors || null;
+      // Workers AI returns { data: [[...],[...]] } for array input
+      if (Array.isArray(vecs) && vecs.length >= 2 && Array.isArray(vecs[0])) {
+        sim = cosineSim(vecs[0], vecs[1]);
+        // bge embeddings: cosine -1..1 -> clamp to 0..1 (negative = dissimilar)
+        sim = Math.max(0, Math.min(1, sim));
+      } else if (Array.isArray(res?.data) && Array.isArray(res.data[0])) {
+        sim = cosineSim(res.data[0], res.data[1]);
+        sim = Math.max(0, Math.min(1, sim));
+      }
+    } catch {}
+  }
+  // 2) Fallback: normalized Levenshtein (local dev, or AI unavailable, or still 0)
+  if (!sim || sim === 0) {
+    sim = stringSimilarity(sRaw, cRaw);
+  }
+  // Cap cache
+  if (aiCache.size > 2000) {
+    const firstKey = aiCache.keys().next().value;
+    aiCache.delete(firstKey);
+  }
+  aiCache.set(key, sim);
+  return sim;
+}
+
 // Compute a submission's per-question correctness using the exact shuffle the
 // student saw. `overrides` maps question_id -> 'correct' | 'incorrect' (manual
 // admin review) and wins over the engine's auto verdict.
-function computeScore(questions, sub, overrides = {}) {
+// Supports 0.5 partial credit for fill_blank when AI similarity >= threshold.
+function computeScore(questions, sub, overrides = {}, aiScores = {}) {
   const studentSeed = Number(sub.seed);
   const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
   const shuffledQs = shuffleWithSeed(questions, studentSeed);
@@ -2937,16 +3026,32 @@ function computeScore(questions, sub, overrides = {}) {
   shuffledQs.forEach((q, idx) => {
     const qType = q.type || 'multiple_choice';
     let autoCorrect = false;
+    let autoScore = 0;
+    let aiSim = null;
+    let aiSuggested = false;
     if (qType === 'fill_blank') {
       const studentAnswer = submittedAnswers[q.id] || '';
       autoCorrect = matchesAnswer(studentAnswer, q.answer);
+      if (autoCorrect) {
+        autoScore = 1;
+      } else {
+        // Check AI partial map (sync) — async wrapper fills aiScores before calling
+        const sim = aiScores[q.id];
+        if (typeof sim === 'number') {
+          aiSim = sim;
+          if (sim >= AI_THRESHOLD) { autoScore = AI_PARTIAL; aiSuggested = true; }
+          else autoScore = 0;
+        } else {
+          // Sync fallback: quick stringSimilarity (no await) for parity when AI not yet fetched
+          // computeScore callers without AI will get 0 here; async path will supply aiScores
+          autoScore = 0;
+        }
+      }
     } else {
       const choices = parseChoices(q.choices);
       if (sub.answer_scheme === 'fixed') {
-        // Fixed order: the stored answer is the canonical choice key.
         autoCorrect = !!submittedAnswers[q.id] && submittedAnswers[q.id] === q.answer;
       } else {
-        // Legacy shuffled letters: resolve back through the seed shuffle.
         const choiceSeed = studentSeed + idx * 7919;
         const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
           ...c, displayKey: String.fromCharCode(65 + ci),
@@ -2955,15 +3060,51 @@ function computeScore(questions, sub, overrides = {}) {
         const chosen = submittedAnswers[q.id];
         autoCorrect = chosen === correctDisplayKey;
       }
+      autoScore = autoCorrect ? 1 : 0;
     }
 
     const verdict = overrides[q.id];
-    const correct = verdict === 'correct' ? true : verdict === 'incorrect' ? false : autoCorrect;
-    if (correct) correctCount++;
-    perQuestion.push({ question_id: q.id, autoCorrect, correct, verdict: verdict || null });
+    let finalScore;
+    let correct;
+    if (verdict === 'correct') { finalScore = 1; correct = true; }
+    else if (verdict === 'incorrect') { finalScore = 0; correct = false; }
+    else {
+      finalScore = autoScore;
+      correct = autoScore >= 1; // only full counts as correct for legacy boolean; partial is separate
+      // For fill_blank partial, correct=true is false but score 0.5 still counts
+      if (aiSuggested) correct = false;
+    }
+    // For partial, finalScore 0.5 still increments total as 0.5
+    correctCount += finalScore;
+    perQuestion.push({
+      question_id: q.id,
+      autoCorrect,
+      autoScore,
+      aiSimilarity: aiSim,
+      aiSuggested,
+      score: finalScore,
+      correct: finalScore >= 1 || verdict === 'correct',
+      verdict: verdict || null
+    });
   });
 
+  // Keep correctCount with one decimal (0.5 steps)
+  correctCount = Math.round(correctCount * 2) / 2;
   return { correctCount, perQuestion };
+}
+
+async function computeScoreWithAI(questions, sub, overrides = {}, env) {
+  const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
+  const aiScores = {};
+  // Only for fill_blank that are not already correct
+  for (const q of questions) {
+    if ((q.type || 'multiple_choice') !== 'fill_blank') continue;
+    const studentAnswer = submittedAnswers[q.id] || '';
+    if (matchesAnswer(studentAnswer, q.answer)) continue;
+    const sim = await getAiSimilarity(studentAnswer, q.answer, env);
+    aiScores[q.id] = sim;
+  }
+  return computeScore(questions, sub, overrides, aiScores);
 }
 
 // ── REVIEW (manual grade) ───────────────────────────
@@ -3003,7 +3144,7 @@ app.post('/api/submissions/:id/review', async (c) => {
   const overrides = {};
   reviewRows.forEach(r => { overrides[r.question_id] = r.verdict; });
 
-  const { correctCount } = computeScore(questions, sub, overrides);
+  const { correctCount } = await computeScoreWithAI(questions, sub, overrides, c.env);
   await db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, subId).run();
   invalidateAnalytics(sub.exam_id);
   await log(db, 'submission_reviewed', `Manual review on ${sub.student_name}: Q ${question_id} → ${verdict || 'auto'}`);
@@ -3044,7 +3185,7 @@ app.post('/api/regrade/:examId', async (c) => {
   const updated = [];
   const stmts = [];
   for (const sub of submissions) {
-    const { correctCount } = computeScore(questions, sub, overridesBySub[sub.id] || {});
+    const { correctCount } = await computeScoreWithAI(questions, sub, overridesBySub[sub.id] || {}, c.env);
     stmts.push(db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, sub.id));
     updated.push({
       name: sub.student_name,
@@ -3063,6 +3204,69 @@ app.post('/api/regrade/:examId', async (c) => {
 
   await log(db, 'regrade', 'Regraded ' + updated.length + ' submissions for exam ' + examId);
   return c.json({ regraded: updated.length, results: updated });
+});
+
+// ── AI ASSIST ──────────────────────────────────
+// Preview single fill_blank answer. Admin only. Returns similarity + suggestion.
+app.post('/api/ai/check-fill', async (c) => {
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+  const body = await c.req.json().catch(() => ({}));
+  const student = String(body.student || body.studentAnswer || '').trim();
+  const correct = String(body.correct || body.correctAnswer || '').trim();
+  if (!student || !correct) return c.json({ error: 'student and correct are required' }, 400);
+  // Deterministic already correct -> 1
+  if (matchesAnswer(student, correct)) {
+    return c.json({ similarity: 1, suggested: 'correct', score: 1, reason: 'Exact match (deterministic)' });
+  }
+  const sim = await getAiSimilarity(student, correct, c.env);
+  const suggested = sim >= AI_THRESHOLD ? 'partial' : 'incorrect';
+  const score = sim >= AI_THRESHOLD ? AI_PARTIAL : 0;
+  return c.json({
+    similarity: Math.round(sim * 100) / 100,
+    suggested,
+    score,
+    threshold: AI_THRESHOLD,
+    partial: AI_PARTIAL,
+    reason: sim >= AI_THRESHOLD ? `Close (${Math.round(sim*100)}% ≥ ${AI_THRESHOLD*100}%) → 0.5 partial` : `Not close (${Math.round(sim*100)}% < ${AI_THRESHOLD*100}%)`
+  });
+});
+
+// Bulk AI regrade: recompute all fill_blank with AI partial static (uses embeddings fallback too)
+app.post('/api/ai/regrade/:examId', async (c) => {
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const { results: questions } = await db.prepare(`SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`).bind(examId).all();
+  if (!questions || !questions.length) return c.json({ error: 'No questions' }, 404);
+  const fillCount = questions.filter(q => (q.type || 'multiple_choice') === 'fill_blank').length;
+  if (!fillCount) return c.json({ error: 'No fill_blank questions to regrade' }, 400);
+
+  const { results: submissions } = await db.prepare(`SELECT id, student_name, student_section, seed, answers, score, total, answer_scheme FROM submissions WHERE exam_id = ?`).bind(examId).all();
+  const { results: reviewRows } = await db.prepare(
+    `SELECT submission_id, question_id, verdict FROM answer_reviews ar INNER JOIN submissions s ON s.id = ar.submission_id WHERE s.exam_id = ?`
+  ).bind(examId).all();
+  const overridesBySub = {};
+  reviewRows.forEach(r => {
+    overridesBySub[r.submission_id] = overridesBySub[r.submission_id] || {};
+    overridesBySub[r.submission_id][r.question_id] = r.verdict;
+  });
+
+  const updated = [];
+  const stmts = [];
+  for (const sub of submissions) {
+    const before = Number(sub.score) || 0;
+    const { correctCount, perQuestion } = await computeScoreWithAI(questions, sub, overridesBySub[sub.id] || {}, c.env);
+    const aiPartials = perQuestion.filter(p => p.aiSuggested).length;
+    stmts.push(db.prepare(`UPDATE submissions SET score = ? WHERE id = ?`).bind(correctCount, sub.id));
+    updated.push({ name: sub.student_name, section: sub.student_section, old_score: before, new_score: correctCount, total: sub.total, ai_partials: aiPartials });
+  }
+  if (stmts.length) {
+    for (let i = 0; i < stmts.length; i += 80) await db.batch(stmts.slice(i, i+80));
+  }
+  invalidateAnalytics(examId);
+  await log(db, 'ai_regrade', `AI regraded ${updated.length} submissions for ${examId} (threshold ${AI_THRESHOLD})`);
+  return c.json({ regraded: updated.length, threshold: AI_THRESHOLD, partial: AI_PARTIAL, results: updated });
 });
 
 // ── SPA FALLBACK: served via fetch handler below (non-/api → ASSETS) ────────

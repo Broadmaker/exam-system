@@ -12,6 +12,12 @@ assets = { directory = "dist", binding = "ASSETS", not_found_handling = "single-
 VAPID_PUBLIC_KEY = "BBFq3Yg0rjPgCRXaB_L6Gl2vD8-iwvCh3zekOG26RWZBZRVdw1KfK7Pu1rv77lb7p5dxCLC01Ek5FqeVjOf6jqE"
 # VAPID_PRIVATE_KEY must be set as a secret, NOT here — `wrangler secret put VAPID_PRIVATE_KEY`
 VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"
+# AI Assist: Workers AI free tier (10k neurons/day). No secret needed.
+AI_PARTIAL_THRESHOLD = "0.85"
+AI_PARTIAL_CREDIT = "0.5"
+
+[ai]
+binding = "AI"
 
 [observability]
 enabled = true

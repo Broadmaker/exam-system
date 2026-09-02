@@ -87,6 +87,8 @@ export const api = {
   getSubmissions: (examId) => request('/submissions/' + examId, { credentials: 'include' }),
   reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }),
   regrade: (examId) => request('/regrade/' + examId, { method: 'POST', credentials: 'include' }),
+  aiCheckFill: (body) => request('/ai/check-fill', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }),
+  aiRegrade: (examId) => request('/ai/regrade/' + examId, { method: 'POST', credentials: 'include' }),
   // Question Bank
   listBank: () => memoRequest('/bank', { credentials: 'include' }, 30000),
   addBank: (body) => request('/bank', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/bank'); return r; }),
