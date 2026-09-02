@@ -916,10 +916,12 @@ app.post('/api/submit', async (c) => {
   // Includes AI partial 0.5 for fill_blank >=0.85 similarity (free Workers AI)
   let serverScore = 0;
   let aiPartials = 0;
+  let serverPerQuestion = [];
   try {
     const tmpSub = { seed: String(seed || ''), answers: submittedAnswers, answer_scheme: safeScheme };
     const computed = await computeScoreWithAI(questions, tmpSub, {}, c.env);
     serverScore = computed.correctCount;
+    serverPerQuestion = computed.perQuestion;
     aiPartials = computed.perQuestion.filter(p => p.aiSuggested).length;
     if (aiPartials) await log(db, 'ai_partial', `AI gave ${aiPartials} x 0.5 partial for ${student_name} (${normId}) in ${exam_id}`);
   } catch (e) {
@@ -928,6 +930,7 @@ app.post('/api/submit', async (c) => {
       const tmpSub = { seed: String(seed || ''), answers: submittedAnswers, answer_scheme: safeScheme };
       const computed = computeScore(questions, tmpSub);
       serverScore = computed.correctCount;
+      serverPerQuestion = computed.perQuestion;
     } catch {
       serverScore = Math.max(0, Math.min(questions.length, Number(clientScore) || 0));
     }
@@ -991,7 +994,7 @@ app.post('/api/submit', async (c) => {
 
   await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
   invalidateAnalytics(exam_id);
-  return c.json({ id, score: serverScore, total: serverTotal }, existing ? 200 : 201);
+  return c.json({ id, score: serverScore, total: serverTotal, perQuestion: serverPerQuestion }, existing ? 200 : 201);
 });
 
 // ── SESSIONS (single-session lock + heartbeat) ──────

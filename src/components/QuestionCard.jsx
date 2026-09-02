@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import { renderDatasets, parseChoices, matchesAnswer } from '../utils';
-import { CheckCircle, XCircle, HelpCircle } from 'lucide-react';
+import { CheckCircle, XCircle, HelpCircle, Sparkles } from 'lucide-react';
 
-export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers }) {
+export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers, grading }) {
   const qType = question.type || 'multiple_choice';
   const [blankInput, setBlankInput] = useState(chosenKey || '');
   useEffect(() => { setBlankInput(chosenKey || ''); }, [chosenKey]);
@@ -12,8 +12,14 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
   const fixedChoicesMemo = useMemo(() => qDataMemo.choices.map((c) => ({ ...c, displayKey: c.key })), [qDataMemo.choices]);
 
   if (qType === 'fill_blank') {
-    const isCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(question.answer || ''));
-    const isWrong = submitted && chosenKey !== undefined && !isCorrect;
+    // Prefer server AI grading if available (0.5 partial), else fallback to deterministic
+    const serverScore = grading?.score;
+    const serverIsPartial = serverScore === 0.5 || grading?.aiSuggested;
+    const serverIsCorrect = serverScore === 1 || grading?.autoCorrect;
+    const deterministicCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(question.answer || ''));
+    const isCorrect = submitted && (serverScore !== undefined ? serverIsCorrect : deterministicCorrect);
+    const isPartial = submitted && (serverScore === 0.5 || serverIsPartial);
+    const isWrong = submitted && chosenKey !== undefined && !isCorrect && !isPartial;
     const answered = chosenKey !== undefined && String(chosenKey).trim() !== '';
     const handleBlur = () => { if (!submitted) onAnswer(question.id, blankInput.trim()); };
     const handleChange = (e) => {
@@ -24,7 +30,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
     return (
       <div
         className={`group bg-surface border rounded-[14px] p-5 sm:p-6 shadow-card transition-colors ${
-          !submitted ? (answered ? 'border-l-[3px] border-l-navy-700 border-border' : 'border-border') : isCorrect ? 'border-l-[3px] border-l-success border-success/20 bg-success-bg/30' : isWrong ? 'border-l-[3px] border-l-danger border-danger/20 bg-danger-bg/30' : 'border-border'
+          !submitted ? (answered ? 'border-l-[3px] border-l-navy-700 border-border' : 'border-border') : isPartial ? 'border-l-[3px] border-l-warning border-warning/30 bg-warning-bg/20' : isCorrect ? 'border-l-[3px] border-l-success border-success/20 bg-success-bg/30' : isWrong ? 'border-l-[3px] border-l-danger border-danger/20 bg-danger-bg/30' : 'border-border'
         }`}
       >
         <div className="flex items-center justify-between gap-3 mb-3">
@@ -34,7 +40,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             {question.part && <span className="text-muted">· Part {question.part}</span>}
           </span>
           {submitted ? (
-            answered ? (isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span>) : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
+            answered ? (isPartial ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-warning"><Sparkles size={12} /> Partial (AI 0.5)</span> : isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span>) : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
           ) : answered ? (
             <span className="text-[11px] font-semibold text-navy-700">Answered</span>
           ) : null}
@@ -49,22 +55,27 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           disabled={submitted}
           placeholder="Type your answer…"
           className={`w-full rounded-xl px-4 py-3 text-[14px] border-2 outline-none transition-colors bg-canvas focus:bg-surface ${
-            submitted ? (isCorrect ? 'border-success bg-success-bg/50' : isWrong ? 'border-danger bg-danger-bg/50' : 'border-border') : 'border-border-strong focus:border-navy-700 focus:shadow-[0_0_0_3px_var(--color-navy-100)]'
+            submitted ? (isPartial ? 'border-warning bg-warning-bg/40' : isCorrect ? 'border-success bg-success-bg/50' : isWrong ? 'border-danger bg-danger-bg/50' : 'border-border') : 'border-border-strong focus:border-navy-700 focus:shadow-[0_0_0_3px_var(--color-navy-100)]'
           }`}
         />
 
         {submitted && (
-          <div className={`mt-3 text-[12px] font-medium flex items-center gap-1.5 ${isCorrect ? 'text-success' : isWrong ? 'text-danger' : 'text-muted'}`}>
-            {!chosenKey ? 'Not answered.' : isCorrect ? 'Correct!' : 'Incorrect.'}
-            {showAnswers && !isCorrect && (
+          <div className={`mt-3 text-[12px] font-medium flex items-center gap-1.5 flex-wrap ${isPartial ? 'text-warning' : isCorrect ? 'text-success' : isWrong ? 'text-danger' : 'text-muted'}`}>
+            {!chosenKey ? 'Not answered.' : isPartial ? <><Sparkles size={12} /> Partial credit — close answer (AI 0.5)</> : isCorrect ? 'Correct!' : 'Incorrect.'}
+            {showAnswers && !isCorrect && !isPartial && (
               <span className="font-normal text-navy-700">
                 Correct answer: <strong className="font-semibold">{question.answer}</strong>
+              </span>
+            )}
+            {showAnswers && isPartial && (
+              <span className="font-normal text-navy-700">
+                Correct: <strong className="font-semibold">{question.answer}</strong> <span className="text-warning font-medium">· you got 0.5</span>
               </span>
             )}
           </div>
         )}
         {submitted && question.explain && (
-          <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
+          <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isPartial ? 'bg-warning-bg border-warning/30 text-warning' : isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
             {question.explain}
           </div>
         )}

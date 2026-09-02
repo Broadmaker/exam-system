@@ -38,7 +38,17 @@ export default function Exam() {
   const [answeredSet, setAnsweredSet] = useState(new Set());
   const [tabSwitches, setTabSwitches] = useState(0);
   const [totalSeconds, setTotalSeconds] = useState(0);
-  const [results, setResults] = useState(null);
+  const [results, setResults] = useState(() => {
+    try {
+      const cached = localStorage.getItem('exam_results_' + new URLSearchParams(window.location.search).get('id'));
+      return cached ? JSON.parse(cached) : null;
+    } catch { return null; }
+  });
+  const perQMap = useMemo(() => {
+    const m = {};
+    (results?.perQuestion || []).forEach(p => { m[p.question_id] = p; });
+    return m;
+  }, [results]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -596,10 +606,16 @@ export default function Exam() {
 
     try {
       const res = await api.submitScore(payload);
-      // Server recomputes score authoritatively — update UI if it differs (fill_blank parity, tamper)
-      if (res && typeof res.score === 'number' && res.score !== total) {
-        setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ } : prev);
+      // Server recomputes score authoritatively — includes AI 0.5 partial (≥0.85) — update UI if it differs
+      if (res && typeof res.score === 'number') {
+        if (res.score !== total || res.perQuestion) {
+          setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ, perQuestion: res.perQuestion || prev.perQuestion } : prev);
+        }
         total = res.score;
+        // Keep perQuestion for Review My Answers display
+        if (res.perQuestion) {
+          try { localStorage.setItem('exam_results_' + examId, JSON.stringify({ total: res.score, totalQ: res.total, perQuestion: res.perQuestion })); } catch {}
+        }
       }
       if (sessionIdRef.current) api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
       sessionIdRef.current = '';
@@ -1189,6 +1205,7 @@ export default function Exam() {
         <div className="flex flex-col gap-4">
           {questions.slice(qPage * QUESTIONS_PER_PAGE, (qPage + 1) * QUESTIONS_PER_PAGE).map((q, idx) => {
             const i = qPage * QUESTIONS_PER_PAGE + idx;
+            const grading = perQMap[q.id];
             return (
             <div key={q.id} id={`q-${q.id}`} className="scroll-mt-28">
               <QuestionCard
@@ -1199,6 +1216,7 @@ export default function Exam() {
                 submitted={submitted || reviewMode}
                 chosenKey={answers[q.id]}
                 showAnswers={examData?.show_answers !== 0}
+                grading={grading}
               />
             </div>
             );
