@@ -768,7 +768,7 @@ function BulkImportSection({ examId, onImported }) {
       {open && (
         <div className="mt-3 border border-border rounded-lg p-3.5 bg-canvas/50">
           <p className="text-[12px] text-muted mb-2">
-            Paste a JSON array of questions. Each object: <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"choices\": [{\"key\":\"A\",\"text\":\"...\"},...], \"answer\": \"A\", \"part\": 1, \"explain\": \"...\", \"type\": \"multiple_choice\" }"}</code>. For fill-in-the-blank, use <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"type\": \"fill_blank\", \"choices\": [], \"answer\": \"correct answer\", \"part\": 1 }"}</code>.
+            Paste a JSON array of questions. Each object: <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"choices\": [{\"key\":\"A\",\"text\":\"...\"},...], \"answer\": \"A\", \"part\": 1, \"explain\": \"...\", \"type\": \"multiple_choice\" }"}</code>. For fill-in-the-blank, use <code className="font-mono text-[11px]">{"{ \"text\": \"...\", \"type\": \"fill_blank\", \"choices\": [], \"answer\": \"correct answer\", \"part\": 1, \"explain\": \"...\" }"}</code> — <code className="font-mono text-[11px]">explain</code> is optional for both (shown on Review when <code className="font-mono text-[11px]">show_answers</code> is on).
           </p>
           <TextArea value={json} onChange={e => setJson(e.target.value)}
             placeholder='[{"text":"What is 2+2?","choices":[{"key":"A","text":"3"},{"key":"B","text":"4"},{"key":"C","text":"5"}],"answer":"B","part":1}]'
