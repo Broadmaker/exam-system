@@ -1101,15 +1101,23 @@ export default function Exam() {
               <WifiOff size={14} /> Score saved locally — will sync when connection restores.
             </div>
           )}
-          {(serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick') && !submitting && !pendingSubmit && (
+          {serverRetry && !submitting && !pendingSubmit && (
             <div className="flex flex-col gap-2.5 mb-5">
               <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning">
-                <AlertTriangle size={13} /> This exam was submitted automatically ({submitReason === 'tab' ? 'tab switch' : submitReason === 'timeout' ? 'time ran out' : submitReason === 'kick' ? 'session closed by proctor' : 'retry granted by proctor'}).
+                <AlertTriangle size={13} /> {submitReason === 'tab' ? 'Tab switch — retake granted by proctor' : submitReason === 'timeout' ? 'Time ran out — retake granted' : submitReason === 'kick' ? 'Session closed by proctor — retake granted' : 'Retake granted by proctor'}.
               </div>
               {(submitReason === 'tab' || submitReason === 'kick') && (
                 <Button variant="outline" onClick={continueExam}>Continue Exam</Button>
               )}
               <Button onClick={retryExam}>Retry Exam</Button>
+            </div>
+          )}
+          {(submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick') && !serverRetry && !submitting && !pendingSubmit && (
+            <div className="flex flex-col gap-2.5 mb-5">
+              <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning">
+                <AlertTriangle size={13} /> This exam was submitted automatically ({submitReason === 'tab' ? 'tab switch' : submitReason === 'timeout' ? 'time ran out' : 'session closed by proctor'}). Ask your proctor to allow a retry.
+              </div>
+              <Button variant="outline" onClick={checkRetryNow}>Check for retake permission</Button>
             </div>
           )}
           <div className="flex gap-2.5 justify-center flex-wrap">
@@ -1130,17 +1138,17 @@ export default function Exam() {
           <div className="bg-surface rounded-[16px] max-w-[440px] w-full text-center shadow-modal px-8 py-10">
             <span className="w-14 h-14 rounded-full bg-navy-100 flex items-center justify-center mx-auto mb-4"><ClipboardList size={30} className="text-navy-700" /></span>
             <h1 className="text-[22px] font-bold text-navy-800 mb-2.5">
-              {serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick' ? 'Exam Auto-Submitted' : 'Already Submitted'}
+              {submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick' ? 'Exam Auto-Submitted' : 'Already Submitted'}
             </h1>
             <p className="text-[14px] text-muted mb-6 leading-relaxed">
               {submitReason === 'tab'
-                ? <>You switched away from the exam too many times, so it was submitted automatically.<br />You may continue or retry if you like.</>
+                ? <>You switched away from the exam too many times, so it was submitted automatically.<br />{serverRetry ? <>You may continue or retry.</> : <>Ask your proctor to allow a retake.</>}</>
                 : submitReason === 'timeout'
-                  ? <>Time ran out and your exam was submitted automatically.<br />You may retry if you like.</>
+                  ? <>Time ran out and your exam was submitted automatically.<br />{serverRetry ? <>You may retry.</> : <>Ask your proctor to allow a retake.</>}</>
                   : submitReason === 'kick'
-                    ? <>Your session was closed by the proctor, so your answers were submitted.<br />You may continue or retry if you like.</>
+                    ? <>Your session was closed by the proctor, so your answers were submitted.<br />{serverRetry ? <>You may continue or retry.</> : <>Ask your proctor to allow a retake.</>}</>
                     : serverRetry
-                      ? <>Your instructor has granted you a retake.<br />You may continue or retry if you like.</>
+                      ? <>Your instructor has granted you a retake.<br />You may continue or retry.</>
                       : <>You have already submitted this exam.<br />You cannot retake it.</>}
             </p>
             {pendingSubmit && (
@@ -1148,7 +1156,7 @@ export default function Exam() {
                 <WifiOff size={14} /> Score not yet synced — will upload when connected.
               </div>
             )}
-            {(serverRetry || submitReason === 'tab' || submitReason === 'timeout' || submitReason === 'kick') && !pendingSubmit && (
+            {serverRetry && !pendingSubmit && (
               <div className="flex flex-col gap-2.5 mb-6">
                 {(submitReason === 'tab' || submitReason === 'kick' || serverRetry) && (
                   <Button variant="outline" onClick={continueExam}>Continue Exam</Button>
@@ -1156,7 +1164,7 @@ export default function Exam() {
                 <Button onClick={retryExam}>Retry Exam</Button>
               </div>
             )}
-            {!serverRetry && submitReason !== 'tab' && submitReason !== 'timeout' && submitReason !== 'kick' && !pendingSubmit && (
+            {!serverRetry && !pendingSubmit && (
               <div className="flex flex-col gap-2.5 mb-6">
                 <p className="text-[11px] text-faint leading-relaxed">If your instructor just allowed a retake, tap to check — no hard refresh needed.</p>
                 <Button variant="outline" onClick={checkRetryNow}>Check for retake permission</Button>

@@ -573,8 +573,8 @@ app.delete('/api/exams/:id', async (c) => {
   return c.json({ success: true });
 });
 
-// Tell the student whether a retry is currently allowed for their submission
-// (auto-submitted, or explicitly granted by the proctor). Capped by MAX_RETRIES.
+// Tell the student whether a retry is currently allowed — strictly admin-granted, capped by MAX_RETRIES.
+// Auto reasons (tab/timeout/kick) no longer bypass; admin must click Allow Retry.
 app.get('/api/exams/:id/retry-status', async (c) => {
   const db = c.env.DB;
   const examId = c.req.param('id');
@@ -588,8 +588,7 @@ app.get('/api/exams/:id/retry-status', async (c) => {
   if (!sub) return c.json({ allowed: false });
   const count = Number(sub.retry_count) || 0;
   if (count >= MAX_RETRIES) return c.json({ allowed: false, reason: sub.reason, retry_count: count, remaining: 0, capped: true });
-  const auto = sub.reason === 'timeout' || sub.reason === 'tab' || sub.reason === 'kick';
-  const allowed = !!sub.retry_allowed || auto;
+  const allowed = !!sub.retry_allowed;
   return c.json({ allowed, reason: sub.reason, retry_count: count, remaining: Math.max(0, MAX_RETRIES - count), capped: false });
 });
 
@@ -876,10 +875,10 @@ app.post('/api/submit', async (c) => {
   if (existing && existingCount >= MAX_RETRIES) {
     return c.json({ error: `Retry limit reached (${MAX_RETRIES}). Ask your proctor to reset your attempts.` }, 409);
   }
-  // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
-  // or the proctor explicitly granted a retry for this student.
-  if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
-    return c.json({ error: 'You have already submitted this exam.' }, 409);
+  // Strict: any resubmit requires admin Allow Retry (retry_allowed), capped by MAX_RETRIES.
+  // Auto reasons (tab/timeout/kick) no longer bypass — admin must click Allow Retry.
+  if (existing && !existing.retry_allowed) {
+    return c.json({ error: 'You have already submitted this exam. Ask your proctor to allow a retry.' }, 409);
   }
 
   if (exam.class_id) {
