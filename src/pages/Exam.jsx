@@ -187,7 +187,28 @@ export default function Exam() {
         const res = await api.submitScore(pendingSubmit);
         // Server is authoritative — update local score if it recomputed differently
         if (res && typeof res.score === 'number') {
-          setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ } : prev);
+          let serverPartScores = null;
+          if (res.perQuestion) {
+            const qsForParts = questionsRef.current?.length ? questionsRef.current : questions;
+            const partMap = new Map((qsForParts || []).map(q => [q.id, q.part]));
+            if (partMap.size) {
+              serverPartScores = {};
+              res.perQuestion.forEach(p => {
+                const part = partMap.get(p.question_id);
+                if (part === undefined) return;
+                const add = typeof p.score === 'number' ? p.score : (p.correct ? 1 : 0);
+                if (add) serverPartScores[part] = (serverPartScores[part] || 0) + add;
+              });
+            }
+          }
+          setResults(prev => {
+            if (!prev) return prev;
+            const next = { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ };
+            if (res.perQuestion) next.perQuestion = res.perQuestion;
+            if (serverPartScores) next.partScores = serverPartScores;
+            try { localStorage.setItem('exam_results_' + examId, JSON.stringify(next)); } catch {}
+            return next;
+          });
         }
         localStorage.removeItem('pending_submission_' + examId);
         // Keep a backup of the now-confirmed submission
@@ -231,11 +252,30 @@ export default function Exam() {
     api.getRetryStatus(examId, studentId.trim().toUpperCase(), name.trim(), section.trim())
       .then(r => {
         setServerRetry(!!r.allowed);
-        if (r.allowed) toast('Retake granted', 'Your instructor has allowed you to retry. Tap Retry Exam.');
+        if (r.capped) toast('Retry limit reached', `You have used ${r.retry_count}/${2} retries. Ask your proctor to reset.`);
+        else if (r.allowed) toast('Retake granted', `Your instructor has allowed you to retry${r.remaining !== undefined ? ` — ${r.remaining} left` : ''}. Tap Retry Exam.`);
         else toast('Not yet allowed', 'Your instructor has not granted a retake. Please wait.');
       })
       .catch(() => toast('Cannot check', 'Could not reach the server. Check your connection.'));
   }, [examId, studentId, name, section]);
+
+  // Repair old cached results that have perQuestion but no partScores (bug: local grading had no answer keys)
+  useEffect(() => {
+    if (!results?.perQuestion || results.partScores) return;
+    if (!questions.length) return;
+    const partMap = new Map(questions.map(q => [q.id, q.part]));
+    if (!partMap.size) return;
+    const repaired = {};
+    results.perQuestion.forEach(p => {
+      const part = partMap.get(p.question_id);
+      if (part === undefined) return;
+      const add = typeof p.score === 'number' ? p.score : (p.correct ? 1 : 0);
+      if (add) repaired[part] = (repaired[part] || 0) + add;
+    });
+    const next = { ...results, partScores: repaired };
+    setResults(next);
+    try { localStorage.setItem('exam_results_' + examId, JSON.stringify(next)); } catch {}
+  }, [results, questions, examId]);
 
   // Heartbeat: keeps the live session alive and detects admin kicks.
   useEffect(() => {
@@ -608,13 +648,30 @@ export default function Exam() {
       const res = await api.submitScore(payload);
       // Server recomputes score authoritatively — includes AI 0.5 partial (≥0.85) — update UI if it differs
       if (res && typeof res.score === 'number') {
-        if (res.score !== total || res.perQuestion) {
-          setResults(prev => prev ? { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ, perQuestion: res.perQuestion || prev.perQuestion } : prev);
+        // Derive partScores from server perQuestion — client questions have no answer key (stripped for anti-cheat),
+        // so local partScores were always 0. Server perQuestion is authoritative.
+        let serverPartScores = null;
+        if (res.perQuestion) {
+          serverPartScores = {};
+          const qsForParts = qs.length ? qs : (questionsRef.current || questions);
+          const partMap = new Map(qsForParts.map(q => [q.id, q.part]));
+          res.perQuestion.forEach(p => {
+            const part = partMap.get(p.question_id);
+            if (part === undefined) return;
+            const add = typeof p.score === 'number' ? p.score : (p.correct ? 1 : 0);
+            if (add) serverPartScores[part] = (serverPartScores[part] || 0) + add;
+          });
+        }
+        if (res.score !== total || res.perQuestion || serverPartScores) {
+          setResults(prev => {
+            const base = prev || { total, totalQ: qs.length, partScores, timeTaken };
+            return { ...base, total: res.score, totalQ: res.total ?? base.totalQ, perQuestion: res.perQuestion || base.perQuestion, partScores: serverPartScores || base.partScores, timeTaken };
+          });
         }
         total = res.score;
-        // Keep perQuestion for Review My Answers display
+        // Keep perQuestion + partScores for Review My Answers display and reload persistence
         if (res.perQuestion) {
-          try { localStorage.setItem('exam_results_' + examId, JSON.stringify({ total: res.score, totalQ: res.total, perQuestion: res.perQuestion })); } catch {}
+          try { localStorage.setItem('exam_results_' + examId, JSON.stringify({ total: res.score, totalQ: res.total, perQuestion: res.perQuestion, partScores: serverPartScores, timeTaken })); } catch {}
         }
       }
       if (sessionIdRef.current) api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
@@ -646,7 +703,8 @@ export default function Exam() {
         return;
       }
       if (e.status === 409) {
-        toast('Already submitted', e.message || 'You have already submitted. Ask your instructor to allow a retry.');
+        const isCapped = e.message && e.message.toLowerCase().includes('retry limit');
+        toast(isCapped ? 'Retry limit reached' : 'Already submitted', e.message || 'You have already submitted. Ask your instructor to allow a retry.');
         setSubmitting(false);
         setSubmitted(true);
         return;
@@ -960,8 +1018,11 @@ export default function Exam() {
   if ((submitted || submitting) && results && !reviewMode) {
     const pct = ((results.total / results.totalQ) * 100).toFixed(1);
     const passingPct = Number(examData?.passing_score ?? 60);
-    const parts = [...new Set(questions.map(q => q.part))].sort();
-    const qpp = Math.ceil(results.totalQ / parts.length);
+    const parts = [...new Set(questions.map(q => q.part))].sort((a,b)=>a-b);
+    const partCounts = {};
+    questions.forEach(q => { partCounts[q.part] = (partCounts[q.part] || 0) + 1; });
+    // Fallback when questions not yet loaded (e.g., reload) — derive counts from totalQ evenly
+    const fallbackQpp = parts.length ? Math.ceil(results.totalQ / parts.length) : results.totalQ;
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-safe pb-safe bg-[rgba(10,20,40,.7)]">
         <div className="bg-surface rounded-[16px] max-w-[520px] w-full text-center shadow-modal max-h-[90vh] overflow-y-auto px-6 sm:px-8 py-8">
@@ -995,13 +1056,14 @@ export default function Exam() {
               </tr></thead>
               <tbody>
                 {parts.map(p => {
-                  const sc = results.partScores[p] || 0;
-                  const pct2 = (sc / qpp) * 100;
+                  const sc = results.partScores?.[p] ?? 0;
+                  const tot = partCounts[p] ?? fallbackQpp;
+                  const pct2 = tot ? (sc / tot) * 100 : 0;
                   return (
                     <tr key={p} className="border-t border-border">
                       <td className="px-3.5 py-2.5 font-semibold">Part {p}</td>
                       <td className="px-3.5 py-2.5">
-                        {sc}/{qpp}
+                        {Number.isInteger(sc) ? sc : sc.toFixed(1)}/{tot}
                         <div className="h-1.5 bg-border rounded-full overflow-hidden mt-1">
                           <div className="h-full bg-navy-700 rounded-full transition-all duration-500" style={{ width: pct2 + '%' }} />
                         </div>
@@ -1201,7 +1263,7 @@ export default function Exam() {
         );
       })()}
 
-      <main className="max-w-[860px] mx-auto px-4 py-6 pb-28">
+      <main className="max-w-[860px] mx-auto px-4 py-6">
         <div className="flex flex-col gap-4">
           {questions.slice(qPage * QUESTIONS_PER_PAGE, (qPage + 1) * QUESTIONS_PER_PAGE).map((q, idx) => {
             const i = qPage * QUESTIONS_PER_PAGE + idx;
@@ -1230,21 +1292,31 @@ export default function Exam() {
           </div>
         )}
 
-        <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-[16px] p-4 shadow-card sticky bottom-4 sm:static sm:mt-8 sm:rounded-[14px]">
-          <div className="text-[13px] text-muted">
-            <span className="font-semibold text-navy-800">{answeredCount}</span>/{totalQ} answered
-            {totalQ - answeredCount > 0 ? <span className="text-warning font-medium"> · {totalQ - answeredCount} unanswered</span> : <span className="text-success font-medium"> · All done</span>}
-            {tabSwitches > 0 && <span className="hidden sm:inline text-faint"> · {tabSwitches}/3 violations</span>}
-          </div>
-          <div className="flex gap-2">
-            {!submitted && !submitting && (
-              <Button className="!flex-1 sm:!flex-none !px-8 !py-3 !text-[15px]" onClick={() => setShowConfirm(true)}>Submit Exam</Button>
-            )}
-            {reviewMode && (
-              <Button variant="outline" icon={ArrowLeft} className="!flex-1 sm:!flex-none" onClick={() => setReviewMode(false)}>Back to Results</Button>
-            )}
-          </div>
-        </div>
+        {(() => {
+          const totalPages = Math.ceil(questions.length / QUESTIONS_PER_PAGE);
+          const isLastPage = totalPages <= 1 || qPage === totalPages - 1;
+          return (
+            <div className="mt-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-surface border border-border rounded-[16px] p-4 shadow-card sm:mt-8 sm:rounded-[14px]">
+              <div className="text-[13px] text-muted">
+                <span className="font-semibold text-navy-800">{answeredCount}</span>/{totalQ} answered
+                {totalQ - answeredCount > 0 ? <span className="text-warning font-medium"> · {totalQ - answeredCount} unanswered</span> : <span className="text-success font-medium"> · All done</span>}
+                {tabSwitches > 0 && <span className="hidden sm:inline text-faint"> · {tabSwitches}/3 violations</span>}
+                {!isLastPage && !submitted && !reviewMode && <span className="block sm:inline text-[12px] text-faint mt-1 sm:mt-0 sm:ml-2">· Go to page {totalPages} to submit</span>}
+              </div>
+              <div className="flex gap-2">
+                {!submitted && !submitting && isLastPage && (
+                  <Button className="!flex-1 sm:!flex-none !px-8 !py-3 !text-[15px]" onClick={() => setShowConfirm(true)}>Submit Exam</Button>
+                )}
+                {!submitted && !submitting && !isLastPage && (
+                  <Button className="!flex-1 sm:!flex-none" variant="outline" onClick={() => setQPage(totalPages - 1)}>Go to last page →</Button>
+                )}
+                {reviewMode && (
+                  <Button variant="outline" icon={ArrowLeft} className="!flex-1 sm:!flex-none" onClick={() => setReviewMode(false)}>Back to Results</Button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </main>
 
       <ConfirmDialog

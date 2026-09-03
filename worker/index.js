@@ -45,6 +45,8 @@ app.get('/api/health', async (c) => {
   }
 });
 
+const MAX_RETRIES = 2; // cap resubmits (manual + auto). Change here to tune.
+
 function uuid() { return crypto.randomUUID(); }
 
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
@@ -572,7 +574,7 @@ app.delete('/api/exams/:id', async (c) => {
 });
 
 // Tell the student whether a retry is currently allowed for their submission
-// (auto-submitted, or explicitly granted by the proctor).
+// (auto-submitted, or explicitly granted by the proctor). Capped by MAX_RETRIES.
 app.get('/api/exams/:id/retry-status', async (c) => {
   const db = c.env.DB;
   const examId = c.req.param('id');
@@ -580,12 +582,15 @@ app.get('/api/exams/:id/retry-status', async (c) => {
   if (!student_id || !student_name) return c.json({ allowed: false });
 
   const sub = await db.prepare(
-    `SELECT reason, retry_allowed FROM submissions WHERE exam_id = ? AND student_id = ? AND student_name = ? AND student_section = ?`
+    `SELECT reason, retry_allowed, retry_count FROM submissions WHERE exam_id = ? AND student_id = ? AND student_name = ? AND student_section = ?`
   ).bind(examId, student_id, student_name, student_section).first();
 
   if (!sub) return c.json({ allowed: false });
+  const count = Number(sub.retry_count) || 0;
+  if (count >= MAX_RETRIES) return c.json({ allowed: false, reason: sub.reason, retry_count: count, remaining: 0, capped: true });
   const auto = sub.reason === 'timeout' || sub.reason === 'tab' || sub.reason === 'kick';
-  return c.json({ allowed: !!sub.retry_allowed || auto, reason: sub.reason });
+  const allowed = !!sub.retry_allowed || auto;
+  return c.json({ allowed, reason: sub.reason, retry_count: count, remaining: Math.max(0, MAX_RETRIES - count), capped: false });
 });
 
 // Look up a student in the class roster for a class-linked exam, so they only
@@ -763,21 +768,31 @@ app.post('/api/submit', async (c) => {
   }
   const normId = String(student_id || '').trim().toUpperCase();
 
-  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at, created_at FROM exams WHERE id = ?`).bind(exam_id).first();
+  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at, created_at, show_answers FROM exams WHERE id = ?`).bind(exam_id).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
 
   // Find any prior submission — prefer student_id match, fallback to name+section
   // (unique index is on name+section, but class-linked flows key by student_id).
   let existing = null;
-  if (normId) {
-    existing = await db.prepare(
-      `SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_id = ?`
-    ).bind(exam_id, normId).first();
-  }
-  if (!existing) {
-    existing = await db.prepare(
-      `SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
-    ).bind(exam_id, student_name, student_section).first();
+  try {
+    if (normId) {
+      existing = await db.prepare(
+        `SELECT id, reason, retry_allowed, retry_count, score, total, answers FROM submissions WHERE exam_id = ? AND student_id = ?`
+      ).bind(exam_id, normId).first();
+    }
+    if (!existing) {
+      existing = await db.prepare(
+        `SELECT id, reason, retry_allowed, retry_count, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+      ).bind(exam_id, student_name, student_section).first();
+    }
+  } catch {
+    // Fallback before migration_retry_count applied
+    if (normId && !existing) {
+      try { existing = await db.prepare(`SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_id = ?`).bind(exam_id, normId).first(); } catch {}
+    }
+    if (!existing) {
+      try { existing = await db.prepare(`SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`).bind(exam_id, student_name, student_section).first(); } catch {}
+    }
   }
   const startedAtNum = Number(body.started_at);
   const hasValidStartedAt = Number.isFinite(startedAtNum) && startedAtNum > 0;
@@ -856,6 +871,11 @@ app.post('/api/submit', async (c) => {
   const safeReason = ['manual', 'timeout', 'tab', 'kick'].includes(reason) ? reason : 'manual';
   // Derive answer_scheme server-side — ignore client-supplied value to prevent grading branch manipulation
   const safeScheme = existing?.answer_scheme === 'shuffled' ? 'shuffled' : 'fixed';
+  // Cap retries: even auto/manual with retry_allowed is limited to MAX_RETRIES resubmits
+  const existingCount = Number(existing?.retry_count) || 0;
+  if (existing && existingCount >= MAX_RETRIES) {
+    return c.json({ error: `Retry limit reached (${MAX_RETRIES}). Ask your proctor to reset your attempts.` }, 409);
+  }
   // Allow re-submission when the previous attempt was auto-submitted (timeout/tab/kick)
   // or the proctor explicitly granted a retry for this student.
   if (existing && existing.reason === 'manual' && !existing.retry_allowed) {
@@ -944,23 +964,24 @@ app.post('/api/submit', async (c) => {
   }
 
   const id = existing ? existing.id : uuid();
+  const nextRetryCount = existing ? (Number(existing.retry_count) || 0) + 1 : 0;
   const batchStmts = [];
   if (existing) {
     batchStmts.push(
       db.prepare(
         `UPDATE submissions
-         SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, submitted_at = datetime('now')
+         SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, retry_count = ?, submitted_at = datetime('now')
          WHERE id = ?`
-      ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, id)
+      ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, nextRetryCount, id)
     );
     // Answers changed, so discard any manual reviews tied to the old attempt.
     batchStmts.push(db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id));
   } else {
     batchStmts.push(
       db.prepare(
-        `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme)
+        `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme, retry_count)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, 0)
     );
   }
 
@@ -994,6 +1015,19 @@ app.post('/api/submit', async (c) => {
 
   await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
   invalidateAnalytics(exam_id);
+  // Enrich perQuestion with correct answer/explanation for student review when show_answers is enabled.
+  // The student's Questions were stripped of answer on GET, so review needs server-provided keys.
+  const showAns = Number(exam.show_answers) !== 0;
+  if (showAns) {
+    const qMap = new Map(questions.map(q => [q.id, q]));
+    serverPerQuestion = serverPerQuestion.map(p => {
+      const q = qMap.get(p.question_id);
+      if (!q) return p;
+      const choices = parseChoices(q.choices);
+      const correctChoice = choices.find(c => c.key === q.answer);
+      return { ...p, answer: q.answer, answerText: correctChoice ? correctChoice.text : '', explain: q.explain || '' };
+    });
+  }
   return c.json({ id, score: serverScore, total: serverTotal, perQuestion: serverPerQuestion }, existing ? 200 : 201);
 });
 
@@ -1278,7 +1312,8 @@ app.post('/api/proctor/:examId/cleanup-stale', async (c) => {
   return c.json({ success: true, cleared });
 });
 
-// Allow/deny a retry for an already-submitted student. Body: { student_id, allow }.
+// Allow/deny a retry for an already-submitted student. Body: { student_id, allow, resetCount }.
+// When allow=true and student was capped, set resetCount:true (or default reset) to give them fresh MAX_RETRIES.
 app.post('/api/proctor/:examId/retry', async (c) => {
   if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;
@@ -1286,15 +1321,29 @@ app.post('/api/proctor/:examId/retry', async (c) => {
   const body = await c.req.json();
   if (!body.student_id) return c.json({ error: 'Missing student_id' }, 400);
 
-  await db.prepare(
-    `UPDATE submissions SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
-  ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+  const shouldReset = body.allow && body.resetCount !== false; // default reset on allow
+  try {
+    if (shouldReset) {
+      await db.prepare(
+        `UPDATE submissions SET retry_allowed = ?, retry_count = 0 WHERE exam_id = ? AND student_id = ?`
+      ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+    } else {
+      await db.prepare(
+        `UPDATE submissions SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
+      ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+    }
+  } catch (e) {
+    // Fallback if retry_count column not yet migrated
+    await db.prepare(
+      `UPDATE submissions SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
+    ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
+  }
   await db.prepare(
     `UPDATE attendance SET retry_allowed = ? WHERE exam_id = ? AND student_id = ?`
   ).bind(body.allow ? 1 : 0, examId, body.student_id).run();
-  await log(db, 'retry_allowed', `Admin ${body.allow ? 'allowed' : 'denied'} retry for student ${body.student_id} in ${examId}`);
+  await log(db, 'retry_allowed', `Admin ${body.allow ? 'allowed' : 'denied'} retry for student ${body.student_id} in ${examId}${shouldReset ? ' (reset count)' : ''}`);
 
-  return c.json({ success: true });
+  return c.json({ success: true, reset: shouldReset });
 });
 
 // ── ATTENDANCE (admin) ──────────────────────────────

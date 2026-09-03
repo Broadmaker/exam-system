@@ -16,7 +16,12 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
     const serverScore = grading?.score;
     const serverIsPartial = serverScore === 0.5 || grading?.aiSuggested;
     const serverIsCorrect = serverScore === 1 || grading?.autoCorrect;
-    const deterministicCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(question.answer || ''));
+    const serverAnswer = grading?.answer;
+    const serverExplain = grading?.explain;
+    // Use server-provided answer when available (student questions are stripped), else fallback to leaked answer
+    const correctAnswerText = serverAnswer !== undefined ? serverAnswer : (question.answer || '');
+    const explainTextFb = serverExplain !== undefined ? serverExplain : (question.explain || '');
+    const deterministicCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(correctAnswerText || ''));
     const isCorrect = submitted && (serverScore !== undefined ? serverIsCorrect : deterministicCorrect);
     const isPartial = submitted && (serverScore === 0.5 || serverIsPartial);
     const isWrong = submitted && chosenKey !== undefined && !isCorrect && !isPartial;
@@ -64,19 +69,19 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             {!chosenKey ? 'Not answered.' : isPartial ? <><Sparkles size={12} /> Partial credit — close answer (AI 0.5)</> : isCorrect ? 'Correct!' : 'Incorrect.'}
             {showAnswers && !isCorrect && !isPartial && (
               <span className="font-normal text-navy-700">
-                Correct answer: <strong className="font-semibold">{question.answer}</strong>
+                Correct answer: <strong className="font-semibold">{correctAnswerText}</strong>
               </span>
             )}
             {showAnswers && isPartial && (
               <span className="font-normal text-navy-700">
-                Correct: <strong className="font-semibold">{question.answer}</strong> <span className="text-warning font-medium">· you got 0.5</span>
+                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-warning font-medium">· you got 0.5</span>
               </span>
             )}
           </div>
         )}
-        {submitted && question.explain && (
+        {submitted && explainTextFb && (
           <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isPartial ? 'bg-warning-bg border-warning/30 text-warning' : isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
-            {question.explain}
+            {explainTextFb}
           </div>
         )}
       </div>
@@ -85,13 +90,20 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
 
   const qData = qDataMemo;
   const fixedChoices = fixedChoicesMemo;
-  const correctKey = qData.answer;
+  // qData.answer is stripped for students (anti-cheat); after submit server provides correct key via grading.answer when show_answers is on.
+  const serverAnswer = grading?.answer;
+  const serverExplain = grading?.explain;
+  const correctKey = serverAnswer !== undefined ? serverAnswer : qData.answer;
+  const explainText = serverExplain !== undefined ? serverExplain : qData.explain;
 
   const handleChange = (displayKey) => { if (!submitted) onAnswer(qData.id, displayKey); };
 
   const answered = chosenKey !== undefined;
-  const isCorrect = submitted && chosenKey === correctKey;
-  const isWrong = submitted && chosenKey !== undefined && chosenKey !== correctKey;
+  // Prefer server grading when available (authoritative, works without leaked answer keys)
+  const hasServerVerdict = submitted && grading && typeof grading.correct === 'boolean';
+  const isCorrect = hasServerVerdict ? !!grading.correct : (submitted && chosenKey === correctKey);
+  const isWrong = submitted && chosenKey !== undefined && !isCorrect;
+  const canShowAnswer = submitted && showAnswers && correctKey !== undefined && correctKey !== '';
 
   return (
     <div
@@ -119,8 +131,8 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
       <div className="flex flex-col gap-2">
         {fixedChoices.map((c) => {
           const selected = chosenKey === c.displayKey;
-          const showCorrect = submitted && showAnswers && c.displayKey === correctKey;
-          const showWrong = submitted && showAnswers && selected && c.displayKey !== correctKey;
+          const showCorrect = canShowAnswer && c.displayKey === correctKey;
+          const showWrong = canShowAnswer && selected && c.displayKey !== correctKey;
           return (
             <label
               key={c.displayKey}
@@ -154,7 +166,9 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
 
       {submitted && showAnswers && (
         <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
-          {isCorrect ? 'Correct!' : answered ? 'Incorrect.' : 'Not answered.'} {qData.explain ? ` ${qData.explain}` : ''}
+          {isCorrect ? 'Correct!' : answered ? 'Incorrect.' : 'Not answered.'} {explainText ? ` ${explainText}` : ''}
+          {canShowAnswer && !isCorrect && answered && correctKey ? ` — Correct answer: ${correctKey}${grading?.answerText ? ' — ' + grading.answerText : ''}` : ''}
+          {canShowAnswer && !answered && correctKey ? ` Correct answer: ${correctKey}${grading?.answerText ? ' — ' + grading.answerText : ''}` : ''}
         </div>
       )}
       {submitted && !showAnswers && (

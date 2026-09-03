@@ -50,6 +50,7 @@ CREATE TABLE submissions (
   time_taken INTEGER NOT NULL DEFAULT 0,
   reason TEXT NOT NULL DEFAULT 'manual',
   retry_allowed INTEGER NOT NULL DEFAULT 0,
+  retry_count INTEGER NOT NULL DEFAULT 0,
   submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
 );
