@@ -146,7 +146,6 @@ export default function Exam() {
         if (saved.studentId) setStudentId(saved.studentId);
         if (saved.sessionId) { sessionIdRef.current = saved.sessionId; setSessionId(saved.sessionId); }
         if (saved.accessCode) setAccessCode(saved.accessCode);
-        // Don't restore date from saved state since it's a new day
         if (saved.answers) setAnswers(saved.answers);
         if (saved.answered) setAnsweredSet(new Set(saved.answered));
         if (saved.tabSwitches) setTabSwitches(saved.tabSwitches);
@@ -156,6 +155,29 @@ export default function Exam() {
         if (saved.submitted) {
           setSubmitted(true);
           setStarted(true);
+        } else if (saved.startedAt && saved.studentId) {
+          // Mid-exam back-swipe / reload — auto-resume without re-scanning
+          setStarted(true);
+          // Rebuild seed + shuffled questions (client questions were stripped of answers but still needed for display)
+          const buildFrom = (qsList) => {
+            try {
+              if (!qsList?.length) return false;
+              const s = hashStr((saved.name || '').toLowerCase().replace(/\s/g, '') + (saved.section || '').toLowerCase() + examId);
+              setSeed(s);
+              setQuestions(shuffleWithSeed(qsList, s));
+              return true;
+            } catch { return false; }
+          };
+          if (!buildFrom(examData.questions || [])) {
+            // Questions were locked on initial gate fetch — refetch with saved proof (code + student_id)
+            api.getExam(examId, (saved.accessCode || '').trim(), (saved.studentId || '').trim().toUpperCase())
+              .then(refreshed => {
+                if (refreshed.questions?.length) {
+                  setExamData(refreshed);
+                  buildFrom(refreshed.questions);
+                }
+              }).catch(() => {});
+          }
         }
       }
     } catch (e) {}

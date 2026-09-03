@@ -1147,12 +1147,19 @@ app.post('/api/exams/:id/session/start', async (c) => {
   }
 
   // Reject if this student already has a live session on another device.
+  // Same-device resume (back swipe / reload / scan again) is allowed — return existing session
   const live = await db.prepare(
-    `SELECT id FROM exam_sessions
+    `SELECT id, device_id FROM exam_sessions
      WHERE exam_id = ? AND student_id = ? AND active = 1
        AND CAST(strftime('%s', last_seen) AS INTEGER) > ?`
   ).bind(examId, student_id, Math.floor((Date.now() - SESSION_STALE_MS) / 1000)).first();
   if (live) {
+    if (live.device_id && String(live.device_id) === String(device_id || '') && device_id) {
+      // Resume same device — refresh heartbeat and return same session_id
+      await db.prepare(`UPDATE exam_sessions SET last_seen = datetime('now') WHERE id = ?`).bind(live.id).run();
+      await log(db, 'session_resumed', `${enrolledName} (${student_id}) resumed ${examId} on same device`);
+      return c.json({ session_id: live.id, student_name: enrolledName, student_section: enrolledSection, resumed: true }, 200);
+    }
     return c.json({ error: 'This student already has an active session on another device.' }, 409);
   }
 
