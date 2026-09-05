@@ -930,6 +930,10 @@ app.post('/api/submit', async (c) => {
       return c.json({ error: 'No answers provided. Please answer at least one question before submitting.' }, 400);
     }
   }
+  // Observability: log suspiciously low auto-submits (e.g. 1/60 on tab) to help diagnose lost-answers.
+  if ((safeReason === 'tab' || safeReason === 'kick' || safeReason === 'timeout') && questions.length >= 10 && answerCount > 0 && answerCount < Math.ceil(questions.length * 0.15)) {
+    await log(db, 'low_answer_auto_submit', `${safeReason} submit for ${student_name} (${normId}) in ${exam_id}: ${answerCount}/${questions.length} answers (severity low)`);
+  }
 
   // Authoritative score — ignore client-supplied score/total
   // Includes AI full credit for fill_blank >=0.85 similarity (free Workers AI)

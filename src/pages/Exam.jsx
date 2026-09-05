@@ -347,6 +347,13 @@ export default function Exam() {
         const next = prev + 1;
         if (next >= 3) {
           toast('3rd Violation — Exam Auto-Submitted', 'You switched away too many times.');
+          // Flush latest draft to localStorage before auto-submit so handleSubmit fallback can recover it.
+          try {
+            localStorage.setItem('exam_state_' + examId, JSON.stringify({
+              name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: answersRef.current, answered: Array.from(answeredSetRef.current || []),
+              tabSwitches: next, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason: 'tab',
+            }));
+          } catch {}
           setTimeout(() => handleSubmitRef.current('tab'), 1500);
         } else {
           toast('You ' + source + '!', 'Violation #' + next + ' of 3 — Next will auto-submit.');
@@ -615,9 +622,25 @@ export default function Exam() {
 
   const handleSubmit = useCallback(async (reason = 'manual') => {
     if (submitted) return;
-    // Always read from refs so A->B flicker in the same tick is not lost
-    const curAnswers = answersRef.current || answers;
-    const curAnsweredSet = answeredSetRef.current || answeredSet;
+    // Always read from refs so A->B flicker in the same tick is not lost.
+    // Fallback to localStorage exam_state if refs are transiently empty (e.g. tab auto-submit
+    // racing with fill_blank onChange commit) - prevents the 1/60 single-answer loss.
+    let curAnswers = answersRef.current || answers;
+    let curAnsweredSet = answeredSetRef.current || answeredSet;
+    try {
+      const raw = localStorage.getItem('exam_state_' + examId);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && saved.answers && typeof saved.answers === 'object') {
+          const savedCount = Object.keys(saved.answers).filter(k => String(saved.answers[k] ?? '').trim() !== '').length;
+          const curCount = Object.keys(curAnswers || {}).filter(k => String(curAnswers[k] ?? '').trim() !== '').length;
+          if (savedCount > curCount) {
+            curAnswers = saved.answers;
+            curAnsweredSet = new Set(saved.answered || Object.keys(saved.answers));
+          }
+        }
+      }
+    } catch {}
     // Guard: manual submit with zero answers is almost always a bug (retry wipe + kick)
     const curAnswerCount = Object.keys(curAnswers).filter(k => String(curAnswers[k] ?? '').trim() !== '').length;
     if (reason === 'manual' && curAnswerCount === 0) {
@@ -625,6 +648,7 @@ export default function Exam() {
       setSubmitting(false);
       return;
     }
+
     setSubmitReason(reason);
     setSubmitting(true);
     setShowConfirm(false);
@@ -837,6 +861,19 @@ export default function Exam() {
     saveExamState({ answers: {}, answered: [], tabSwitches: 0, totalSeconds: examData.time_limit * 60, startedAt: Date.now() });
     toast('Retake started', 'Your previous score is preserved on the server until you submit new answers.');
   };
+
+  // After submit, trap phone back/swipe so students can't go back to editable exam.
+  // Results/Review is terminal until Allow Retry — server also blocks resubmit (409) at worker/index.js:880.
+  useEffect(() => {
+    if (!submitted) return;
+    try { history.pushState({ examSubmitted: true }, ''); } catch {}
+    const onPop = () => {
+      try { history.pushState({ examSubmitted: true }, ''); } catch {}
+      toast('Already submitted', 'Use Review My Answers or Back to Home. Ask proctor to Allow Retry to retake.');
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [submitted]);
 
   // Keep ref in sync with latest handleSubmit
   useEffect(() => { handleSubmitRef.current = handleSubmit; }, [handleSubmit]);

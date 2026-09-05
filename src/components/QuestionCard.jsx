@@ -28,10 +28,13 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
     const isPartial = submitted && isLegacyPartial;
     const isWrong = submitted && chosenKey !== undefined && !isCorrect && !isPartial;
     const answered = chosenKey !== undefined && String(chosenKey).trim() !== '';
+    // Commit immediately on change (debounced via parent) but also on blur - prevents
+    // tab/timeout auto-submit reading stale blankInput that was typed but never blurred.
     const handleBlur = () => { if (!submitted) onAnswer(question.id, blankInput.trim()); };
     const handleChange = (e) => {
       const val = e.target.value;
       setBlankInput(val);
+      if (!submitted) onAnswer(question.id, val.trim());
     };
 
     return (
