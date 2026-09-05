@@ -13,6 +13,34 @@ export default function Answers() {
   return <AdminLayout title="Student Answers"><AnswersInner /></AdminLayout>;
 }
 
+// AI assist fallback (mirrors worker/stringSimilarity) - for instant admin preview without server roundtrip
+const AI_THRESHOLD = 0.85;
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  let prev = new Array(n + 1), cur = new Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    cur[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    const tmp = prev; prev = cur; cur = tmp;
+  }
+  return prev[n];
+}
+function stringSimilarity(a, b) {
+  const sa = String(a || '').toLowerCase().trim();
+  const sb = String(b || '').toLowerCase().trim();
+  if (!sa || !sb) return 0;
+  if (sa === sb) return 1;
+  if (/^[0-9.\-+e*\/^()]+$/.test(sa) && /^[0-9.\-+e*\/^()]+$/.test(sb)) return 0;
+  const maxLen = Math.max(sa.length, sb.length);
+  const dist = levenshtein(sa, sb);
+  return 1 - dist / maxLen;
+}
+
 function buildCells(questions, sub) {
   const stored = typeof sub.answers === 'string' ? JSON.parse(sub.answers || '{}') : (sub.answers || {});
   const reviews = sub.reviews || {};
@@ -27,16 +55,30 @@ function buildCells(questions, sub) {
     const raw = (stored[q.id] || '');
 
     let autoCorrect;
+    let aiCorrected = false;
+    let aiSimilarity = null;
     let cell;
     if (isBlank) {
       const text = raw.trim();
       autoCorrect = matchesAnswer(text, q.answer);
+      // If not deterministic correct, check AI threshold (>=0.85 -> full credit) via fallback similarity
+      // This mirrors worker fallback so admin table shows Correct (AI) without needing manual Accept
+      if (!autoCorrect && text && q.answer) {
+        const sim = stringSimilarity(text, q.answer);
+        aiSimilarity = sim;
+        if (sim >= AI_THRESHOLD) {
+          autoCorrect = true;
+          aiCorrected = true;
+        }
+      }
       cell = {
         type: 'fill_blank',
         chosen: text || null,
         answerKey: q.answer,
         answerText: q.answer,
         choiceText: '',
+        aiCorrected,
+        aiSimilarity,
       };
     } else {
       const choices = parseChoices(q.choices);
@@ -73,10 +115,16 @@ function buildCells(questions, sub) {
     }
 
     const reviewed = verdict === 'correct' || verdict === 'incorrect';
+    // reviewed wins, otherwise use AI-corrected autoCorrect
+    const finalCorrect = reviewed ? verdict === 'correct' : autoCorrect;
+    // Keep aiCorrected only if not overridden by manual review and actually AI-corrected
+    const finalAiCorrected = !reviewed && aiCorrected;
     return {
       ...cell,
-      correct: reviewed ? verdict === 'correct' : autoCorrect,
+      correct: finalCorrect,
       autoCorrect,
+      aiCorrected: finalAiCorrected,
+      aiSimilarity,
       reviewed,
       verdict,
     };
@@ -402,18 +450,22 @@ function AnswersInner() {
                       </div>
                     </td>
                     {r.cells.map((cell, ci) => {
-                      const col = cell.correct ? 'bg-success-bg text-success'
+                      const isAi = !!cell.aiCorrected;
+                      const col = cell.correct ? (isAi ? 'bg-success-bg text-success' : 'bg-success-bg text-success')
                         : cell.chosen === null ? 'bg-navy-50 text-faint'
                         : 'bg-danger-bg text-danger';
                       return (
-                        <td key={ci} title={`${cellText(cell)}${cell.reviewed ? ' · manually reviewed (' + cell.verdict + ')' : ''}`} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 118, maxWidth: 190, verticalAlign: 'top' }}>
+                        <td key={ci} title={`${cellText(cell)}${cell.reviewed ? ' · manually reviewed (' + cell.verdict + ')' : isAi ? ' · AI corrected (≥85%)' : ''}${cell.aiSimilarity ? ' · ' + Math.round(cell.aiSimilarity*100) + '% match' : ''}`} style={{ padding: '8px 10px', textAlign: 'center', minWidth: 118, maxWidth: 190, verticalAlign: 'top' }}>
                           <div className={`relative flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[11px] min-h-[26px] font-mono ${col}`}
-                            style={{ outline: cell.reviewed ? (cell.correct ? '1.5px solid var(--color-success)' : '1.5px solid var(--color-danger)') : 'none' }}>
+                            style={{ outline: cell.reviewed ? (cell.correct ? '1.5px solid var(--color-success)' : '1.5px solid var(--color-danger)') : isAi ? '1.5px solid var(--color-success)' : 'none' }}>
                             {cell.reviewed && (
                               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-warning border-2 border-surface shadow-sm" title={`Manually marked ${cell.verdict}`} />
                             )}
+                            {isAi && !cell.reviewed && (
+                              <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-success border-2 border-surface shadow-sm" title={`AI corrected ${Math.round((cell.aiSimilarity||0)*100)}%`} />
+                            )}
                             {cell.type === 'fill_blank' ? (
-                              <span className="truncate max-w-[140px]">{cell.chosen || '—'}</span>
+                              <span className="truncate max-w-[140px] flex items-center gap-1">{isAi && <Sparkles size={10} className="text-success shrink-0" />}{cell.chosen || '—'}</span>
                             ) : (
                               <div className="flex flex-col items-center justify-center gap-0.5 leading-tight">
                                 <span className="flex items-center gap-1">
@@ -488,21 +540,25 @@ function AnswersInner() {
               const cell = open.cells[i];
               const ai = aiChecks[q.id];
               const isFill = cell.type === 'fill_blank';
-              const isWrongFill = isFill && !cell.correct && cell.chosen;
-              const statusColor = cell.correct ? 'text-success' : cell.chosen === null ? 'text-faint' : 'text-danger';
+              // AI-corrected via fallback OR manual AI check (>=0.85) → treat as correct without needing Accept
+              const isAiViaCheck = isFill && !cell.correct && ai?.data?.suggested === 'correct';
+              const isAiCorrected = !!cell.aiCorrected || isAiViaCheck;
+              const isWrongFill = isFill && !cell.correct && !isAiCorrected && cell.chosen;
+              const statusColor = (cell.correct || isAiCorrected) ? 'text-success' : cell.chosen === null ? 'text-faint' : 'text-danger';
               const isSaving = saving === open.sub.id + '|' + q.id;
               const partialHint = '';
               return (
-                <Card key={q.id} className={`!p-0 !mb-0 overflow-hidden ${cell.correct ? '!border-success/40' : ''}`}>
-                  <div className={`flex justify-between items-center gap-2 px-4 py-2.5 border-b border-border ${cell.correct ? 'bg-success-bg/40' : cell.chosen === null ? 'bg-canvas/60' : 'bg-danger-bg/25'}`}>
+                <Card key={q.id} className={`!p-0 !mb-0 overflow-hidden ${cell.correct || isAiCorrected ? '!border-success/40' : ''}`}>
+                  <div className={`flex justify-between items-center gap-2 px-4 py-2.5 border-b border-border ${cell.correct || isAiCorrected ? 'bg-success-bg/40' : cell.chosen === null ? 'bg-canvas/60' : 'bg-danger-bg/25'}`}>
                     <Badge tone="info">Q{i + 1} · Part {q.part}</Badge>
                     <span className={`flex items-center gap-1 text-[12px] font-semibold ${statusColor}`}>
-                      {cell.correct
-                        ? <><CheckCircle size={14} /> Correct</>
+                      {(cell.correct || isAiCorrected)
+                        ? <>{isAiCorrected ? <><Sparkles size={14} /> Correct (AI)</> : <><CheckCircle size={14} /> Correct</>}</>
                         : cell.chosen === null
                           ? <><XCircle size={14} /> Unanswered</>
                           : <><XCircle size={14} /> Wrong</>}
                       {cell.reviewed && <Badge tone="warning" className="!ml-1">MANUAL</Badge>}
+                      {isAiCorrected && !cell.reviewed && <Badge tone="success" className="!ml-1">AI {cell.aiSimilarity ? Math.round(cell.aiSimilarity*100)+'%' : ai?.data ? Math.round(ai.data.similarity*100)+'%' : '≥85%'}</Badge>}
                     </span>
                   </div>
                   <div className="p-4">
@@ -518,10 +574,19 @@ function AnswersInner() {
                           <span className="text-[11px] text-faint ml-1">(DB key {cell.answerKey})</span>
                         )}
                       </div>
-                      {isWrongFill && (
-                        <div className="mt-2 bg-canvas/60 border border-border rounded-lg px-3 py-2.5 flex flex-col gap-2">
+                      {(isWrongFill || isAiCorrected) && (
+                        <div className={`mt-2 border rounded-lg px-3 py-2.5 flex flex-col gap-2 ${isAiCorrected ? 'bg-success-bg/30 border-success/30' : 'bg-canvas/60 border-border'}`}>
                           <div className="flex items-center gap-2 text-[11px] font-bold tracking-[.06em] uppercase text-navy-700"><Sparkles size={12} /> AI Assist <span className="font-normal normal-case tracking-normal text-faint">· threshold 0.85 → full credit (AI corrected)</span></div>
-                          {!ai?.data && !ai?.error ? (
+                          {isAiCorrected ? (
+                            <div className="flex flex-col gap-1.5">
+                              <div className="text-[12px] flex items-center gap-2 flex-wrap">
+                                <Badge tone="success">correct (AI)</Badge>
+                                <span className="font-semibold">{cell.aiSimilarity ? Math.round(cell.aiSimilarity*100) : ai?.data ? Math.round(ai.data.similarity*100) : '≥85'}% match</span>
+                                <span className="text-faint">{cell.aiSimilarity ? `Close (${Math.round(cell.aiSimilarity*100)}% ≥85%) → correct (AI corrected, full credit)` : ai?.data?.reason || 'AI corrected to full credit'}</span>
+                              </div>
+                              <span className="text-[11px] text-success font-medium">Already auto-credited to full — no manual Accept needed. Use manual review only to override.</span>
+                            </div>
+                          ) : !ai?.data && !ai?.error ? (
                             <Button size="sm" variant="outline" icon={Wand2} loading={ai?.loading} onClick={() => doAiCheck(q, cell)} className="!w-fit">Check with AI</Button>
                           ) : ai?.error ? (
                             <span className="text-[12px] text-danger">{ai.error}</span>
@@ -532,7 +597,7 @@ function AnswersInner() {
                                 <span className="font-semibold">{Math.round(ai.data.similarity*100)}% match</span>
                                 <span className="text-faint">{ai.data.reason}</span>
                               </div>
-                              {ai.data.suggested === 'correct' && <span className="text-[11px] text-success font-medium">Auto-credited to full (AI corrected). Use manual review to override if needed.</span>}
+                              {ai.data.suggested === 'correct' && <span className="text-[11px] text-success font-medium">Would be auto-credited to full on next regrade/submit. Card label will show Correct (AI) — no Accept needed.</span>}
                             </div>
                           )}
                         </div>
