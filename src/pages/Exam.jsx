@@ -668,7 +668,7 @@ export default function Exam() {
 
     try {
       const res = await api.submitScore(payload);
-      // Server recomputes score authoritatively — includes AI 0.5 partial (≥0.85) — update UI if it differs
+      // Server recomputes score authoritatively — includes AI full credit (≥0.85) — update UI if it differs
       if (res && typeof res.score === 'number') {
         // Derive partScores from server perQuestion — client questions have no answer key (stripped for anti-cheat),
         // so local partScores were always 0. Server perQuestion is authoritative.

@@ -14,7 +14,7 @@ VAPID_PUBLIC_KEY = "BBFq3Yg0rjPgCRXaB_L6Gl2vD8-iwvCh3zekOG26RWZBZRVdw1KfK7Pu1rv7
 VAPID_SUBJECT = "mailto:admin@wmsu.edu.ph"
 # AI Assist: Workers AI free tier (10k neurons/day). No secret needed.
 AI_PARTIAL_THRESHOLD = "0.85"
-AI_PARTIAL_CREDIT = "0.5"
+AI_PARTIAL_CREDIT = "1"
 
 [ai]
 binding = "AI"

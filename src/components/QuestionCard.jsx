@@ -12,18 +12,20 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
   const fixedChoicesMemo = useMemo(() => qDataMemo.choices.map((c) => ({ ...c, displayKey: c.key })), [qDataMemo.choices]);
 
   if (qType === 'fill_blank') {
-    // Prefer server AI grading if available (0.5 partial), else fallback to deterministic
+    // Prefer server AI grading if available (AI >=0.85 -> full credit with indicator), else fallback to deterministic
     const serverScore = grading?.score;
-    const serverIsPartial = serverScore === 0.5 || grading?.aiSuggested;
     const serverIsCorrect = serverScore === 1 || grading?.autoCorrect;
+    const isAiCorrected = !!grading?.aiSuggested && serverScore === 1 && !grading?.autoCorrect;
+    // Legacy 0.5 partial retained for old submissions only
+    const isLegacyPartial = serverScore === 0.5;
     const serverAnswer = grading?.answer;
     const serverExplain = grading?.explain;
     // Use server-provided answer when available (student questions are stripped), else fallback to leaked answer
     const correctAnswerText = serverAnswer !== undefined ? serverAnswer : (question.answer || '');
     const explainTextFb = serverExplain !== undefined ? serverExplain : (question.explain || '');
     const deterministicCorrect = submitted && chosenKey !== undefined && matchesAnswer(String(chosenKey || ''), String(correctAnswerText || ''));
-    const isCorrect = submitted && (serverScore !== undefined ? serverIsCorrect : deterministicCorrect);
-    const isPartial = submitted && (serverScore === 0.5 || serverIsPartial);
+    const isCorrect = submitted && (serverScore !== undefined ? (serverIsCorrect || isAiCorrected) : deterministicCorrect);
+    const isPartial = submitted && isLegacyPartial;
     const isWrong = submitted && chosenKey !== undefined && !isCorrect && !isPartial;
     const answered = chosenKey !== undefined && String(chosenKey).trim() !== '';
     const handleBlur = () => { if (!submitted) onAnswer(question.id, blankInput.trim()); };
@@ -45,7 +47,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             {question.part && <span className="text-muted">· Part {question.part}</span>}
           </span>
           {submitted ? (
-            answered ? (isPartial ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-warning"><Sparkles size={12} /> Partial (AI 0.5)</span> : isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span>) : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
+            answered ? (isPartial ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-warning"><Sparkles size={12} /> Partial (AI 0.5 legacy)</span> : isAiCorrected ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><Sparkles size={12} /> Correct (AI)</span> : isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span>) : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
           ) : answered ? (
             <span className="text-[11px] font-semibold text-navy-700">Answered</span>
           ) : null}
@@ -66,7 +68,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
 
         {submitted && (
           <div className={`mt-3 text-[12px] font-medium flex items-center gap-1.5 flex-wrap ${isPartial ? 'text-warning' : isCorrect ? 'text-success' : isWrong ? 'text-danger' : 'text-muted'}`}>
-            {!chosenKey ? 'Not answered.' : isPartial ? <><Sparkles size={12} /> Partial credit — close answer (AI 0.5)</> : isCorrect ? 'Correct!' : 'Incorrect.'}
+            {!chosenKey ? 'Not answered.' : isPartial ? <><Sparkles size={12} /> Partial credit — close answer (legacy 0.5)</> : isAiCorrected ? <><Sparkles size={12} /> Correct — AI accepted (≥85% similar)</> : isCorrect ? 'Correct!' : 'Incorrect.'}
             {showAnswers && !isCorrect && !isPartial && (
               <span className="font-normal text-navy-700">
                 Correct answer: <strong className="font-semibold">{correctAnswerText}</strong>
@@ -74,7 +76,12 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             )}
             {showAnswers && isPartial && (
               <span className="font-normal text-navy-700">
-                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-warning font-medium">· you got 0.5</span>
+                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-warning font-medium">· you got 0.5 (legacy)</span>
+              </span>
+            )}
+            {showAnswers && isAiCorrected && (
+              <span className="font-normal text-navy-700">
+                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-success font-medium">· AI corrected to full credit</span>
               </span>
             )}
           </div>

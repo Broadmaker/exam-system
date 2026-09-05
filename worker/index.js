@@ -932,7 +932,7 @@ app.post('/api/submit', async (c) => {
   }
 
   // Authoritative score — ignore client-supplied score/total
-  // Includes AI partial 0.5 for fill_blank >=0.85 similarity (free Workers AI)
+  // Includes AI full credit for fill_blank >=0.85 similarity (free Workers AI)
   let serverScore = 0;
   let aiPartials = 0;
   let serverPerQuestion = [];
@@ -942,7 +942,7 @@ app.post('/api/submit', async (c) => {
     serverScore = computed.correctCount;
     serverPerQuestion = computed.perQuestion;
     aiPartials = computed.perQuestion.filter(p => p.aiSuggested).length;
-    if (aiPartials) await log(db, 'ai_partial', `AI gave ${aiPartials} x 0.5 partial for ${student_name} (${normId}) in ${exam_id}`);
+    if (aiPartials) await log(db, 'ai_corrected', `AI corrected ${aiPartials} answer(s) to full credit for ${student_name} (${normId}) in ${exam_id}`);
   } catch (e) {
     // Fallback sync (no AI) if AI path crashes
     try {
@@ -3017,11 +3017,12 @@ function matchesAnswer(studentAnswer, correctAnswer) {
   return false;
 }
 
-// ── AI ASSIST (fill_blank partial credit) ───────────
-// Threshold 0.85 -> 0.5 credit. Uses Workers AI embeddings when available,
+// ── AI ASSIST (fill_blank AI correction) ───────────
+// Threshold 0.85 -> 1.0 full credit (AI-corrected). Uses Workers AI embeddings when available,
 // falls back to normalized Levenshtein for local dev / offline so tests still pass.
+// Below threshold -> 0 (wrong). aiSuggested flag marks AI-corrected answers.
 const AI_THRESHOLD = 0.85;
-const AI_PARTIAL = 0.5;
+const AI_PARTIAL = 1;
 const aiCache = new Map(); // `${student}|||${correct}` -> similarity 0..1 (LRU approx, cap 2k)
 
 function cosineSim(a, b) {
@@ -3098,7 +3099,7 @@ async function getAiSimilarity(studentAnswer, correctAnswer, env) {
 // Compute a submission's per-question correctness using the exact shuffle the
 // student saw. `overrides` maps question_id -> 'correct' | 'incorrect' (manual
 // admin review) and wins over the engine's auto verdict.
-// Supports 0.5 partial credit for fill_blank when AI similarity >= threshold.
+// Supports AI full credit for fill_blank when AI similarity >= threshold (0.85 -> 1, else 0).
 function computeScore(questions, sub, overrides = {}, aiScores = {}) {
   const studentSeed = Number(sub.seed);
   const submittedAnswers = typeof sub.answers === 'string' ? JSON.parse(sub.answers) : sub.answers;
@@ -3153,11 +3154,9 @@ function computeScore(questions, sub, overrides = {}, aiScores = {}) {
     else if (verdict === 'incorrect') { finalScore = 0; correct = false; }
     else {
       finalScore = autoScore;
-      correct = autoScore >= 1; // only full counts as correct for legacy boolean; partial is separate
-      // For fill_blank partial, correct=true is false but score 0.5 still counts
-      if (aiSuggested) correct = false;
+      // AI-corrected (>=0.85) now gives full credit (1) and is considered correct with aiSuggested flag
+      correct = autoScore >= 1;
     }
-    // For partial, finalScore 0.5 still increments total as 0.5
     correctCount += finalScore;
     perQuestion.push({
       question_id: q.id,
@@ -3171,8 +3170,8 @@ function computeScore(questions, sub, overrides = {}, aiScores = {}) {
     });
   });
 
-  // Keep correctCount with one decimal (0.5 steps)
-  correctCount = Math.round(correctCount * 2) / 2;
+  // Scores are now integers (0 or 1 per question); keep rounding for legacy 0.5 retro-compat
+  correctCount = Math.round(correctCount);
   return { correctCount, perQuestion };
 }
 
@@ -3303,19 +3302,19 @@ app.post('/api/ai/check-fill', async (c) => {
     return c.json({ similarity: 1, suggested: 'correct', score: 1, reason: 'Exact match (deterministic)' });
   }
   const sim = await getAiSimilarity(student, correct, c.env);
-  const suggested = sim >= AI_THRESHOLD ? 'partial' : 'incorrect';
-  const score = sim >= AI_THRESHOLD ? AI_PARTIAL : 0;
+  const suggested = sim >= AI_THRESHOLD ? 'correct' : 'incorrect';
+  const score = sim >= AI_THRESHOLD ? 1 : 0;
   return c.json({
     similarity: Math.round(sim * 100) / 100,
     suggested,
     score,
     threshold: AI_THRESHOLD,
     partial: AI_PARTIAL,
-    reason: sim >= AI_THRESHOLD ? `Close (${Math.round(sim*100)}% ≥ ${AI_THRESHOLD*100}%) → 0.5 partial` : `Not close (${Math.round(sim*100)}% < ${AI_THRESHOLD*100}%)`
+    reason: sim >= AI_THRESHOLD ? `Close (${Math.round(sim*100)}% ≥ ${AI_THRESHOLD*100}%) → correct (AI corrected, full credit)` : `Not close (${Math.round(sim*100)}% < ${AI_THRESHOLD*100}%) → incorrect`
   });
 });
 
-// Bulk AI regrade: recompute all fill_blank with AI partial static (uses embeddings fallback too)
+// Bulk AI regrade: recompute all fill_blank with AI full-credit (uses embeddings fallback too)
 app.post('/api/ai/regrade/:examId', async (c) => {
   if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   const db = c.env.DB;

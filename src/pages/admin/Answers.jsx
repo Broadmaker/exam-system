@@ -183,7 +183,7 @@ function AnswersInner() {
   };
 
   const doAiRegrade = async () => {
-    if (!examId || !confirm('Run AI regrade? Fill-blank close answers (≥85% similarity) will get 0.5 partial automatically. Existing manual reviews are kept.')) return;
+    if (!examId || !confirm('Run AI regrade? Fill-blank close answers (≥85% similarity) will get full credit (AI corrected). Existing manual reviews are kept.')) return;
     setAiRegrading(true);
     try {
       const res = await api.aiRegrade(examId);
@@ -296,7 +296,7 @@ function AnswersInner() {
       <PageHeader
         eyebrow="Exam Review"
         title={exam?.title || 'Student Answers'}
-        subtitle={`Review how each student answered. AI auto-gives 0.5 for fill-blank close (≥85%). ${subs.length} submission${subs.length !== 1 ? 's' : ''} · ${qs.length} question${qs.length !== 1 ? 's' : ''}.`}
+        subtitle={`Review how each student answered. AI auto-corrects fill-blank close answers (≥85%) to full credit. ${subs.length} submission${subs.length !== 1 ? 's' : ''} · ${qs.length} question${qs.length !== 1 ? 's' : ''}.`}
         icon={Eye}
         actions={
           <>
@@ -487,24 +487,22 @@ function AnswersInner() {
             {qs.map((q, i) => {
               const cell = open.cells[i];
               const ai = aiChecks[q.id];
-              // Detect partial credit hint: score may be 10.5 etc, and this cell is fill_blank wrong but close
               const isFill = cell.type === 'fill_blank';
               const isWrongFill = isFill && !cell.correct && cell.chosen;
-              const statusColor = cell.correct ? 'text-success' : cell.chosen === null ? 'text-faint' : isWrongFill && open.sub.score % 1 !== 0 ? 'text-warning' : 'text-danger';
+              const statusColor = cell.correct ? 'text-success' : cell.chosen === null ? 'text-faint' : 'text-danger';
               const isSaving = saving === open.sub.id + '|' + q.id;
-              const partialHint = isWrongFill && open.sub.score % 1 !== 0 ? ' · 0.5 partial credited' : '';
+              const partialHint = '';
               return (
                 <Card key={q.id} className={`!p-0 !mb-0 overflow-hidden ${cell.correct ? '!border-success/40' : ''}`}>
-                  <div className={`flex justify-between items-center gap-2 px-4 py-2.5 border-b border-border ${cell.correct ? 'bg-success-bg/40' : cell.chosen === null ? 'bg-canvas/60' : isWrongFill && open.sub.score % 1 !== 0 ? 'bg-warning-bg/20' : 'bg-danger-bg/25'}`}>
+                  <div className={`flex justify-between items-center gap-2 px-4 py-2.5 border-b border-border ${cell.correct ? 'bg-success-bg/40' : cell.chosen === null ? 'bg-canvas/60' : 'bg-danger-bg/25'}`}>
                     <Badge tone="info">Q{i + 1} · Part {q.part}</Badge>
                     <span className={`flex items-center gap-1 text-[12px] font-semibold ${statusColor}`}>
                       {cell.correct
                         ? <><CheckCircle size={14} /> Correct</>
                         : cell.chosen === null
                           ? <><XCircle size={14} /> Unanswered</>
-                          : <><XCircle size={14} /> Wrong{partialHint}</>}
+                          : <><XCircle size={14} /> Wrong</>}
                       {cell.reviewed && <Badge tone="warning" className="!ml-1">MANUAL</Badge>}
-                      {isFill && !cell.correct && cell.chosen && open.sub.score % 1 !== 0 && !cell.reviewed && <Badge tone="warning" className="!ml-1">AI 0.5</Badge>}
                     </span>
                   </div>
                   <div className="p-4">
@@ -522,7 +520,7 @@ function AnswersInner() {
                       </div>
                       {isWrongFill && (
                         <div className="mt-2 bg-canvas/60 border border-border rounded-lg px-3 py-2.5 flex flex-col gap-2">
-                          <div className="flex items-center gap-2 text-[11px] font-bold tracking-[.06em] uppercase text-navy-700"><Sparkles size={12} /> AI Assist <span className="font-normal normal-case tracking-normal text-faint">· threshold 0.85 → 0.5 partial</span></div>
+                          <div className="flex items-center gap-2 text-[11px] font-bold tracking-[.06em] uppercase text-navy-700"><Sparkles size={12} /> AI Assist <span className="font-normal normal-case tracking-normal text-faint">· threshold 0.85 → full credit (AI corrected)</span></div>
                           {!ai?.data && !ai?.error ? (
                             <Button size="sm" variant="outline" icon={Wand2} loading={ai?.loading} onClick={() => doAiCheck(q, cell)} className="!w-fit">Check with AI</Button>
                           ) : ai?.error ? (
@@ -530,11 +528,11 @@ function AnswersInner() {
                           ) : (
                             <div className="flex flex-col gap-1.5">
                               <div className="text-[12px] flex items-center gap-2 flex-wrap">
-                                <Badge tone={ai.data.suggested === 'partial' ? 'warning' : ai.data.suggested === 'correct' ? 'success' : 'danger'}>{ai.data.suggested === 'partial' ? 'Suggest 0.5' : ai.data.suggested}</Badge>
+                                <Badge tone={ai.data.suggested === 'correct' ? 'success' : 'danger'}>{ai.data.suggested}</Badge>
                                 <span className="font-semibold">{Math.round(ai.data.similarity*100)}% match</span>
                                 <span className="text-faint">{ai.data.reason}</span>
                               </div>
-                              {ai.data.suggested === 'partial' && <span className="text-[11px] text-warning font-medium">Already auto-credited 0.5 on submit. Use Accept to give full 1.0 if you agree.</span>}
+                              {ai.data.suggested === 'correct' && <span className="text-[11px] text-success font-medium">Auto-credited to full (AI corrected). Use manual review to override if needed.</span>}
                             </div>
                           )}
                         </div>
