@@ -16,8 +16,28 @@ async function request(path, options = {}) {
   } catch (e) {
     clearTimeout(timeout);
     if (e.name === 'AbortError') {
-      const err = new Error('Request timed out (7s). Worker not responding.');
+      const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const err = new Error(
+        offline
+          ? 'No internet connection. Check your network and try again.'
+          : 'Server is taking too long to respond (7s timeout). The Worker may be waking up — please retry.'
+      );
       err.status = 408;
+      err.cause = 'timeout';
+      err.offline = offline;
+      throw err;
+    }
+    const msg = e.message || '';
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (offline || /Failed to fetch|NetworkError|Load failed|Network request failed/i.test(msg)) {
+      const err = new Error(
+        offline
+          ? 'You appear to be offline. Check your internet connection.'
+          : 'Cannot reach the server. Check your internet connection or try again in a moment.'
+      );
+      err.status = 0;
+      err.cause = 'network';
+      err.offline = true;
       throw err;
     }
     throw e;
@@ -27,7 +47,14 @@ async function request(path, options = {}) {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new Error(text.includes('<!DOCTYPE') ? 'API server is not running. Start the Worker with `npx wrangler dev`.' : text.slice(0, 200));
+    if (text.includes('<!DOCTYPE')) {
+      const err = new Error(
+        'API server is not reachable (got HTML instead of API). Try refreshing — if this is local dev, run `npx wrangler dev`.'
+      );
+      err.status = 502;
+      throw err;
+    }
+    throw new Error(text.slice(0, 200) || 'Empty response from server.');
   }
   if (!res.ok) {
     const e = new Error(data.error || data.message || 'Request failed');
