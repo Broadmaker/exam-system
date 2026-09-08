@@ -1003,15 +1003,20 @@ app.post('/api/submit', async (c) => {
   );
 
   // Auto-record class attendance when this exam belongs to a class.
+  // Retake on a different day keeps a new history date (so original absentees stay visible as absent on original day).
+  // Use source 'exam-retake' when retake day != exam's original date (start_at/deadline/created_at) so History can label it.
   if (exam.class_id) {
     const today = new Date().toISOString().slice(0, 10);
+    const examDate = (exam.start_at || exam.deadline || exam.created_at || '').slice(0, 10);
+    const isRetakeDay = examDate && today !== examDate;
+    const attendanceSource = isRetakeDay ? 'exam-retake' : 'exam';
     batchStmts.push(
       db.prepare(
         `INSERT INTO class_attendance (id, class_id, date, student_id, student_name, status, source)
-         VALUES (?, ?, ?, ?, ?, 'present', 'exam')
+         VALUES (?, ?, ?, ?, ?, 'present', ?)
          ON CONFLICT(class_id, date, student_id)
          DO UPDATE SET student_name = excluded.student_name, status = excluded.status, source = excluded.source`
-      ).bind(uuid(), exam.class_id, today, normId, student_name)
+      ).bind(uuid(), exam.class_id, today, normId, student_name, attendanceSource)
     );
   }
   if (batchStmts.length) await db.batch(batchStmts);

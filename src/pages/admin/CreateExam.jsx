@@ -284,6 +284,16 @@ function CreateExamInner() {
 
   const saveExam = async () => {
     if (!title.trim()) { toast.error('Title is required'); return; }
+    // Guard: active/scheduled with past deadline auto-closes instantly (worker/index.js:406 + src/utils.js:353)
+    // For absentees, pick a future deadline or clear it to keep open.
+    if ((status === 'active' || status === 'scheduled') && deadline) {
+      const iso = toIso(deadline);
+      const t = new Date(iso).getTime();
+      if (!isNaN(t) && t <= Date.now()) {
+        toast.error('Deadline is in the past — the exam will auto-close immediately. Pick a future deadline or clear the deadline to keep it open for absentees.');
+        return;
+      }
+    }
     const parsedRoster = roster.split('\n').map(l => l.trim()).filter(Boolean).map(line => {
       const parts = line.split(',').map(p => p.trim());
       return { id: parts[0] || '', name: parts[1] || '', section: parts[2] || '' };
@@ -525,11 +535,16 @@ function CreateExamInner() {
               <div>
                 <Input label="Deadline" icon={CalendarClock} type="datetime-local" value={deadline} onChange={e => setDeadline(e.target.value)} />
                 {deadline ? (
-                  <div className="text-[11px] text-muted mt-1 flex items-center gap-2">
-                    Closes {new Date(deadline).toLocaleString()}.
-                    <Button size="sm" variant="ghost" onClick={() => setDeadline('')} icon={X} className="!px-1.5">Clear</Button>
-                  </div>
-                ) : <p className="text-[11px] text-faint mt-1">No deadline — stays open until closed.</p>}
+                  <>
+                    <div className="text-[11px] text-muted mt-1 flex items-center gap-2">
+                      Closes {new Date(deadline).toLocaleString()}.
+                      <Button size="sm" variant="ghost" onClick={() => setDeadline('')} icon={X} className="!px-1.5">Clear</Button>
+                    </div>
+                    {(status === 'active' || status === 'scheduled') && !isNaN(new Date(deadline).getTime()) && new Date(deadline).getTime() <= Date.now() && (
+                      <p className="text-[11px] font-semibold text-danger mt-1">Deadline is in the past — will auto-close immediately. Pick a future time or Clear to keep open for absentees.</p>
+                    )}
+                  </>
+                ) : <p className="text-[11px] text-faint mt-1">No deadline — stays open until closed (recommended for absentee retakes).</p>}
               </div>
             </div>
           </div>

@@ -912,12 +912,18 @@ function HistoryTab({ classId }) {
     a.click();
   };
 
+  const hasRetake = data.records.some(r => r.source === 'exam-retake');
   return (
     <Card eyebrow="Attendance" title="Attendance History" icon={History}
         actions={<Button size="sm" variant="outline" icon={Download} onClick={csv}>Export CSV</Button>}>
-      <p className="text-[12px] text-muted mb-4">
+      <p className="text-[12px] text-muted mb-3">
         {data.dates.length} session{data.dates.length !== 1 ? 's' : ''} recorded — from {data.dates[0]} to {data.dates[data.dates.length - 1]}
       </p>
+      {hasRetake && (
+        <div className="text-[11px] text-info bg-info-bg border border-info/20 rounded-lg px-3 py-2 mb-3">
+          <strong>Retake day detected:</strong> one date is a retake (different from the exam's original date) — students show <span className="font-semibold text-success">P</span> with <span className="text-info font-semibold">retake</span> on that date. Original absentees stay <span className="font-semibold text-danger">A/—</span> on the first date.
+        </div>
+      )}
 
       <div className="table-wrap">
         <table className="table !text-[12px]">
@@ -944,11 +950,14 @@ function HistoryTab({ classId }) {
                   {data.dates.map(d => {
                     const r = data.records.find(x => x.date === d && x.student_id === s.student_id);
                     const cls = !r ? 'bg-canvas text-faint' : r.status === 'present' ? 'bg-success-bg text-success' : r.status === 'late' ? 'bg-warning-bg text-warning' : 'bg-danger-bg text-danger';
+                    const isRetake = r?.source === 'exam-retake';
                     return (
                       <td key={d} style={{ textAlign: 'center', background: '', padding: 0 }}>
                         <div className={`py-2 font-semibold text-[12px] ${cls}`}>
                           {!r ? '—' : r.status === 'present' ? 'P' : r.status === 'late' ? 'L' : 'A'}
                           {r?.source === 'exam' && <span className="block text-[8px] font-normal">exam</span>}
+                          {isRetake && <span className="block text-[8px] font-normal text-info">retake</span>}
+                          {r?.source && r.source !== 'exam' && r.source !== 'exam-retake' && r.source !== 'manual' && <span className="block text-[8px] font-normal">{r.source}</span>}
                         </div>
                       </td>
                     );
@@ -980,7 +989,7 @@ function HistoryTab({ classId }) {
         </table>
       </div>
       <div className="text-[11px] text-faint mt-3">
-        P = present · L = late · A = absent · — = no record · "exam" = auto-recorded when the student submitted a class exam that day
+        P = present · L = late · A = absent · — = no record · "exam" = auto-recorded on exam day · <span className="text-info font-semibold">retake</span> = absentee retake on different day (original absentees stay A/— on first date)
       </div>
     </Card>
   );
