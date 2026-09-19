@@ -74,6 +74,13 @@ function canonicalizeSequence(s) {
 function canonicalize(input) {
   if (input === null || input === undefined) return '';
   let s = String(input).toLowerCase().trim();
+  // Strip LaTeX delimiters so "$2x$" ≈ "2x" for grading (display only)
+  s = s.replace(/^\$\$?/, '').replace(/\$\$?$/, '');
+  s = s.replace(/^\\\(/, '').replace(/\\\)$/, '');
+  s = s.replace(/^\\\[/, '').replace(/\\\]$/, '');
+  s = s.replace(/\$/g, '');
+  s = s.replace(/\\\(/g, '(').replace(/\\\)/g, ')');
+  s = s.replace(/\\\[/g, '(').replace(/\\\]/g, ')');
   s = canonicalizeSequence(s);
   s = s.replace(/\s+/g, '');                     // remove ALL whitespace
   s = s.replace(/^[a-z][a-z0-9_]*=/g, '');       // strip leading "x =" → "2"
