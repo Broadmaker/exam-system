@@ -5,6 +5,7 @@ import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, Card, Button, Input, Select, TextArea, Badge, EmptyState, ConfirmDialog, useToast, Modal, Spinner } from '../../components/ui';
 import { FileText, HelpCircle, Plus, Inbox, Lightbulb, X, Check, Upload, Library, Clock, Key, Users, CalendarClock, ListChecks, Type, GraduationCap, Pencil, Trash2, BarChart2, Tag, Save, Copy, ArrowLeft } from 'lucide-react';
 import { EXAM_TYPE_LABELS, DIFFICULTY_LABELS, parseTags, splitTags, effectiveExamStatus } from '../../utils';
+import { MathInline, MathText } from '../../components/Math';
 
 export default function CreateExam() {
   const [params] = useSearchParams();
@@ -166,7 +167,7 @@ function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onD
           </div>
         ) : (
           <>
-            <div className="text-[14px] leading-relaxed mb-2.5">{q.text}</div>
+            <div className="text-[14px] leading-relaxed mb-2.5"><MathText text={q.text} /></div>
             {(q.difficulty || q.topic || q.competency || parseTags(q.tags).length > 0) && (
               <div className="flex flex-wrap items-center gap-1.5 mb-2">
                 {q.difficulty && <Badge tone={q.difficulty === 'hard' ? 'danger' : q.difficulty === 'easy' ? 'success' : 'warning'}>{DIFFICULTY_LABELS[q.difficulty] || q.difficulty}</Badge>}
@@ -180,7 +181,7 @@ function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onD
             ) : (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {(choices || []).map(c => (
-                  <Badge key={c.key} tone={c.key === q.answer ? 'success' : 'neutral'}>{c.key}. {c.text}</Badge>
+                  <Badge key={c.key} tone={c.key === q.answer ? 'success' : 'neutral'}><MathInline text={`${c.key}. ${c.text}`} /></Badge>
                 ))}
               </div>
             )}

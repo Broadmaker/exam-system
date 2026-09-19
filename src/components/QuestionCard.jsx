@@ -1,13 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
-import DOMPurify from 'dompurify';
-import { renderDatasets, parseChoices, matchesAnswer } from '../utils';
+import { parseChoices, matchesAnswer } from '../utils';
 import { CheckCircle, XCircle, HelpCircle, Sparkles } from 'lucide-react';
+import { MathText, MathInline } from './Math';
 
 export default function QuestionCard({ question, index, seed, onAnswer, submitted, chosenKey, showAnswers, grading }) {
   const qType = question.type || 'multiple_choice';
   const [blankInput, setBlankInput] = useState(chosenKey || '');
   useEffect(() => { setBlankInput(chosenKey || ''); }, [chosenKey]);
-  const sanitizedHtml = useMemo(() => DOMPurify.sanitize(renderDatasets(question.text, seed, index)), [question.text, seed, index]);
   const qDataMemo = useMemo(() => ({ ...question, choices: parseChoices(question.choices) }), [question]);
   const fixedChoicesMemo = useMemo(() => qDataMemo.choices.map((c) => ({ ...c, displayKey: c.key })), [qDataMemo.choices]);
 
@@ -56,7 +55,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           ) : null}
         </div>
 
-        <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
+        <div className="text-[14.5px] leading-relaxed text-text mb-4"><MathText text={question.text} seed={seed} index={index} /></div>
 
         <input
           value={blankInput}
@@ -136,7 +135,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
         )}
       </div>
 
-      <div className="text-[14.5px] leading-relaxed text-text mb-4" dangerouslySetInnerHTML={{ __html: sanitizedHtml }} />
+      <div className="text-[14.5px] leading-relaxed text-text mb-4"><MathText text={qDataMemo.text} seed={seed} index={index} /></div>
 
       <div className="flex flex-col gap-2">
         {fixedChoices.map((c) => {
@@ -166,7 +165,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
               >
                 {c.displayKey}
               </span>
-              <span className="flex-1">{c.text}</span>
+              <span className="flex-1"><MathInline text={c.text} /></span>
               {showCorrect && <CheckCircle size={16} className="text-success shrink-0" />}
               {showWrong && <XCircle size={16} className="text-danger shrink-0" />}
             </label>
