@@ -4,7 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { shuffleWithSeed, parseChoices, matchesAnswer, examTypeLabel, EXAM_STATUS_LABELS, EXAM_STATUS_TONES, effectiveExamStatus } from '../../utils';
 import { PageHeader, Card, Button, Badge, Select, EmptyState, Spinner, Modal, useToast } from '../../components/ui';
-import DOMPurify from 'dompurify';
+import { MathText, MathInline } from '../../components/Math';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { PillsContainer, Pill } from '../../components/ui/Pills';
 import { Search, RefreshCw, Eye, CheckCircle, XCircle, X, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users, Clock, CalendarClock, GraduationCap, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles, Wand2 } from 'lucide-react';
@@ -465,17 +465,17 @@ function AnswersInner() {
                               <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-success border-2 border-surface shadow-sm" title={`AI corrected ${Math.round((cell.aiSimilarity||0)*100)}%`} />
                             )}
                             {cell.type === 'fill_blank' ? (
-                              <span className="truncate max-w-[140px] flex items-center gap-1">{isAi && <Sparkles size={10} className="text-success shrink-0" />}{cell.chosen || '—'}</span>
+                              <span className="truncate max-w-[140px] flex items-center gap-1">{isAi && <Sparkles size={10} className="text-success shrink-0" />}<MathInline text={cell.chosen || '—'} /></span>
                             ) : (
                               <div className="flex flex-col items-center justify-center gap-0.5 leading-tight">
                                 <span className="flex items-center gap-1">
-                                  <span className="font-bold text-[11px]">{cell.chosen || '—'}</span>
-                                  <span className="truncate max-w-[120px] text-[11px]">{cell.choiceText}</span>
+                                  <span className="font-bold text-[11px]"><MathInline text={cell.chosen || '—'} /></span>
+                                  <span className="truncate max-w-[120px] text-[11px]"><MathInline text={cell.choiceText} /></span>
                                 </span>
                                 <span className="flex items-center gap-1 text-success">
                                   <CheckCircle size={10} className="shrink-0" />
-                                  <span className="font-bold text-[10px]">{cell.correctDisplayKey || cell.answerKey}</span>
-                                  <span className="truncate max-w-[120px] text-[10px]">{cell.correctDisplayText || cell.answerText || ''}</span>
+                                  <span className="font-bold text-[10px]"><MathInline text={cell.correctDisplayKey || cell.answerKey} /></span>
+                                  <span className="truncate max-w-[120px] text-[10px]"><MathInline text={cell.correctDisplayText || cell.answerText || ''} /></span>
                                 </span>
                               </div>
                             )}
@@ -562,13 +562,13 @@ function AnswersInner() {
                     </span>
                   </div>
                   <div className="p-4">
-                    <div className="text-[13.5px] leading-relaxed mb-2.5" dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(q.text) }} />
+                    <div className="text-[13.5px] leading-relaxed mb-2.5"><MathText text={q.text} /></div>
                     <div className="flex flex-col gap-1 text-[13px] border-t border-border pt-2.5">
-                      <div className="text-muted">Student's answer: <strong className={statusColor}>{studentAnswerText(cell)}</strong></div>
+                      <div className="text-muted">Student's answer: <strong className={statusColor}><MathInline text={studentAnswerText(cell)} /></strong></div>
                       <div className="text-muted">
                         Correct answer:{' '}
                         <strong className="text-navy-700">
-                          {cell.type === 'fill_blank' ? (cell.answerText || q.answer || '—') : `${cell.correctDisplayKey || cell.answerKey}${(cell.correctDisplayText || cell.answerText) ? ' · ' + (cell.correctDisplayText || cell.answerText) : ''}`}
+                          {cell.type === 'fill_blank' ? <MathInline text={cell.answerText || q.answer || '—'} /> : <><MathInline text={`${cell.correctDisplayKey || cell.answerKey}`} />{ (cell.correctDisplayText || cell.answerText) ? <> · <MathInline text={cell.correctDisplayText || cell.answerText} /></> : null}</>}
                         </strong>
                         {cell.type !== 'fill_blank' && cell.correctDisplayKey !== cell.answerKey && (
                           <span className="text-[11px] text-faint ml-1">(DB key {cell.answerKey})</span>
