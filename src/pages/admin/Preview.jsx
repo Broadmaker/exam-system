@@ -74,7 +74,7 @@ function PreviewInner() {
                     <div className="text-[14.5px] leading-relaxed mb-3.5"><MathText text={q.text} /></div>
                     {qType === 'fill_blank' ? (
                       <div className="flex items-center gap-2.5 px-3.5 py-2.5 border-[1.5px] border-dashed border-navy-700 rounded-md text-[14px] bg-navy-50 text-navy-700">
-                        Answer: <strong>{q.answer}</strong>
+                        Answer: <strong><MathInline text={q.answer} /></strong>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-1.5">
@@ -92,7 +92,7 @@ function PreviewInner() {
                     )}
                     {q.explain && (
                       <div className="mt-3 text-[12px] text-navy-700 leading-relaxed px-3.5 py-2 bg-navy-100 rounded-md">
-                        <Lightbulb size={12} className="inline -mt-0.5 mr-1" /> {q.explain}
+                        <Lightbulb size={12} className="inline -mt-0.5 mr-1" /> <MathText text={q.explain} />
                       </div>
                     )}
                   </Card>

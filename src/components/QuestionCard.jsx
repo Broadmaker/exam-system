@@ -73,24 +73,24 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             {!chosenKey ? 'Not answered.' : isPartial ? <><Sparkles size={12} /> Partial credit — close answer (legacy 0.5)</> : isAiCorrected ? <><Sparkles size={12} /> Correct — AI accepted (≥85% similar)</> : isCorrect ? 'Correct!' : 'Incorrect.'}
             {showAnswers && !isCorrect && !isPartial && (
               <span className="font-normal text-navy-700">
-                Correct answer: <strong className="font-semibold">{correctAnswerText}</strong>
+                Correct answer: <strong className="font-semibold"><MathInline text={correctAnswerText} /></strong>
               </span>
             )}
             {showAnswers && isPartial && (
               <span className="font-normal text-navy-700">
-                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-warning font-medium">· you got 0.5 (legacy)</span>
+                Correct: <strong className="font-semibold"><MathInline text={correctAnswerText} /></strong> <span className="text-warning font-medium">· you got 0.5 (legacy)</span>
               </span>
             )}
             {showAnswers && isAiCorrected && (
               <span className="font-normal text-navy-700">
-                Correct: <strong className="font-semibold">{correctAnswerText}</strong> <span className="text-success font-medium">· AI corrected to full credit</span>
+                Correct: <strong className="font-semibold"><MathInline text={correctAnswerText} /></strong> <span className="text-success font-medium">· AI corrected to full credit</span>
               </span>
             )}
           </div>
         )}
         {submitted && explainTextFb && (
           <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isPartial ? 'bg-warning-bg border-warning/30 text-warning' : isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
-            {explainTextFb}
+            <MathText text={explainTextFb} />
           </div>
         )}
       </div>
@@ -175,9 +175,9 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
 
       {submitted && showAnswers && (
         <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
-          {isCorrect ? 'Correct!' : answered ? 'Incorrect.' : 'Not answered.'} {explainText ? ` ${explainText}` : ''}
-          {canShowAnswer && !isCorrect && answered && correctKey ? ` — Correct answer: ${correctKey}${grading?.answerText ? ' — ' + grading.answerText : ''}` : ''}
-          {canShowAnswer && !answered && correctKey ? ` Correct answer: ${correctKey}${grading?.answerText ? ' — ' + grading.answerText : ''}` : ''}
+          <span>{isCorrect ? 'Correct!' : answered ? 'Incorrect.' : 'Not answered.'} {explainText ? <><MathText text={explainText} /></> : null}</span>
+          {canShowAnswer && !isCorrect && answered && correctKey ? <span> — Correct answer: <strong><MathInline text={correctKey} /></strong>{grading?.answerText ? <> — <MathInline text={grading.answerText} /></> : null}</span> : null}
+          {canShowAnswer && !answered && correctKey ? <span> Correct answer: <strong><MathInline text={correctKey} /></strong>{grading?.answerText ? <> — <MathInline text={grading.answerText} /></> : null}</span> : null}
         </div>
       )}
       {submitted && !showAnswers && (

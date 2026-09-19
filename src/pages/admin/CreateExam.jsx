@@ -177,7 +177,7 @@ function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onD
               </div>
             )}
             {isFill ? (
-              <div className="inline-flex items-center gap-1.5 text-[12px] text-navy-700 bg-navy-50 border border-border rounded-md px-2.5 py-1 mb-2">Answer: <strong className="font-mono">{q.answer}</strong></div>
+              <div className="inline-flex items-center gap-1.5 text-[12px] text-navy-700 bg-navy-50 border border-border rounded-md px-2.5 py-1 mb-2">Answer: <strong className="font-mono"><MathInline text={q.answer} /></strong></div>
             ) : (
               <div className="flex flex-wrap gap-1.5 mb-2">
                 {(choices || []).map(c => (
@@ -187,7 +187,7 @@ function QuestionCard({ q, index, isEditing, editState, editActions, onEdit, onD
             )}
             {q.explain && (
               <div className="flex items-center gap-1 text-[12px] text-navy-700 italic">
-                <Lightbulb size={12} /> {q.explain}
+                <Lightbulb size={12} /> <MathText text={q.explain} />
               </div>
             )}
           </>
