@@ -4,7 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import { PageHeader, StatCard, Card, Badge, Button, Table, EmptyState, Spinner, useToast } from '../../components/ui';
 import { MathText, MathInline } from '../../components/Math';
-import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat, CheckCircle2, XCircle } from 'lucide-react';
+import { ClipboardList, BarChart3, Trophy, TrendingDown, Search, RefreshCw, Inbox, Download, PieChart, HelpCircle, FolderOpen, Repeat, CheckCircle2, XCircle, WifiOff } from 'lucide-react';
 
 export default function Results() {
   return <AdminLayout title="Exam Results"><ResultsInner /></AdminLayout>;
@@ -231,6 +231,7 @@ function ResultsInner() {
                     <Badge tone={r.reason === 'manual' ? 'neutral' : r.reason === 'timeout' ? 'warning' : r.reason === 'tab' ? 'danger' : 'danger'}>
                       {r.reason === 'manual' ? 'Submitted' : r.reason === 'timeout' ? 'Timed out' : r.reason === 'tab' ? 'Tab switch' : 'Proctor end'}
                     </Badge>
+                    {r.flagged && <Badge tone="warning" title={r.flag_reason || 'Offline start'}><WifiOff size={12} /> Offline start</Badge>}
                     {r.retry_allowed && <Badge tone="success">Retry allowed</Badge>}
                     <Button size="sm" variant={r.retry_allowed ? 'danger' : 'outline'} icon={Repeat}
                       onClick={() => toggleRetry(r)}>

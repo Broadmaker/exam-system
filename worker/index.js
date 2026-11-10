@@ -390,7 +390,7 @@ app.get('/api/exams', async (c) => {
   const offset = Math.max(Number(qOffset) || 0, 0);
   // Ensure expired are closed before pagination (cron covers all, but lazy close here as fallback)
   if (hasPagination) await autoCloseExpiredExams(db);
-  const examCols = `e.id, e.title, e.description, e.time_limit, e.questions_per_set, e.show_answers, e.deadline, e.access_code, e.class_id, e.type, e.status, e.passing_score, e.start_at, e.created_at, e.updated_at`;
+  const examCols = `e.id, e.title, e.description, e.time_limit, e.questions_per_set, e.show_answers, e.deadline, e.access_code, e.class_id, e.type, e.status, e.passing_score, e.start_at, e.allow_offline_start, e.created_at, e.updated_at`;
   const sql = hasPagination
     ? `SELECT ${examCols},
        (SELECT COUNT(*) FROM questions WHERE exam_id = e.id) as question_count,
@@ -439,9 +439,9 @@ app.post('/api/exams', async (c) => {
   const passing = clampPassing(body.passing_score);
   const normalizedCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
-    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '').run();
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at, allow_offline_start)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(id, body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', body.allow_offline_start ? 1 : 0).run();
   await log(db, 'exam_created', 'Created exam: ' + body.title);
   // Auto-notify class when a non-draft exam is created + real push
   const s = body.status || 'draft';
@@ -507,6 +507,99 @@ app.get('/api/exams/:id', async (c) => {
   });
 });
 
+// Preload a quiz for offline use. Deliberately returns questions before the
+// scheduled open time for VERIFIED students (class enrollment or access code).
+// The client hides them until start_at; the server still validates started_at
+// on sync/submit so early access cannot produce an accepted score.
+// See docs/OFFLINE_QUIZ.md.
+app.get('/api/exams/:id/preload', async (c) => {
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+  const db = c.env.DB;
+  const examId = c.req.param('id');
+  const studentId = (c.req.query('student_id') || '').trim().toUpperCase();
+  const code = (c.req.query('code') || '').trim().toUpperCase();
+  const deviceId = (c.req.query('device_id') || '').trim();
+  let studentName = (c.req.query('student_name') || '').trim();
+  let studentSection = (c.req.query('student_section') || '').trim();
+  if (!studentId) return c.json({ error: 'Student ID is required.' }, 400);
+
+  const exam = await db.prepare(`SELECT * FROM exams WHERE id = ?`).bind(examId).first();
+  if (!exam) return c.json({ error: 'Exam not found' }, 404);
+  if (exam.status === 'draft') return c.json({ error: 'This exam is not published yet.' }, 403);
+  if (exam.status === 'archived') return c.json({ error: 'This exam is archived and no longer available.' }, 403);
+  if (exam.status === 'closed' || isDeadlinePassed(exam.deadline)) {
+    return c.json({ error: 'This exam has already closed.' }, 403);
+  }
+  if (exam.access_code && code !== String(exam.access_code).trim().toUpperCase()) {
+    return c.json({ error: 'Invalid access code. Ask your proctor for the correct code.' }, 403);
+  }
+
+  const now = Date.now();
+  const startMs = exam.start_at ? new Date(exam.start_at).getTime() : NaN;
+  const openNow = !exam.start_at || isNaN(startMs) || startMs <= now;
+
+  if (exam.class_id) {
+    const roster = await db.prepare(
+      `SELECT student_id, student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(exam.class_id, studentId).first();
+    if (!roster) return c.json({ error: 'This student ID is not enrolled in the linked class.' }, 403);
+    studentName = roster.student_name;
+    studentSection = roster.student_section;
+  } else if (!openNow && !exam.access_code) {
+    // Standalone no-code exams cannot be preloaded before they open (would leak questions to anyone with the link).
+    return c.json({ error: 'Questions can be preloaded once this exam opens.' }, 403);
+  }
+  if (!openNow && !exam.allow_offline_start) {
+    return c.json({ error: 'Preloading before the quiz opens requires offline start to be enabled.' }, 403);
+  }
+
+  const { results: questions } = await db.prepare(
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
+  ).bind(examId).all();
+  if (!questions || !questions.length) {
+    return c.json({ error: 'This exam has no questions to preload.' }, 400);
+  }
+  const safeQuestions = questions.map(q => ({ ...q, answer: undefined, explain: '' }));
+  const packageHash = `${exam.updated_at || ''}:${questions.length}:${questions[questions.length - 1]?.id || ''}`;
+
+  await db.prepare(
+    `INSERT INTO exam_preloads (id, exam_id, student_id, student_name, student_section, device_id, package_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(exam_id, student_id) DO UPDATE SET
+       student_name = excluded.student_name,
+       student_section = excluded.student_section,
+       device_id = excluded.device_id,
+       package_hash = excluded.package_hash,
+       preloaded_at = datetime('now')`
+  ).bind(uuid(), examId, studentId, studentName || '', studentSection || '', deviceId, packageHash).run();
+  await log(db, 'preload', `${studentName || studentId} (${studentId}) preloaded ${examId} (${questions.length} items)`);
+
+  return c.json({
+    exam: {
+      id: exam.id,
+      title: exam.title,
+      description: exam.description || '',
+      time_limit: exam.time_limit,
+      questions_per_set: exam.questions_per_set,
+      show_answers: exam.show_answers,
+      deadline: exam.deadline || '',
+      class_id: exam.class_id || '',
+      type: exam.type,
+      status: exam.status,
+      passing_score: exam.passing_score,
+      start_at: exam.start_at || '',
+      allow_offline_start: exam.allow_offline_start ? 1 : 0,
+      has_access_code: !!exam.access_code,
+      updated_at: exam.updated_at || '',
+    },
+    questions: safeQuestions,
+    not_before: !isNaN(startMs) ? startMs : now,
+    server_time: now,
+    package_hash: packageHash,
+    student: { id: studentId, name: studentName || '', section: studentSection || '' },
+  });
+});
+
 app.put('/api/exams/:id', async (c) => {
   if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
   if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
@@ -519,9 +612,9 @@ app.put('/api/exams/:id', async (c) => {
   const passing = clampPassing(body.passing_score);
   const normalizedCode = String(body.access_code || '').trim().toUpperCase();
   await db.prepare(
-    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, type = ?, status = ?, passing_score = ?, start_at = ?, updated_at = datetime('now')
+    `UPDATE exams SET title = ?, description = ?, time_limit = ?, questions_per_set = ?, show_answers = ?, deadline = ?, access_code = ?, roster = ?, class_id = ?, type = ?, status = ?, passing_score = ?, start_at = ?, allow_offline_start = ?, updated_at = datetime('now')
      WHERE id = ?`
-  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', examId).run();
+  ).bind(body.title, body.description || '', body.time_limit || 60, body.questions_per_set || 10, body.show_answers !== undefined ? (body.show_answers ? 1 : 0) : 1, body.deadline || '', normalizedCode, JSON.stringify(body.roster || []), body.class_id || '', body.type || 'major_exam', body.status || 'draft', passing, body.start_at || '', body.allow_offline_start ? 1 : 0, examId).run();
   await log(db, 'exam_updated', 'Updated: ' + (old?.title || examId));
   // Notify on publish/activate transition (draft→active/scheduled/published) + real push
   const prev = old?.status || 'draft';
@@ -545,9 +638,9 @@ app.post('/api/exams/:id/duplicate', async (c) => {
   const newId = uuid();
   const passing = clampPassing(src.passing_score);
   await db.prepare(
-    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).bind(newId, src.title + ' (copy)', src.description, src.time_limit, src.questions_per_set, src.show_answers, '', src.access_code, src.roster, src.class_id, src.type, 'draft', passing, '').run();
+    `INSERT INTO exams (id, title, description, time_limit, questions_per_set, show_answers, deadline, access_code, roster, class_id, type, status, passing_score, start_at, allow_offline_start)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(newId, src.title + ' (copy)', src.description, src.time_limit, src.questions_per_set, src.show_answers, '', src.access_code, src.roster, src.class_id, src.type, 'draft', passing, '', src.allow_offline_start ? 1 : 0).run();
   const { results: questions } = await db.prepare(
     `SELECT part, text, type, choices, answer, explain, sort_order, difficulty, topic, competency, tags FROM questions WHERE exam_id = ?`
   ).bind(c.req.param('id')).all();
@@ -760,14 +853,17 @@ app.post('/api/submit', async (c) => {
   if (!rateLimit(c, 20, 60_000)) return c.json({ error: 'Too many requests' }, 429);
   const db = c.env.DB;
   const body = await c.req.json();
-  const { exam_id, student_name, student_section, student_id = '', seed, answers, score: clientScore, total: clientTotal, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed' } = body;
+  const { exam_id, student_name, student_section, student_id = '', seed, answers, score: clientScore, total: clientTotal, tab_switches, time_taken, reason = 'manual', answer_scheme = 'fixed', offline_attempt_id = '', offline_start = 0, device_id = '', preloaded_package_hash = '' } = body;
 
   if (!exam_id || !student_name || !student_section) {
     return c.json({ error: 'Missing exam_id, student_name or student_section.' }, 400);
   }
   const normId = String(student_id || '').trim().toUpperCase();
+  const offlineAttemptId = String(offline_attempt_id || '').trim();
+  const isOfflineStart = !!offline_start;
+  const offlinePackageHash = String(preloaded_package_hash || '').trim();
 
-  const exam = await db.prepare(`SELECT deadline, class_id, status, start_at, created_at, show_answers FROM exams WHERE id = ?`).bind(exam_id).first();
+  const exam = await db.prepare(`SELECT id, deadline, class_id, status, start_at, created_at, show_answers, allow_offline_start FROM exams WHERE id = ?`).bind(exam_id).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
 
   // Find any prior submission — prefer student_id match, fallback to name+section
@@ -776,12 +872,12 @@ app.post('/api/submit', async (c) => {
   try {
     if (normId) {
       existing = await db.prepare(
-        `SELECT id, reason, retry_allowed, retry_count, score, total, answers FROM submissions WHERE exam_id = ? AND student_id = ?`
+        `SELECT id, reason, retry_allowed, retry_count, score, total, answers, offline_attempt_id, offline_start, started_at, flagged, flag_reason FROM submissions WHERE exam_id = ? AND student_id = ?`
       ).bind(exam_id, normId).first();
     }
     if (!existing) {
       existing = await db.prepare(
-        `SELECT id, reason, retry_allowed, retry_count, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+        `SELECT id, reason, retry_allowed, retry_count, score, total, answers, offline_attempt_id, offline_start, started_at, flagged, flag_reason FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`
       ).bind(exam_id, student_name, student_section).first();
     }
   } catch {
@@ -793,8 +889,33 @@ app.post('/api/submit', async (c) => {
       try { existing = await db.prepare(`SELECT id, reason, retry_allowed, score, total, answers FROM submissions WHERE exam_id = ? AND student_name = ? AND student_section = ?`).bind(exam_id, student_name, student_section).first(); } catch {}
     }
   }
+  // Idempotent replay: the same offline attempt retried (e.g. response lost while
+  // reconnecting) returns the already-recorded score instead of a 409/duplicate.
+  if (existing && offlineAttemptId && existing.offline_attempt_id === offlineAttemptId) {
+    return c.json({ id: existing.id, score: existing.score, total: existing.total, replay: true }, 200);
+  }
+
   const startedAtNum = Number(body.started_at);
   const hasValidStartedAt = Number.isFinite(startedAtNum) && startedAtNum > 0;
+
+  // Offline-start validation: opt-in only, inside the exam window, with preload/enrollment proof.
+  let offlineFlagReason = '';
+  if (isOfflineStart) {
+    if (!exam.allow_offline_start) return c.json({ error: 'Offline start is not enabled for this exam.' }, 403);
+    if (exam.status === 'draft' || exam.status === 'archived') return c.json({ error: 'This exam is not available.' }, 403);
+    const windowErr = offlineWindowError(exam, startedAtNum);
+    if (windowErr) return c.json({ error: windowErr }, 403);
+    const proof = await findOfflineProof(db, exam, exam_id, normId);
+    if (!proof) return c.json({ error: 'No offline preload or enrollment found for this student.' }, 403);
+    // Flag (but keep) an attempt if another device has a live session.
+    const otherLive = await db.prepare(
+      `SELECT id, device_id FROM exam_sessions
+       WHERE exam_id = ? AND student_id = ? AND active = 1 AND id != ?`
+    ).bind(exam_id, normId, offlineAttemptId || '__none__').first();
+    if (otherLive && (!otherLive.device_id || String(otherLive.device_id) !== String(device_id || ''))) {
+      offlineFlagReason = 'offline_multi_session';
+    }
+  }
   // Grace for pending offline submits: if they started before the deadline/close,
   // treat as a resume even when no row exists yet (covers "submitted but not recorded").
   // Hardened: client timestamp alone is not trusted — require it to be after exam
@@ -813,12 +934,13 @@ app.post('/api/submit', async (c) => {
         if (normId) {
           const sess = await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
           if (sess) hasProof = true;
-          else if (exam.class_id) {
-            const enr = await db.prepare(`SELECT 1 FROM enrollments WHERE class_id = ? AND student_id = ? LIMIT 1`).bind(exam.class_id, normId).first();
-            if (enr) hasProof = true;
-          } else {
-            // Standalone exam without class — require existing submission already checked, so no grace without session
-            hasProof = false;
+          else {
+            const pre = await db.prepare(`SELECT 1 FROM exam_preloads WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
+            if (pre) hasProof = true;
+            else if (exam.class_id) {
+              const enr = await db.prepare(`SELECT 1 FROM enrollments WHERE class_id = ? AND student_id = ? LIMIT 1`).bind(exam.class_id, normId).first();
+              if (enr) hasProof = true;
+            }
           }
         }
         if (hasProof) {
@@ -833,6 +955,10 @@ app.post('/api/submit', async (c) => {
         if (normId) {
           const sess = await db.prepare(`SELECT 1 FROM exam_sessions WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
           if (sess) hasProof = true;
+          else {
+            const pre = await db.prepare(`SELECT 1 FROM exam_preloads WHERE exam_id = ? AND student_id = ? LIMIT 1`).bind(exam_id, normId).first();
+            if (pre) hasProof = true;
+          }
         }
         if (hasProof) {
           isStartedBeforeClose = true;
@@ -841,7 +967,7 @@ app.post('/api/submit', async (c) => {
       }
     }
   } catch {}
-  const isResumeFinalization = !!existing || isStartedBeforeDeadline || isStartedBeforeClose;
+  const isResumeFinalization = !!existing || isOfflineStart || isStartedBeforeDeadline || isStartedBeforeClose;
 
   // Never accept FRESH submissions for exams that aren't open for new attempts:
   // draft (never published), scheduled-but-not-open, closed, or archived. Resumed
@@ -968,23 +1094,55 @@ app.post('/api/submit', async (c) => {
 
   const id = existing ? existing.id : uuid();
   const nextRetryCount = existing ? (Number(existing.retry_count) || 0) + 1 : 0;
+  const offlineAttemptValue = offlineAttemptId || existing?.offline_attempt_id || '';
+  const offlineStartValue = isOfflineStart ? 1 : (Number(existing?.offline_start) || 0);
+  const startedAtValue = startedAtNum > 0 ? startedAtNum : (Number(existing?.started_at) || 0);
+  const flaggedValue = isOfflineStart ? (offlineFlagReason ? 1 : 0) : (Number(existing?.flagged) || 0);
+  const flagReasonValue = isOfflineStart ? offlineFlagReason : (existing?.flag_reason || '');
   const batchStmts = [];
   if (existing) {
     batchStmts.push(
       db.prepare(
         `UPDATE submissions
-         SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, retry_count = ?, submitted_at = datetime('now')
+         SET student_id = ?, seed = ?, answers = ?, score = ?, total = ?, tab_switches = ?, time_taken = ?, reason = ?, answer_scheme = ?, retry_count = ?, offline_attempt_id = ?, offline_start = ?, started_at = ?, flagged = ?, flag_reason = ?, submitted_at = datetime('now')
          WHERE id = ?`
-      ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, nextRetryCount, id)
+      ).bind(normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, nextRetryCount, offlineAttemptValue, offlineStartValue, startedAtValue, flaggedValue, flagReasonValue, id)
     );
     // Answers changed, so discard any manual reviews tied to the old attempt.
     batchStmts.push(db.prepare(`DELETE FROM answer_reviews WHERE submission_id = ?`).bind(id));
   } else {
     batchStmts.push(
       db.prepare(
-        `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme, retry_count)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, 0)
+        `INSERT INTO submissions (id, exam_id, student_name, student_section, student_id, seed, answers, score, total, tab_switches, time_taken, reason, answer_scheme, retry_count, offline_attempt_id, offline_start, started_at, flagged, flag_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(id, exam_id, student_name, student_section, normId, String(seed || ''), JSON.stringify(submittedAnswers), serverScore, serverTotal, Number(tab_switches) || 0, Number(time_taken) || 0, safeReason, safeScheme, 0, offlineAttemptValue, offlineStartValue, startedAtValue, flaggedValue, flagReasonValue)
+    );
+  }
+
+  // Offline start with no prior sync: create the session/attendance row before closing it.
+  if (isOfflineStart && offlineAttemptId && !existing) {
+    batchStmts.push(
+      db.prepare(
+        `INSERT INTO exam_sessions (id, exam_id, student_id, student_name, student_section, device_id, started_at, last_seen, active)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 1)
+         ON CONFLICT(id) DO UPDATE SET last_seen = datetime('now'), active = 1`
+      ).bind(offlineAttemptId, exam_id, normId, student_name, student_section, String(device_id || ''))
+    );
+    const offlineAtt = await db.prepare(
+      `SELECT id FROM attendance WHERE exam_id = ? AND student_id = ?`
+    ).bind(exam_id, normId).first();
+    if (!offlineAtt) {
+      batchStmts.push(
+        db.prepare(
+          `INSERT INTO attendance (id, exam_id, student_id, student_name, student_section, status, started_at, checked_in)
+           VALUES (?, ?, ?, ?, ?, 'started', datetime('now'), datetime('now'))`
+        ).bind(uuid(), exam_id, normId, student_name, student_section)
+      );
+    }
+    batchStmts.push(
+      db.prepare(
+        `UPDATE exam_preloads SET last_synced_at = datetime('now') WHERE exam_id = ? AND student_id = ?`
+      ).bind(exam_id, normId)
     );
   }
 
@@ -1022,6 +1180,12 @@ app.post('/api/submit', async (c) => {
   if (batchStmts.length) await db.batch(batchStmts);
 
   await log(db, 'submission', `${existing ? 'Resubmission' : 'Score recorded'} for ${student_name} (${normId || 'no ID'}): ${serverScore}/${serverTotal} (${safeReason}) client_was ${clientScore}/${clientTotal}`);
+  if (isOfflineStart) {
+    await log(db, 'offline_submit', `${student_name} (${normId}) submitted ${exam_id} from an offline start (attempt ${offlineAttemptId || 'n/a'})`);
+  }
+  if (offlineFlagReason) {
+    await log(db, 'offline_submit_flagged', `${student_name} (${normId}) in ${exam_id}: ${offlineFlagReason} (kept submission)`);
+  }
   invalidateAnalytics(exam_id);
   // Enrich perQuestion with correct answer/explanation for student review when show_answers is enabled.
   // The student's Questions were stripped of answer on GET, so review needs server-provided keys.
@@ -1036,11 +1200,133 @@ app.post('/api/submit', async (c) => {
       return { ...p, answer: q.answer, answerText: correctChoice ? correctChoice.text : '', explain: q.explain || '' };
     });
   }
-  return c.json({ id, score: serverScore, total: serverTotal, perQuestion: serverPerQuestion }, existing ? 200 : 201);
+  return c.json({
+    id,
+    score: serverScore,
+    total: serverTotal,
+    perQuestion: serverPerQuestion,
+    offline_start: isOfflineStart,
+    flagged: !!flaggedValue,
+    flag_reason: flagReasonValue || undefined,
+  }, existing ? 200 : 201);
 });
 
 // ── SESSIONS (single-session lock + heartbeat) ──────
 const SESSION_STALE_MS = 75 * 1000; // a session is stale if no heartbeat for 75s
+
+// Offline-start helpers (docs/OFFLINE_QUIZ.md). The client's started_at is only
+// trusted inside the exam window; anything outside is rejected, so a manipulated
+// device clock cannot produce an accepted score.
+function offlineWindowError(exam, startedMs) {
+  const start = Number(startedMs);
+  if (!Number.isFinite(start) || start <= 0) return 'Missing started_at for offline start.';
+  if (start > Date.now() + 5 * 60_000) return 'Offline start time is invalid.';
+  const notBefore = exam.start_at ? new Date(exam.start_at).getTime() : (exam.created_at ? new Date(exam.created_at).getTime() : 0);
+  const deadline = exam.deadline ? new Date(exam.deadline).getTime() : 0;
+  if (notBefore && !isNaN(notBefore) && start < notBefore) return 'Offline start is before the exam opens.';
+  if (deadline && !isNaN(deadline) && start > deadline) return 'Offline start is after the exam deadline.';
+  return '';
+}
+
+async function findOfflineProof(db, exam, examId, studentId) {
+  if (!studentId) return null;
+  const preload = await db.prepare(
+    `SELECT id, device_id FROM exam_preloads WHERE exam_id = ? AND student_id = ?`
+  ).bind(examId, studentId).first();
+  if (preload) return preload;
+  // Class enrollment is also acceptable proof (preloading is optional for class-linked exams).
+  if (exam.class_id) {
+    const enrolled = await db.prepare(
+      `SELECT id FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(exam.class_id, studentId).first();
+    if (enrolled) return { id: 'enrollment', device_id: '' };
+  }
+  return null;
+}
+
+// Register an offline-start session when the student reconnects. Idempotent on
+// offline_attempt_id; flags (but keeps) the attempt if another device is live.
+app.post('/api/exams/:id/session/sync', async (c) => {
+  if (!rateLimit(c, 60, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+  const db = c.env.DB;
+  const examId = c.req.param('id');
+  const body = await c.req.json().catch(() => ({}));
+  const studentId = String(body.student_id || '').trim().toUpperCase();
+  const deviceId = String(body.device_id || '').trim();
+  const offlineAttemptId = String(body.offline_attempt_id || '').trim();
+  const startedMs = Number(body.started_at) || 0;
+  let studentName = String(body.student_name || '').trim();
+  let studentSection = String(body.student_section || '').trim();
+  if (!studentId || !offlineAttemptId) return c.json({ error: 'Missing student_id or offline_attempt_id.' }, 400);
+
+  const exam = await db.prepare(
+    `SELECT id, deadline, class_id, status, start_at, created_at, allow_offline_start FROM exams WHERE id = ?`
+  ).bind(examId).first();
+  if (!exam) return c.json({ error: 'Exam not found' }, 404);
+  if (!exam.allow_offline_start) return c.json({ error: 'Offline start is not enabled for this exam.' }, 403);
+  if (exam.status === 'draft' || exam.status === 'archived') return c.json({ error: 'This exam is not available.' }, 403);
+
+  const windowErr = offlineWindowError(exam, startedMs);
+  if (windowErr) return c.json({ error: windowErr }, 403);
+  const proof = await findOfflineProof(db, exam, examId, studentId);
+  if (!proof) return c.json({ error: 'No offline preload or enrollment found for this student.' }, 403);
+
+  if (exam.class_id) {
+    const roster = await db.prepare(
+      `SELECT student_name, student_section FROM enrollments WHERE class_id = ? AND student_id = ?`
+    ).bind(exam.class_id, studentId).first();
+    if (!roster) return c.json({ error: 'You must be enrolled in this class to take this exam.' }, 403);
+    studentName = roster.student_name;
+    studentSection = roster.student_section;
+  }
+  if (!studentName || !studentSection) return c.json({ error: 'Student name and section are required.' }, 400);
+
+  // If this offline attempt was already graded, never reopen it as a live session.
+  const alreadySubmitted = await db.prepare(
+    `SELECT id FROM submissions WHERE exam_id = ? AND offline_attempt_id = ? LIMIT 1`
+  ).bind(examId, offlineAttemptId).first();
+  if (alreadySubmitted) {
+    return c.json({ session_id: offlineAttemptId, student_name: studentName, student_section: studentSection, submitted: true, flagged: false });
+  }
+
+  // Detect a conflicting live session on a different device (same-device resume is fine).
+  const other = await db.prepare(
+    `SELECT id, device_id FROM exam_sessions
+     WHERE exam_id = ? AND student_id = ? AND active = 1 AND id != ?`
+  ).bind(examId, studentId, offlineAttemptId).first();
+  const flagged = !!other && (!other.device_id || String(other.device_id) !== deviceId);
+
+  await db.prepare(
+    `INSERT INTO exam_sessions (id, exam_id, student_id, student_name, student_section, device_id, started_at, last_seen, active)
+     VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), 1)
+     ON CONFLICT(id) DO UPDATE SET
+       last_seen = datetime('now'),
+       active = 1,
+       device_id = excluded.device_id,
+       student_name = excluded.student_name,
+       student_section = excluded.student_section`
+  ).bind(offlineAttemptId, examId, studentId, studentName, studentSection, deviceId).run();
+
+  const existingAtt = await db.prepare(
+    `SELECT id FROM attendance WHERE exam_id = ? AND student_id = ?`
+  ).bind(examId, studentId).first();
+  if (existingAtt) {
+    await db.prepare(
+      `UPDATE attendance SET status = 'started', started_at = datetime('now'), student_name = ?, student_section = ? WHERE id = ?`
+    ).bind(studentName, studentSection, existingAtt.id).run();
+  } else {
+    await db.prepare(
+      `INSERT INTO attendance (id, exam_id, student_id, student_name, student_section, status, started_at, checked_in)
+       VALUES (?, ?, ?, ?, ?, 'started', datetime('now'), datetime('now'))`
+    ).bind(uuid(), examId, studentId, studentName, studentSection).run();
+  }
+  await db.prepare(
+    `UPDATE exam_preloads SET last_synced_at = datetime('now') WHERE exam_id = ? AND student_id = ?`
+  ).bind(examId, studentId).run();
+  await log(db, 'session_sync', `${studentName} (${studentId}) synced offline start for ${examId}${flagged ? ' [FLAGGED multi-device]' : ''}`);
+
+  return c.json({ session_id: offlineAttemptId, student_name: studentName, student_section: studentSection, flagged });
+});
 
 app.post('/api/exams/:id/session/start', async (c) => {
   if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
@@ -1268,7 +1554,7 @@ app.get('/api/proctor/:examId', async (c) => {
        ORDER BY last_seen DESC`
     ).bind(examId).all(),
     db.prepare(
-      `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at, reason, retry_allowed
+      `SELECT student_id, student_name, student_section, score, total, tab_switches, submitted_at, reason, retry_allowed, offline_start, offline_attempt_id, flagged, flag_reason
        FROM submissions WHERE exam_id = ? ORDER BY submitted_at DESC LIMIT 50`
     ).bind(examId).all(),
   ]);
@@ -2599,10 +2885,10 @@ app.get('/api/submissions/:examId', async (c) => {
   const limit = Math.min(Math.max(Number(qLimit) || 100, 1), 500);
   const offset = Math.max(Number(qOffset) || 0, 0);
   const sql = hasPagination
-    ? `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
+    ? `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme, offline_start, offline_attempt_id, flagged, flag_reason
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC LIMIT ? OFFSET ?`
-    : `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme
+    : `SELECT id, student_name, student_section, student_id, score, total, tab_switches, time_taken, submitted_at, reason, retry_allowed, answers, seed, answer_scheme, offline_start, offline_attempt_id, flagged, flag_reason
      FROM submissions WHERE exam_id = ?
      ORDER BY submitted_at DESC`;
   const { results } = hasPagination

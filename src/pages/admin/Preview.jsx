@@ -44,6 +44,17 @@ function PreviewInner() {
         icon={FileText}
       />
 
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${exam.allow_offline_start ? 'bg-success-bg text-success' : 'bg-canvas text-muted border border-border'}`}>
+          {exam.allow_offline_start ? 'Offline start enabled' : 'Offline start disabled'}
+        </span>
+        {exam.start_at && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-info-bg px-2.5 py-1 text-[11px] font-semibold text-info">
+            Opens {new Date(exam.start_at).toLocaleString()}
+          </span>
+        )}
+      </div>
+
       {exam.description && (
         <div className="bg-navy-50 border border-border rounded-[10px] px-5 py-4 mb-6 text-[13px] text-muted">
           {exam.description}

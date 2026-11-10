@@ -4,7 +4,7 @@ import { api } from '../../api';
 import AdminLayout from '../../components/AdminLayout';
 import QRCode from 'qrcode';
 import { PageHeader, Card, Select, Badge, Button, EmptyState, Spinner, ConfirmDialog, useToast } from '../../components/ui';
-import { Radio, UserCheck, AlertTriangle, XCircle, CheckCircle, QrCode, Copy, RefreshCw, Ban, Clock, MonitorUp } from 'lucide-react';
+import { Radio, UserCheck, AlertTriangle, XCircle, CheckCircle, QrCode, Copy, RefreshCw, Ban, Clock, MonitorUp, WifiOff } from 'lucide-react';
 
 export default function Proctor() {
   const [params] = useSearchParams();
@@ -108,6 +108,9 @@ export default function Proctor() {
       </div>
       {s.tab_switches > 0 && (
         <Badge tone="warning"><AlertTriangle size={12} /> {s.tab_switches} tab switch{s.tab_switches > 1 ? 'es' : ''}</Badge>
+      )}
+      {s.flagged && (
+        <Badge tone="warning" title={s.flag_reason || 'Offline start'}><WifiOff size={12} /> Offline start</Badge>
       )}
       {s.last_seen && <span className="text-[12px] text-muted">seen {fmtLastSeen(s.last_seen)}</span>}
       {s.submitted_at && <span className="text-[12px] text-muted">{fmtLastSeen(s.submitted_at)}</span>}

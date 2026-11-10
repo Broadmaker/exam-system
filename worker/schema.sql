@@ -15,6 +15,7 @@ CREATE TABLE exams (
   status TEXT NOT NULL DEFAULT 'draft',
   passing_score REAL NOT NULL DEFAULT 60,
   start_at TEXT DEFAULT '',
+  allow_offline_start INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -51,6 +52,11 @@ CREATE TABLE submissions (
   reason TEXT NOT NULL DEFAULT 'manual',
   retry_allowed INTEGER NOT NULL DEFAULT 0,
   retry_count INTEGER NOT NULL DEFAULT 0,
+  offline_attempt_id TEXT DEFAULT '',
+  offline_start INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER DEFAULT 0,
+  flagged INTEGER NOT NULL DEFAULT 0,
+  flag_reason TEXT DEFAULT '',
   submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
 );
@@ -99,6 +105,20 @@ CREATE TABLE exam_sessions (
   last_seen TEXT NOT NULL DEFAULT (datetime('now')),
   active INTEGER NOT NULL DEFAULT 1,
   kicked INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
+);
+
+CREATE TABLE exam_preloads (
+  id TEXT PRIMARY KEY,
+  exam_id TEXT NOT NULL,
+  student_id TEXT NOT NULL,
+  student_name TEXT DEFAULT '',
+  student_section TEXT DEFAULT '',
+  device_id TEXT DEFAULT '',
+  package_hash TEXT DEFAULT '',
+  preloaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_synced_at TEXT DEFAULT '',
+  UNIQUE (exam_id, student_id),
   FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE
 );
 
@@ -189,6 +209,9 @@ CREATE INDEX idx_activity_log_created ON activity_log(created_at DESC);
 CREATE INDEX idx_answer_reviews_submission ON answer_reviews(submission_id);
 CREATE INDEX idx_sessions_exam ON exam_sessions(exam_id);
 CREATE INDEX idx_sessions_active ON exam_sessions(exam_id, active);
+CREATE INDEX idx_preloads_exam ON exam_preloads(exam_id);
+CREATE INDEX idx_preloads_student ON exam_preloads(exam_id, student_id);
+CREATE INDEX idx_submissions_offline_attempt ON submissions(offline_attempt_id);
 CREATE INDEX idx_attendance_exam ON attendance(exam_id);
 CREATE INDEX idx_checkins_session ON checkins(session_id);
 CREATE INDEX idx_enrollments_class ON enrollments(class_id);

@@ -7,7 +7,7 @@ import { PageHeader, Card, Button, Badge, Select, EmptyState, Spinner, Modal, us
 import { MathText, MathInline } from '../../components/Math';
 import { SearchInput } from '../../components/ui/SearchInput';
 import { PillsContainer, Pill } from '../../components/ui/Pills';
-import { Search, RefreshCw, Eye, CheckCircle, XCircle, X, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users, Clock, CalendarClock, GraduationCap, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles, Wand2 } from 'lucide-react';
+import { Search, RefreshCw, Eye, CheckCircle, XCircle, X, User, Download, FolderOpen, ArrowLeft, ArrowRight, BarChart3, Users, Clock, CalendarClock, GraduationCap, FileText, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Sparkles, Wand2, WifiOff } from 'lucide-react';
 
 export default function Answers() {
   return <AdminLayout title="Student Answers"><AnswersInner /></AdminLayout>;
@@ -438,11 +438,16 @@ function AnswersInner() {
                     <td style={{ position: 'sticky', left: 0, zIndex: 1, minWidth: 150, background: rowIdx % 2 === 0 ? 'var(--color-surface)' : 'var(--color-navy-50)', borderRight: '1px solid var(--color-border)' }}>
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-navy-800 truncate">{r.sub.student_name}</span>
-                        {reviewedCount > 0 && (
-                          <span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold shrink-0" title={`${reviewedCount} answer${reviewedCount !== 1 ? 's' : ''} manually reviewed`}>
-                            <CheckCircle size={10} /> {reviewedCount}
-                          </span>
-                        )}
+                         {reviewedCount > 0 && (
+                           <span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold shrink-0" title={`${reviewedCount} answer${reviewedCount !== 1 ? 's' : ''} manually reviewed`}>
+                             <CheckCircle size={10} /> {reviewedCount}
+                           </span>
+                         )}
+                         {r.sub.flagged && (
+                           <span className="inline-flex items-center gap-1 bg-warning-bg text-warning border border-warning/30 rounded-full px-1.5 py-0.5 text-[10px] font-bold shrink-0" title={r.sub.flag_reason || 'Offline start'}>
+                             <WifiOff size={10} /> offline
+                           </span>
+                         )}
                       </div>
                       <div className="text-[11px] text-faint mt-0.5 flex items-center gap-1.5 flex-wrap">
                         <span>{r.sub.student_section} · {r.sub.score}/{r.sub.total}</span>
@@ -533,6 +538,11 @@ function AnswersInner() {
               {open.sub.tab_switches > 0 && (
                 <span className="inline-flex items-center gap-1.5 bg-warning-bg border border-warning/40 text-warning rounded-md px-2.5 py-1">
                   <XCircle size={12} /> {open.sub.tab_switches} tab switch{open.sub.tab_switches !== 1 ? 'es' : ''}
+                </span>
+              )}
+              {open.sub.flagged && (
+                <span className="inline-flex items-center gap-1.5 bg-warning-bg border border-warning/40 text-warning rounded-md px-2.5 py-1" title={open.sub.flag_reason || 'Offline start'}>
+                  <WifiOff size={12} /> Started offline — flagged for review
                 </span>
               )}
             </div>

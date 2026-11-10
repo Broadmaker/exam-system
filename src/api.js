@@ -100,6 +100,18 @@ export const api = {
     const q = qs.toString();
     return request('/exams/' + id + (q ? '?' + q : ''), { credentials: 'include' });
   },
+  // Preload a quiz for offline use (verified students only) — docs/OFFLINE_QUIZ.md
+  preloadExam: (id, { code = '', studentId = '', studentName = '', studentSection = '', deviceId = '' } = {}) => {
+    const qs = new URLSearchParams();
+    if (code) qs.set('code', code);
+    if (studentId) qs.set('student_id', studentId);
+    if (studentName) qs.set('student_name', studentName);
+    if (studentSection) qs.set('student_section', studentSection);
+    if (deviceId) qs.set('device_id', deviceId);
+    const q = qs.toString();
+    return request('/exams/' + id + '/preload' + (q ? '?' + q : ''));
+  },
+  syncOfflineStart: (examId, body) => request('/exams/' + examId + '/session/sync', { method: 'POST', body: JSON.stringify(body) }),
   createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),

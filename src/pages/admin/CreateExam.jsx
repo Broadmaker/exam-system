@@ -210,6 +210,7 @@ function CreateExamInner() {
   const [timeLimit, setTimeLimit] = useState(60);
   const [showAnswers, setShowAnswers] = useState(true);
   const [deadline, setDeadline] = useState('');
+  const [allowOfflineStart, setAllowOfflineStart] = useState(false);
   const [accessCode, setAccessCode] = useState('');
   const [roster, setRoster] = useState('');
   const [classId, setClassId] = useState(params.get('class') || '');
@@ -276,6 +277,7 @@ function CreateExamInner() {
       setTimeLimit(data.time_limit);
       setShowAnswers(data.show_answers !== 0);
       setDeadline(data.deadline ? toLocalInput(data.deadline) : '');
+      setAllowOfflineStart(!!data.allow_offline_start);
       setAccessCode(data.access_code || '');
       setClassId(data.class_id || '');
       setRoster((data.roster || []).map(r => [r.id || r.student_id || '', r.name || r.student_name || '', r.section || r.student_section || ''].filter(Boolean).join(', ')).join('\n'));
@@ -308,6 +310,7 @@ function CreateExamInner() {
       deadline: toIso(deadline), access_code: accessCode.trim().toUpperCase(), roster: parsedRoster,
       class_id: classId,
       type: examType, status: status, passing_score: effectivePassing, start_at: toIso(startAt),
+      allow_offline_start: allowOfflineStart,
     };
     try {
       if (examId) {
@@ -547,6 +550,13 @@ function CreateExamInner() {
                   </>
                 ) : <p className="text-[11px] text-faint mt-1">No deadline — stays open until closed (recommended for absentee retakes).</p>}
               </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-1.5 bg-surface border border-border rounded-lg px-4 py-3">
+              <Toggle checked={allowOfflineStart} onChange={setAllowOfflineStart} label="Allow preloaded offline start" />
+              <p className="text-[11px] text-muted leading-relaxed">
+                Verified students (enrolled class or access code) can preload the questions before the scheduled open and start with little or no signal.
+                Answers are saved on the device and graded after they sync. Scores are still validated against the official window.
+              </p>
             </div>
           </div>
 
