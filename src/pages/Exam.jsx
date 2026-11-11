@@ -481,9 +481,54 @@ export default function Exam() {
         return next;
       });
     };
-    const onVis = () => { if (document.hidden) trigger('left the exam tab'); };
-    const onBlur = () => trigger('switched away from the exam window');
+    const ua = navigator.userAgent || '';
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(ua) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    let blurTimer = null;
+    // iOS/mobile Safari fires blur for system UI, rotation, and the on-screen
+    // keyboard. Ignore those; genuine app switches still fire visibilitychange.
+    let orientationUntil = 0;
+    // On iPhone a tilt/rotation (or system UI such as the keyboard/URL bar) can
+    // surface a transient visibilitychange with document.hidden === true even
+    // though the student never left the tab. Track when we went hidden and only
+    // count a violation once the page has stayed hidden long enough and no
+    // orientation change is in progress.
+    let hiddenAt = 0;
+    let visTimer = null;
+    const markOrientation = () => { orientationUntil = Date.now() + 2500; };
+    const onVis = () => {
+      if (document.hidden) {
+        if (visTimer) { clearTimeout(visTimer); visTimer = null; }
+        if (isMobile) hiddenAt = Date.now();
+        else trigger('left the exam tab');
+        return;
+      }
+      if (!isMobile || !hiddenAt) return;
+      const away = Date.now() - hiddenAt;
+      hiddenAt = 0;
+      // Ignore the brief hidden→visible flicker that iOS produces for a tilt,
+      // rotation, or system UI. Only a sustained absence counts; then wait a
+      // beat so a trailing orientationchange can arm the grace window first.
+      if (away < 1200) return;
+      if (visTimer) clearTimeout(visTimer);
+      visTimer = setTimeout(() => {
+        visTimer = null;
+        if (!document.hidden && Date.now() >= orientationUntil) trigger('left the exam tab');
+      }, 400);
+    };
+    const onBlur = () => {
+      if (isMobile || blurTimer) return;
+      blurTimer = setTimeout(() => {
+        blurTimer = null;
+        if (!document.hasFocus()) trigger('switched away from the exam window');
+      }, 1200);
+    };
+    const onFocus = () => {
+      if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
+    };
+    const onOrientation = () => { markOrientation(); };
     const onFSChange = () => {
+      if (Date.now() < orientationUntil) return;
       if (document.fullscreenElement) {
         fsWasActiveRef.current = true;
         setFsBlocked(false);
@@ -493,7 +538,7 @@ export default function Exam() {
       }
     };
     const onResize = () => {
-      if (resizeCooldownRef.current) return;
+      if (Date.now() < orientationUntil || resizeCooldownRef.current) return;
       const ratio = window.outerWidth / window.screen.availWidth;
       if (window.screen.availWidth >= 1024 && ratio < 0.55) {
         resizeCooldownRef.current = true;
@@ -503,11 +548,27 @@ export default function Exam() {
     };
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('blur', onBlur);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('orientationchange', onOrientation);
+    // Modern iOS/Android expose orientation via screen.orientation, while
+    // orientationchange is deprecated — listen to both so the grace window is
+    // armed no matter which one fires.
+    const orientationApi = window.screen && window.screen.orientation;
+    if (orientationApi && orientationApi.addEventListener) {
+      orientationApi.addEventListener('change', onOrientation);
+    }
     window.addEventListener('resize', onResize);
     document.addEventListener('fullscreenchange', onFSChange);
     return () => {
+      if (blurTimer) clearTimeout(blurTimer);
+      if (visTimer) clearTimeout(visTimer);
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('orientationchange', onOrientation);
+      if (orientationApi && orientationApi.removeEventListener) {
+        orientationApi.removeEventListener('change', onOrientation);
+      }
       window.removeEventListener('resize', onResize);
       document.removeEventListener('fullscreenchange', onFSChange);
     };
