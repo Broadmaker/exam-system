@@ -1,15 +1,16 @@
 const BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request(path, options = {}) {
+  const { timeout: timeoutMs = 15000, ...fetchOptions } = options;
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7000);
-  const hasBody = options.body !== undefined && options.body !== null;
-  const headers = { ...(hasBody ? { 'Content-Type': 'application/json' } : {}), ...options.headers };
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const hasBody = fetchOptions.body !== undefined && fetchOptions.body !== null;
+  const headers = { ...(hasBody ? { 'Content-Type': 'application/json' } : {}), ...fetchOptions.headers };
   let res;
   try {
     res = await fetch(BASE + path, {
       credentials: 'include',
-      ...options,
+      ...fetchOptions,
       headers,
       signal: controller.signal,
     }).finally(() => clearTimeout(timeout));
@@ -17,10 +18,11 @@ async function request(path, options = {}) {
     clearTimeout(timeout);
     if (e.name === 'AbortError') {
       const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+      const secs = Math.round(timeoutMs / 1000);
       const err = new Error(
         offline
           ? 'No internet connection. Check your network and try again.'
-          : 'Server is taking too long to respond (7s timeout). The Worker may be waking up — please retry.'
+          : `Server is taking too long to respond (${secs}s timeout). On a slow connection, please retry.`
       );
       err.status = 408;
       err.cause = 'timeout';
@@ -98,7 +100,7 @@ export const api = {
     if (code) qs.set('code', code);
     if (studentId) qs.set('student_id', studentId);
     const q = qs.toString();
-    return request('/exams/' + id + (q ? '?' + q : ''), { credentials: 'include' });
+    return request('/exams/' + id + (q ? '?' + q : ''), { credentials: 'include', timeout: 25000 });
   },
   // Preload a quiz for offline use (verified students only) — docs/OFFLINE_QUIZ.md
   preloadExam: (id, { code = '', studentId = '', studentName = '', studentSection = '', deviceId = '' } = {}) => {
@@ -109,9 +111,9 @@ export const api = {
     if (studentSection) qs.set('student_section', studentSection);
     if (deviceId) qs.set('device_id', deviceId);
     const q = qs.toString();
-    return request('/exams/' + id + '/preload' + (q ? '?' + q : ''));
+    return request('/exams/' + id + '/preload' + (q ? '?' + q : ''), { timeout: 30000 });
   },
-  syncOfflineStart: (examId, body) => request('/exams/' + examId + '/session/sync', { method: 'POST', body: JSON.stringify(body) }),
+  syncOfflineStart: (examId, body) => request('/exams/' + examId + '/session/sync', { method: 'POST', body: JSON.stringify(body), timeout: 30000 }),
   createExam: (body) => request('/exams', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   updateExam: (id, body) => request('/exams/' + id, { method: 'PUT', body: JSON.stringify(body), credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
   deleteExam: (id) => request('/exams/' + id, { method: 'DELETE', credentials: 'include' }).then(r => { invalidateMemo('/exams'); return r; }),
@@ -121,7 +123,7 @@ export const api = {
   updateQuestion: (id, body) => request('/questions/' + id, { method: 'PUT', body: JSON.stringify(body), credentials: 'include' }),
   bulkImportQuestions: (examId, questions, startOrder = 0) =>
     request('/exams/' + examId + '/questions/bulk', { method: 'POST', body: JSON.stringify({ questions, start_order: startOrder }), credentials: 'include' }),
-  submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body) }),
+  submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body), timeout: 30000 }),
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
   getSubmissions: (examId) => request('/submissions/' + examId, { credentials: 'include' }),
   reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }),
@@ -137,8 +139,8 @@ export const api = {
   // Activity Log
   getLogs: () => request('/logs', { credentials: 'include' }),
   // Sessions (single-session lock, heartbeat, proctoring)
-  startSession: (examId, body) => request('/exams/' + examId + '/session/start', { method: 'POST', body: JSON.stringify(body) }),
-  heartbeat: (examId, body) => request('/exams/' + examId + '/session/heartbeat', { method: 'POST', body: JSON.stringify(body) }),
+  startSession: (examId, body) => request('/exams/' + examId + '/session/start', { method: 'POST', body: JSON.stringify(body), timeout: 30000 }),
+  heartbeat: (examId, body) => request('/exams/' + examId + '/session/heartbeat', { method: 'POST', body: JSON.stringify(body), timeout: 12000 }),
   endSession: (examId, body) => request('/exams/' + examId + '/session/end', { method: 'POST', body: JSON.stringify(body) }),
   getProctor: (examId) => request('/proctor/' + examId, { credentials: 'include' }),
   kickStudent: (examId, sessionId) => request('/proctor/' + examId + '/kick', { method: 'POST', body: JSON.stringify({ session_id: sessionId }), credentials: 'include' }),

@@ -12,8 +12,8 @@
   "lang": "en",
   "icons": [
     {
-      "src": "/splash-screen-logo.png",
-      "sizes": "1254x1254",
+      "src": "/splash-screen-logo-384.png",
+      "sizes": "384x384",
       "type": "image/png",
       "purpose": "any"
     },
@@ -34,18 +34,12 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
-    },
-    {
-      "src": "/splash-screen-logo.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ],
   "screenshots": [
     {
-      "src": "/splash-screen-logo.png",
-      "sizes": "1254x1254",
+      "src": "/splash-screen-logo-384.png",
+      "sizes": "384x384",
       "type": "image/png",
       "form_factor": "narrow",
       "label": "WMSU Exam Portal — splash screen"

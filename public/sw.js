@@ -1,5 +1,5 @@
-const CACHE = 'exam-portal-v8';
-const SHELL = ['/', '/index.html', '/splash-screen-logo.png', '/manifest.webmanifest'];
+const CACHE = 'exam-portal-v9';
+const SHELL = ['/', '/index.html', '/splash-screen-logo-384.png', '/manifest.webmanifest'];
 const MAX_CACHE_ENTRIES = 50;
 const CACHE_TTL_MS = 7 * 24 * 3600 * 1000; // 7 days
 
@@ -130,8 +130,8 @@ self.addEventListener('push', (event) => {
   const url = data.url || '/notifications';
   const options = {
     body,
-    icon: '/splash-screen-logo.png',
-    badge: '/splash-screen-logo.png',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     data: { url },
     tag: data.tag || 'wmsu-notif',
   };

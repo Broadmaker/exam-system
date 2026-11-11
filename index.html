@@ -11,13 +11,13 @@
 <meta name="apple-mobile-web-app-title" content="Exam Portal">
 <title>Exam Portal</title>
 <link rel="icon" type="image/png" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" href="/splash-screen-logo.png">
+<link rel="apple-touch-icon" href="/icons/icon-192.png">
 <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192.png">
-<link rel="apple-touch-icon" sizes="512x512" href="/splash-screen-logo.png">
+<link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512.png">
 <!-- iOS PWA splash (startup image) — modern fallback using large light splash -->
-<link rel="apple-touch-startup-image" href="/splash-screen-logo.png">
+<link rel="apple-touch-startup-image" href="/splash-screen-logo-384.png">
 <link rel="manifest" href="/manifest.webmanifest">
-<link rel="preload" as="image" href="/splash-screen-logo.png" fetchpriority="high">
+<link rel="preload" as="image" href="/splash-screen-logo-384.png" fetchpriority="high">
 <style>
   /* Immediate splash — visible before JS/React loads, dismissed by window.__hideSplash() */
   #pwa-splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;background:radial-gradient(700px 380px at 50% -10%, #1e3a7a 0%, transparent 70%),linear-gradient(180deg,#0f2044 0%,#0b1b3a 55%,#0a1530 100%);transition:opacity .46s ease,visibility .46s ease}
@@ -53,9 +53,9 @@
 </script>
 </head>
 <body>
-<!-- PWA splash screen — uses /splash-screen-logo.png (1:1 ≈1254px). Shown inline before React hydrates for instant paint on standalone/PWA launch. -->
+<!-- PWA splash screen — uses the optimized 384px logo (≈230KB vs 1.5MB original). Shown inline before React hydrates for instant paint on standalone/PWA launch. -->
 <div id="pwa-splash" aria-hidden="true">
-  <img id="pwa-splash-logo" src="/splash-screen-logo.png" alt="" width="148" height="148" fetchpriority="high" decoding="async" />
+  <img id="pwa-splash-logo" src="/splash-screen-logo-384.png" alt="" width="148" height="148" fetchpriority="high" decoding="async" />
   <div style="text-align:center">
     <div id="pwa-splash-title">WMSU Exam Portal</div>
     <div id="pwa-splash-sub">Western Mindanao State University</div>

@@ -18,6 +18,7 @@ export default function Exam() {
   const [examData, setExamData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Gate fields
   const [name, setName] = useState('');
@@ -121,6 +122,8 @@ export default function Exam() {
 
   useEffect(() => {
     if (!examId) { setLoading(false); setError('No exam ID provided'); return; }
+    setLoading(true);
+    setError('');
     localStorage.setItem('exam_id', examId);
     api.getExam(examId).then(data => {
       setExamData(data);
@@ -189,7 +192,7 @@ export default function Exam() {
         setLoading(false);
       }
     });
-  }, [examId]);
+  }, [examId, loadAttempt]);
 
   // Restore saved state
   useEffect(() => {
@@ -1293,7 +1296,24 @@ export default function Exam() {
     return <div className="min-h-screen bg-canvas flex items-center justify-center text-[18px] text-muted">Loading exam...</div>;
   }
   if (error) {
-    return <div className="min-h-screen bg-canvas flex items-center justify-center text-[18px] text-danger px-6 text-center">Error: {error}</div>;
+    return (
+      <div className="min-h-screen bg-canvas flex items-center justify-center px-5">
+        <div className="w-full max-w-md rounded-xl border border-border bg-surface p-6 text-center shadow-sm">
+          <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-danger-bg text-danger">
+            <WifiOff size={20} />
+          </div>
+          <h2 className="text-[17px] font-bold text-navy-800">Couldn’t load the exam</h2>
+          <p className="mt-1.5 text-[13px] leading-relaxed text-muted">{error}</p>
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+            <Button className="flex-1" onClick={() => setLoadAttempt(a => a + 1)}>Try again</Button>
+            <Button variant="outline" className="flex-1" onClick={() => navigate('/')}>
+              <ArrowLeft size={15} /> Home
+            </Button>
+          </div>
+          <p className="mt-3 text-[11px] text-faint">On a slow connection, wait a few seconds then tap Try again.</p>
+        </div>
+      </div>
+    );
   }
 
   // ── Deadline / Lifecycle Check ──
