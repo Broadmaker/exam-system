@@ -16,6 +16,8 @@ CREATE TABLE exams (
   passing_score REAL NOT NULL DEFAULT 60,
   start_at TEXT DEFAULT '',
   allow_offline_start INTEGER NOT NULL DEFAULT 0,
+  -- 'first' | 'second' | '' — used by the class gradebook half split.
+  half TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -164,6 +166,9 @@ CREATE TABLE classes (
   section TEXT DEFAULT '',
   instructor TEXT DEFAULT '',
   access_code TEXT DEFAULT '',
+  -- Gradebook first/second half weighting (defaults to 60:40).
+  first_half_weight REAL NOT NULL DEFAULT 60,
+  second_half_weight REAL NOT NULL DEFAULT 40,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -1072,6 +1072,7 @@ function GradebookTab({ classId }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showCatModal, setShowCatModal] = useState(false);
+  const [showHalfModal, setShowHalfModal] = useState(false);
   const toast = useToast();
 
   const load = useCallback(() => {
@@ -1095,19 +1096,31 @@ function GradebookTab({ classId }) {
   const hasWeighted = !!(data?.categories?.length && (data?.totalWeight || 0) > 0);
   const categories = data?.categories || [];
   const activeCategories = data?.activeCategories || [];
+  const halves = data?.halves || { first: { weight: 60, examCount: 0, average: null }, second: { weight: 40, examCount: 0, average: null }, totalWeight: 0, weightedAverage: null };
+  const hasHalves = (halves.first?.examCount || 0) + (halves.second?.examCount || 0) > 0;
+  const halfLabel = (h) => h === 'first' ? 'First half' : h === 'second' ? 'Second half' : 'Unassigned';
 
   const exportGradebook = () => {
     if (!data) return;
-    const baseHeader = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`)];
-    const header = hasWeighted
-      ? [...baseHeader, 'Average (%)', 'Weighted (%)', ...activeCategories.map(c => `${c.name} (${c.weight}%)`)]
-      : [...baseHeader, 'Average (%)'];
+    const baseHeader = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`), 'Total Points', 'Total Possible', 'Total (%)'];
+    let header = [...baseHeader, 'Average (%)'];
+    if (hasWeighted) header = [...header, 'Weighted (%)', ...activeCategories.map(c => `${c.name} (${c.weight}%)`)];
+    if (hasHalves) header = [...header, `First Half (%)`, `Second Half (%)`, `Half Weighted (${halves.first.weight}:${halves.second.weight}) (%)`];
     const fname = (data.class?.name || `class-${classId}`) + '-gradebook';
     const rows = data.rows.map(r => {
-      const base = [r.student_id, r.student_name, r.student_section, ...r.cells.map(c => (c.pct === null ? '' : c.pct)), (r.average === null ? '' : r.average)];
-      if (!hasWeighted) return base;
-      const catVals = (r.categoryAverages || []).map(ca => ca.average);
-      return [...base, (r.weightedAverage === null ? '' : r.weightedAverage), ...catVals];
+      let row = [
+        r.student_id, r.student_name, r.student_section,
+        ...r.cells.map(c => (c.pct === null ? '' : c.pct)),
+        r.totalScore, r.totalPossible, (r.totalPct === null ? '' : r.totalPct),
+        (r.average === null ? '' : r.average),
+      ];
+      if (hasWeighted) {
+        row = [...row, (r.weightedAverage === null ? '' : r.weightedAverage), ...(r.categoryAverages || []).map(ca => ca.average)];
+      }
+      if (hasHalves) {
+        row = [...row, (r.firstHalfAverage === null ? '' : r.firstHalfAverage), (r.secondHalfAverage === null ? '' : r.secondHalfAverage), (r.halfWeightedAverage === null ? '' : r.halfWeightedAverage)];
+      }
+      return row;
     });
     exportCSV(fname, header, rows);
   };
@@ -1120,6 +1133,7 @@ function GradebookTab({ classId }) {
       <Card title="Gradebook" icon={BarChart3}
         actions={
           <div className="flex gap-1.5">
+            <Button size="sm" variant="soft" icon={Layers} onClick={() => setShowHalfModal(true)}>Half Split</Button>
             <Button size="sm" variant="soft" icon={Settings} onClick={() => setShowCatModal(true)}>Grade Categories</Button>
             {data.rows.length > 0 && data.exams.length > 0 && (
               <Button size="sm" variant="outline" icon={Download} onClick={exportGradebook}>Export CSV</Button>
@@ -1173,6 +1187,32 @@ function GradebookTab({ classId }) {
           </div>
         )}
 
+        {hasHalves && (
+          <div className="mb-4 rounded-lg border border-border bg-canvas/40 px-3.5 py-3">
+            <div className="flex items-center gap-2 mb-2 flex-wrap">
+              <span className="w-7 h-7 rounded-md bg-navy-700 text-white flex items-center justify-center shrink-0"><Layers size={13} /></span>
+              <span className="text-[13px] font-semibold text-navy-800">First / Second Half</span>
+              <Badge tone="success" className="!text-[11px]">{halves.first.weight}% : {halves.second.weight}%</Badge>
+              {halves.weightedAverage !== null && (
+                <Badge tone="neutral" className="!text-[11px]">Combined avg {halves.weightedAverage}%</Badge>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {[{ key: 'first', label: 'First half' }, { key: 'second', label: 'Second half' }].map(({ key, label }) => {
+                const h = halves[key];
+                return (
+                  <span key={key} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${h.examCount ? 'bg-navy-900 text-white border-navy-900' : 'bg-surface text-muted border-border'}`}>
+                    <Layers size={11} /> {label} <span className="opacity-70">{h.weight}%</span>
+                    <span className={`px-1.5 py-0.5 rounded text-[10px] ${h.examCount ? 'bg-white/15' : 'bg-navy-50'}`}>{h.examCount} exam{h.examCount !== 1 ? 's' : ''}</span>
+                    {h.average !== null && <span className={`font-bold ${h.average >= 60 ? 'text-success' : 'text-warning'}`}>{h.average}% avg</span>}
+                  </span>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-faint mt-2">Each exam is assigned to exactly one half so the two halves are averaged separately and never mixed. Missing exams count as 0% inside their half. Combined = first half × {halves.first.weight}% + second half × {halves.second.weight}% (normalized to the halves that have exams).</p>
+          </div>
+        )}
+
         {!data.exams.length ? (
           <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class to populate the gradebook." compact />
         ) : !data.rows.length ? (
@@ -1184,13 +1224,21 @@ function GradebookTab({ classId }) {
                 <tr className="bg-navy-900 text-white">
                   <th className="px-3 py-2 text-left font-semibold sticky left-0 bg-navy-900 z-10">Student</th>
                   {data.exams.map(e => (
-                    <th key={e.id} className="px-3 py-2 font-semibold min-w-[110px]" title={`${e.title} · ${EXAM_TYPE_LABELS[e.type] || e.type}`}>{e.title}<span className="block text-[10px] font-normal opacity-70">{EXAM_TYPE_LABELS[e.type] || e.type}</span></th>
+                    <th key={e.id} className="px-3 py-2 font-semibold min-w-[110px]" title={`${e.title} · ${EXAM_TYPE_LABELS[e.type] || e.type}${e.half ? ' · ' + halfLabel(e.half) : ''}`}>{e.title}<span className="block text-[10px] font-normal opacity-70">{EXAM_TYPE_LABELS[e.type] || e.type}{e.half ? ` · ${e.half === 'first' ? '1st' : '2nd'} half` : ''}</span></th>
                   ))}
+                  <th className="px-3 py-2 font-semibold">Total</th>
                   <th className="px-3 py-2 font-semibold">Avg</th>
                   {hasWeighted && <th className="px-3 py-2 font-semibold bg-navy-800">Weighted</th>}
                   {hasWeighted && activeCategories.map(c => (
                     <th key={c.id} className="px-2 py-2 font-semibold text-[11px] bg-navy-800 min-w-[84px]" title={`${c.name} ${c.weight}%`}>{c.name}<span className="block text-[10px] font-normal opacity-70">{c.weight}%</span></th>
                   ))}
+                  {hasHalves && (
+                    <>
+                      <th className="px-2 py-2 font-semibold text-[11px] bg-navy-800 min-w-[84px]" title={`First half ${halves.first.weight}%`}>1st Half<span className="block text-[10px] font-normal opacity-70">{halves.first.weight}%</span></th>
+                      <th className="px-2 py-2 font-semibold text-[11px] bg-navy-800 min-w-[84px]" title={`Second half ${halves.second.weight}%`}>2nd Half<span className="block text-[10px] font-normal opacity-70">{halves.second.weight}%</span></th>
+                      <th className="px-2 py-2 font-semibold text-[11px] bg-navy-800 min-w-[92px]" title={`Combined ${halves.first.weight}:${halves.second.weight}`}>{halves.first.weight}:{halves.second.weight}<span className="block text-[10px] font-normal opacity-70">Combined</span></th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1208,6 +1256,10 @@ function GradebookTab({ classId }) {
                         {c.pct !== null && <div className="text-[10px] text-faint mt-0.5">{c.pct}%</div>}
                       </td>
                     ))}
+                    <td className="px-2 py-2 text-center">
+                      <span className="font-semibold text-navy-800">{r.totalScore}/{r.totalPossible}</span>
+                      {r.totalPct !== null && <div className="text-[10px] text-faint mt-0.5">{r.totalPct}%</div>}
+                    </td>
                     <td className={`px-3 py-2 text-center font-bold ${avgTone(r.average)}`}>
                       {r.average === null ? '—' : r.average + '%'}
                     </td>
@@ -1221,6 +1273,21 @@ function GradebookTab({ classId }) {
                         {ca.average}%<div className="text-[10px] text-faint font-normal">{ca.taken}/{ca.total}</div>
                       </td>
                     ))}
+                    {hasHalves && (
+                      <>
+                        <td className={`px-2 py-2 text-center font-semibold ${weightedTone(r.firstHalfAverage)}`}>
+                          {r.firstHalfAverage === null ? '—' : r.firstHalfAverage + '%'}
+                          <div className="text-[10px] text-faint font-normal">{r.firstHalfTaken}/{r.firstHalfTotal}</div>
+                        </td>
+                        <td className={`px-2 py-2 text-center font-semibold ${weightedTone(r.secondHalfAverage)}`}>
+                          {r.secondHalfAverage === null ? '—' : r.secondHalfAverage + '%'}
+                          <div className="text-[10px] text-faint font-normal">{r.secondHalfTaken}/{r.secondHalfTotal}</div>
+                        </td>
+                        <td className={`px-2 py-2 text-center font-bold ${weightedTone(r.halfWeightedAverage)}`}>
+                          {r.halfWeightedAverage === null ? '—' : r.halfWeightedAverage + '%'}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 ))}
                 <tr className="border-t border-border bg-navy-50">
@@ -1233,6 +1300,19 @@ function GradebookTab({ classId }) {
                       <div className="text-[10px] text-faint">{e.submitted}/{data.rows.length} took</div>
                     </td>
                   ))}
+                  <td className="px-2 py-2 text-center">
+                    {(() => {
+                      const earned = data.rows.reduce((a, r) => a + (r.totalScore || 0), 0);
+                      const possible = data.rows.reduce((a, r) => a + (r.totalPossible || 0), 0);
+                      const pct = possible ? Math.round((earned / possible) * 1000) / 10 : null;
+                      return (
+                        <>
+                          <span className="font-semibold text-navy-800">{earned}/{possible}</span>
+                          {pct !== null && <div className="text-[10px] text-faint">{pct}%</div>}
+                        </>
+                      );
+                    })()}
+                  </td>
                   <td className="px-3 py-2 text-center">
                     {(() => {
                       const avgs = data.rows.map(r => r.average).filter(a => a !== null);
@@ -1254,6 +1334,19 @@ function GradebookTab({ classId }) {
                       {c.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${c.average >= 60 ? 'text-success' : 'text-warning'}`}>{c.average}%</span>}
                     </td>
                   ))}
+                  {hasHalves && (
+                    <>
+                      <td className="px-2 py-2 text-center">
+                        {halves.first.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${halves.first.average >= 60 ? 'text-success' : 'text-warning'}`}>{halves.first.average}%</span>}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {halves.second.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${halves.second.average >= 60 ? 'text-success' : 'text-warning'}`}>{halves.second.average}%</span>}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {halves.weightedAverage === null ? <span className="text-faint">—</span> : <span className={`font-bold ${halves.weightedAverage >= 60 ? 'text-success' : 'text-danger'}`}>{halves.weightedAverage}%</span>}
+                      </td>
+                    </>
+                  )}
                 </tr>
               </tbody>
             </table>
@@ -1261,11 +1354,12 @@ function GradebookTab({ classId }) {
         )}
         {data.exams.length > 0 && data.rows.length > 0 && (
           <p className="text-[11px] text-faint mt-3">
-            {hasWeighted ? <>Weighted grade shown when categories configured. Simple average = mean of taken exams. Weighted = Σ (category avg × weight ÷ {data.totalWeight}%). Green ≥60%, amber 40–59%, red &lt;40%.</> : <>Scores show best attempt per exam. Green ≥60%, amber 40–59%, red &lt;40%. Simple average = mean of taken exams.</>}
+            Total = raw points earned ÷ points possible across all exams (missing counts as 0). {hasHalves ? <>First/Second half averages keep each half separate; combined uses {halves.first.weight}:{halves.second.weight}. </> : null}{hasWeighted ? <>Weighted grade shown when categories configured. Simple average = mean of taken exams. Weighted = Σ (category avg × weight ÷ {data.totalWeight}%). </> : <>Scores show best attempt per exam. </>}Green ≥60%, amber 40–59%, red &lt;40%.
           </p>
         )}
       </Card>
       <GradeCategoriesModal open={showCatModal} onClose={() => setShowCatModal(false)} classId={classId} initial={categories} onSaved={() => { setShowCatModal(false); toast.success('Grade categories saved'); load(); }} />
+      <HalfSplitModal open={showHalfModal} onClose={() => setShowHalfModal(false)} classId={classId} data={data} onSaved={() => { setShowHalfModal(false); toast.success('Half split saved'); load(); }} />
     </>
   );
 }
@@ -1343,6 +1437,82 @@ function GradeCategoriesModal({ open, onClose, classId, initial, onSaved }) {
         </div>
         <Button size="sm" variant="soft" icon={Plus} onClick={add}>Add Category</Button>
         <p className="text-[11px] text-faint">Tip: Common setup — Quizzes 20%, Major Exams 30%, Assignments 20%, Final 30% (weights must total 100% for a true final grade).</p>
+      </div>
+    </Modal>
+  );
+}
+
+function HalfSplitModal({ open, onClose, classId, data, onSaved }) {
+  const [firstWeight, setFirstWeight] = useState(60);
+  const [secondWeight, setSecondWeight] = useState(40);
+  const [assignments, setAssignments] = useState({});
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
+  const exams = data?.exams || [];
+
+  useEffect(() => {
+    if (!open) return;
+    setFirstWeight(data?.halves?.first?.weight ?? 60);
+    setSecondWeight(data?.halves?.second?.weight ?? 40);
+    const map = {};
+    (data?.exams || []).forEach(e => { map[e.id] = e.half || ''; });
+    setAssignments(map);
+  }, [open, data]);
+
+  const totalWeight = (Number(firstWeight) || 0) + (Number(secondWeight) || 0);
+  const firstCount = exams.filter(e => assignments[e.id] === 'first').length;
+  const secondCount = exams.filter(e => assignments[e.id] === 'second').length;
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.saveGradebookHalves(classId, {
+        first_weight: Number(firstWeight) || 0,
+        second_weight: Number(secondWeight) || 0,
+        exams: exams.map(e => ({ id: e.id, half: assignments[e.id] || '' })),
+      });
+      onSaved();
+    } catch (e) { toast.error(e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="First / Second Half Split" icon={Layers} size="lg"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button icon={Save} loading={saving} onClick={save}>Save Half Split</Button></>}>
+      <div className="flex flex-col gap-4">
+        <div className={`rounded-lg border px-3 py-2.5 text-[12px] flex items-start gap-2 ${totalWeight === 100 ? 'bg-success-bg border-success/20 text-success' : totalWeight > 100 ? 'bg-danger-bg border-danger/20 text-danger' : 'bg-warning-bg border-warning/20 text-warning'}`}>
+          <Scale size={14} className="shrink-0 mt-0.5" />
+          <span>Combined weight: <strong>{totalWeight}%</strong> {totalWeight === 100 ? '✓ (e.g. 60:40).' : totalWeight > 100 ? '— over 100%, reduce a weight.' : '— under 100%; the combined grade is normalized to the active weights.'}</span>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2.5">
+          <Input label="First half weight %" type="number" min={0} max={100} value={String(firstWeight)} onChange={e => setFirstWeight(Number(e.target.value))} />
+          <Input label="Second half weight %" type="number" min={0} max={100} value={String(secondWeight)} onChange={e => setSecondWeight(Number(e.target.value))} />
+        </div>
+        <p className="text-[11px] text-faint">Assign every exam (topic) to exactly one half. Exams left unassigned only affect the simple average and Total — they are never mixed into either half.</p>
+        {!exams.length ? (
+          <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class first." compact />
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-navy-800">
+              <Badge tone="neutral">{firstCount} first half</Badge>
+              <Badge tone="neutral">{secondCount} second half</Badge>
+              <Badge tone="neutral">{exams.length - firstCount - secondCount} unassigned</Badge>
+            </div>
+            {exams.map(e => (
+              <div key={e.id} className="flex items-center gap-3 rounded-lg border border-border bg-canvas/40 px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] font-semibold text-navy-800 truncate">{e.title}</div>
+                  <div className="text-[11px] text-faint">{EXAM_TYPE_LABELS[e.type] || e.type} · {e.total} pts</div>
+                </div>
+                <Select value={assignments[e.id] || ''} onChange={ev => setAssignments(prev => ({ ...prev, [e.id]: ev.target.value }))} className="!w-[150px] !m-0">
+                  <option value="">Unassigned</option>
+                  <option value="first">First half</option>
+                  <option value="second">Second half</option>
+                </Select>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </Modal>
   );

@@ -2001,7 +2001,7 @@ app.get('/api/classes/:id/gradebook', async (c) => {
   ).bind(klass.id).all();
 
   const { results: exams } = await db.prepare(
-    `SELECT id, title, type, passing_score, time_limit, deadline FROM exams WHERE class_id = ? ORDER BY created_at ASC`
+    `SELECT id, title, type, passing_score, time_limit, deadline, half FROM exams WHERE class_id = ? ORDER BY created_at ASC`
   ).bind(klass.id).all();
   const examIds = exams.map(e => e.id);
 
@@ -2040,6 +2040,27 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     if (!examMaxTotal[s.exam_id] || s.total > examMaxTotal[s.exam_id]) examMaxTotal[s.exam_id] = s.total;
   });
 
+  // Question counts let us know an exam's max points even when nobody took it yet.
+  const questionCounts = {};
+  if (examIds.length) {
+    const { results: qc } = await db.prepare(
+      `SELECT exam_id, COUNT(*) AS cnt FROM questions WHERE exam_id IN (${examIds.map(() => '?').join(',')}) GROUP BY exam_id`
+    ).bind(...examIds).all();
+    (qc || []).forEach(r => { questionCounts[r.exam_id] = Number(r.cnt) || 0; });
+  }
+  const examTotal = (ex) => Math.max(examMaxTotal[ex.id] || 0, questionCounts[ex.id] || 0);
+
+  // First/second half split (Upscale gradebook extension). Weights default 60:40.
+  const halfWeight = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : fallback;
+  };
+  const firstWeight = halfWeight(klass.first_half_weight, 60);
+  const secondWeight = halfWeight(klass.second_half_weight, 40);
+  const firstExams = exams.filter(ex => ex.half === 'first');
+  const secondExams = exams.filter(ex => ex.half === 'second');
+  const totalPossible = exams.reduce((sum, ex) => sum + examTotal(ex), 0);
+
   // Map exam type → categories that include it (first match wins for weighting; exams
   // without a category are uncategorized and only count toward simple average).
   const examToCat = {};
@@ -2051,6 +2072,20 @@ app.get('/api/classes/:id/gradebook', async (c) => {
   const activeCategories = categories.filter(cat => exams.some(ex => cat.types.includes(ex.type)));
   const totalActiveWeight = activeCategories.reduce((a, cat) => a + (Number(cat.weight) || 0), 0);
 
+  const halfAverageFor = (studentId, list) => {
+    if (!list.length) return { average: null, taken: 0, total: 0 };
+    let sum = 0, taken = 0;
+    for (const ex of list) {
+      const cell = best[studentId + '::' + ex.id];
+      if (cell) {
+        sum += cell.total ? (cell.score / cell.total) * 100 : 0;
+        taken++;
+      }
+    }
+    // Missing work counts as 0 — denominator is every exam assigned to the half.
+    return { average: +((sum / list.length)).toFixed(1), taken, total: list.length };
+  };
+
   const rows = enrollments.map(e => {
     const cells = [];
     let sumPct = 0, taken = 0;
@@ -2061,10 +2096,25 @@ app.get('/api/classes/:id/gradebook', async (c) => {
         sumPct += pct; taken++;
         cells.push({ examId: ex.id, score: cell.score, total: cell.total, pct: +pct.toFixed(1) });
       } else {
-        cells.push({ examId: ex.id, score: null, total: examMaxTotal[ex.id] || 0, pct: null });
+        cells.push({ examId: ex.id, score: null, total: examTotal(ex), pct: null });
       }
     }
     const average = taken ? +((sumPct / taken)).toFixed(1) : null;
+
+    // Total raw points across every exam (missing = 0) + overall percentage.
+    const totalEarned = cells.reduce((sum, c) => sum + (c.score || 0), 0);
+    const totalPct = totalPossible ? +((totalEarned / totalPossible) * 100).toFixed(1) : null;
+
+    // First/second half averages, each kept separate so they never mix.
+    const firstHalf = halfAverageFor(e.student_id, firstExams);
+    const secondHalf = halfAverageFor(e.student_id, secondExams);
+    const activeHalfWeight = (firstHalf.total ? firstWeight : 0) + (secondHalf.total ? secondWeight : 0);
+    let halfWeightedAverage = null;
+    if (activeHalfWeight > 0) {
+      const weightedSum = (firstHalf.total ? firstHalf.average * firstWeight : 0) +
+        (secondHalf.total ? secondHalf.average * secondWeight : 0);
+      halfWeightedAverage = +(weightedSum / activeHalfWeight).toFixed(1);
+    }
 
     // Per-category averages + weighted grade (§41).
     let categoryAverages = [];
@@ -2093,6 +2143,16 @@ app.get('/api/classes/:id/gradebook', async (c) => {
       average,
       weightedAverage,
       categoryAverages,
+      totalScore: totalEarned,
+      totalPossible,
+      totalPct,
+      firstHalfAverage: firstHalf.average,
+      firstHalfTaken: firstHalf.taken,
+      firstHalfTotal: firstHalf.total,
+      secondHalfAverage: secondHalf.average,
+      secondHalfTaken: secondHalf.taken,
+      secondHalfTotal: secondHalf.total,
+      halfWeightedAverage,
       cells,
     };
   });
@@ -2101,8 +2161,8 @@ app.get('/api/classes/:id/gradebook', async (c) => {
   const examStats = exams.map(ex => {
     const scored = rows.map(r => r.cells.find(c => c.examId === ex.id)).filter(c => c && c.pct !== null);
     return {
-      id: ex.id, title: ex.title, type: ex.type, passing_score: ex.passing_score,
-      total: examMaxTotal[ex.id] || 0,
+      id: ex.id, title: ex.title, type: ex.type, passing_score: ex.passing_score, half: ex.half || '',
+      total: examTotal(ex),
       submitted: scored.length,
       average: scored.length ? +((scored.reduce((a, c) => a + c.pct, 0) / scored.length)).toFixed(1) : null,
     };
@@ -2121,6 +2181,25 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     };
   });
 
+  // Per-half class averages (mean of student half averages).
+  const halfStat = (list, weight, key) => {
+    const vals = rows.map(r => r[key]).filter(v => v !== null);
+    return {
+      weight,
+      examCount: list.length,
+      average: vals.length ? +((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : null,
+    };
+  };
+  const halfStats = {
+    first: halfStat(firstExams, firstWeight, 'firstHalfAverage'),
+    second: halfStat(secondExams, secondWeight, 'secondHalfAverage'),
+    totalWeight: (firstExams.length ? firstWeight : 0) + (secondExams.length ? secondWeight : 0),
+  };
+  const halfWeightedVals = rows.map(r => r.halfWeightedAverage).filter(v => v !== null);
+  halfStats.weightedAverage = halfWeightedVals.length
+    ? +((halfWeightedVals.reduce((a, b) => a + b, 0) / halfWeightedVals.length).toFixed(1))
+    : null;
+
   return c.json({
     class: klass,
     exams: examStats,
@@ -2128,7 +2207,49 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     categories,
     activeCategories: categoryStats,
     totalWeight: totalActiveWeight,
+    halves: halfStats,
   });
+});
+
+// ── GRADEBOOK HALVES (first/second half split) ────
+app.put('/api/classes/:id/gradebook-halves', async (c) => {
+  if (!await adminCheck(c)) return c.json({ error: 'Unauthorized' }, 401);
+  const db = c.env.DB;
+  const classId = c.req.param('id');
+  const klass = await db.prepare(`SELECT id FROM classes WHERE id = ?`).bind(classId).first();
+  if (!klass) return c.json({ error: 'Class not found' }, 404);
+  const body = await c.req.json();
+  const firstWeight = Number(body.first_weight);
+  const secondWeight = Number(body.second_weight);
+  if (!Number.isFinite(firstWeight) || firstWeight < 0 || firstWeight > 100) return c.json({ error: 'First half weight must be 0–100.' }, 400);
+  if (!Number.isFinite(secondWeight) || secondWeight < 0 || secondWeight > 100) return c.json({ error: 'Second half weight must be 0–100.' }, 400);
+
+  const { results: classExams } = await db.prepare(`SELECT id FROM exams WHERE class_id = ?`).bind(classId).all();
+  const validIds = new Set((classExams || []).map(e => e.id));
+  const cleaned = [];
+  if (Array.isArray(body.exams)) {
+    for (const raw of body.exams) {
+      const id = String(raw.id || '').trim();
+      if (!id || !validIds.has(id)) return c.json({ error: 'One or more exams do not belong to this class.' }, 400);
+      const half = String(raw.half || '').trim();
+      if (!['', 'first', 'second'].includes(half)) return c.json({ error: 'Half must be first, second, or unassigned.' }, 400);
+      cleaned.push({ id, half });
+    }
+  }
+
+  const stmts = [
+    db.prepare(`UPDATE classes SET first_half_weight = ?, second_half_weight = ? WHERE id = ?`).bind(firstWeight, secondWeight, classId),
+  ];
+  if (Array.isArray(body.exams)) {
+    // Treat the submitted list as authoritative so no exam stays in the wrong half.
+    stmts.push(db.prepare(`UPDATE exams SET half = '' WHERE class_id = ?`).bind(classId));
+    for (const x of cleaned) {
+      stmts.push(db.prepare(`UPDATE exams SET half = ? WHERE id = ?`).bind(x.half, x.id));
+    }
+  }
+  await db.batch(stmts);
+  await log(db, 'gradebook_halves', `Updated gradebook half split for class ${classId} (${firstWeight}:${secondWeight})`);
+  return c.json({ success: true, first_weight: firstWeight, second_weight: secondWeight, exams: cleaned.length });
 });
 
 // ── GRADE CATEGORIES (Upscale.md §41) ────────────

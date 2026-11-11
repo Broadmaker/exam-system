@@ -164,6 +164,7 @@ export const api = {
   deleteClass: (id) => request('/classes/' + id, { method: 'DELETE', credentials: 'include' }),
   getClass: (id) => request('/classes/' + id, { credentials: 'include' }),
   getClassGradebook: (classId) => request('/classes/' + classId + '/gradebook', { credentials: 'include' }),
+  saveGradebookHalves: (classId, body) => request('/classes/' + classId + '/gradebook-halves', { method: 'PUT', body: JSON.stringify(body), credentials: 'include' }),
   getGradeCategories: (classId) => request('/classes/' + classId + '/grade-categories', { credentials: 'include' }),
   saveGradeCategories: (classId, categories) => request('/classes/' + classId + '/grade-categories', { method: 'PUT', body: JSON.stringify({ categories }), credentials: 'include' }),
   enrollStudents: (classId, students) => request('/classes/' + classId + '/enroll', { method: 'POST', body: JSON.stringify({ students }), credentials: 'include' }),
