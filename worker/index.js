@@ -2072,18 +2072,25 @@ app.get('/api/classes/:id/gradebook', async (c) => {
   const activeCategories = categories.filter(cat => exams.some(ex => cat.types.includes(ex.type)));
   const totalActiveWeight = activeCategories.reduce((a, cat) => a + (Number(cat.weight) || 0), 0);
 
-  const halfAverageFor = (studentId, list) => {
-    if (!list.length) return { average: null, taken: 0, total: 0 };
-    let sum = 0, taken = 0;
+  const halfTotalsFor = (studentId, list) => {
+    if (!list.length) return { score: 0, possible: 0, average: null, taken: 0, total: 0 };
+    let score = 0, possible = 0, taken = 0;
     for (const ex of list) {
       const cell = best[studentId + '::' + ex.id];
+      possible += examTotal(ex);
       if (cell) {
-        sum += cell.total ? (cell.score / cell.total) * 100 : 0;
+        score += cell.score || 0;
         taken++;
       }
     }
     // Missing work counts as 0 — denominator is every exam assigned to the half.
-    return { average: +((sum / list.length)).toFixed(1), taken, total: list.length };
+    return {
+      score,
+      possible,
+      average: possible ? +((score / possible) * 100).toFixed(1) : null,
+      taken,
+      total: list.length,
+    };
   };
 
   const rows = enrollments.map(e => {
@@ -2105,14 +2112,14 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     const totalEarned = cells.reduce((sum, c) => sum + (c.score || 0), 0);
     const totalPct = totalPossible ? +((totalEarned / totalPossible) * 100).toFixed(1) : null;
 
-    // First/second half averages, each kept separate so they never mix.
-    const firstHalf = halfAverageFor(e.student_id, firstExams);
-    const secondHalf = halfAverageFor(e.student_id, secondExams);
-    const activeHalfWeight = (firstHalf.total ? firstWeight : 0) + (secondHalf.total ? secondWeight : 0);
+    // First/second half totals, each kept separate so they never mix.
+    const firstHalf = halfTotalsFor(e.student_id, firstExams);
+    const secondHalf = halfTotalsFor(e.student_id, secondExams);
+    const activeHalfWeight = (firstHalf.possible ? firstWeight : 0) + (secondHalf.possible ? secondWeight : 0);
     let halfWeightedAverage = null;
     if (activeHalfWeight > 0) {
-      const weightedSum = (firstHalf.total ? firstHalf.average * firstWeight : 0) +
-        (secondHalf.total ? secondHalf.average * secondWeight : 0);
+      const weightedSum = (firstHalf.possible ? firstHalf.average * firstWeight : 0) +
+        (secondHalf.possible ? secondHalf.average * secondWeight : 0);
       halfWeightedAverage = +(weightedSum / activeHalfWeight).toFixed(1);
     }
 
@@ -2147,9 +2154,13 @@ app.get('/api/classes/:id/gradebook', async (c) => {
       totalPossible,
       totalPct,
       firstHalfAverage: firstHalf.average,
+      firstHalfScore: firstHalf.score,
+      firstHalfPossible: firstHalf.possible,
       firstHalfTaken: firstHalf.taken,
       firstHalfTotal: firstHalf.total,
       secondHalfAverage: secondHalf.average,
+      secondHalfScore: secondHalf.score,
+      secondHalfPossible: secondHalf.possible,
       secondHalfTaken: secondHalf.taken,
       secondHalfTotal: secondHalf.total,
       halfWeightedAverage,
@@ -2181,18 +2192,21 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     };
   });
 
-  // Per-half class averages (mean of student half averages).
-  const halfStat = (list, weight, key) => {
-    const vals = rows.map(r => r[key]).filter(v => v !== null);
+  // Per-half class totals (aggregate points across enrolled students).
+  const halfStat = (list, weight, scoreKey, possibleKey) => {
+    const score = rows.reduce((sum, r) => sum + (r[scoreKey] || 0), 0);
+    const possible = rows.reduce((sum, r) => sum + (r[possibleKey] || 0), 0);
     return {
       weight,
       examCount: list.length,
-      average: vals.length ? +((vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)) : null,
+      score,
+      possible,
+      average: possible ? +((score / possible) * 100).toFixed(1) : null,
     };
   };
   const halfStats = {
-    first: halfStat(firstExams, firstWeight, 'firstHalfAverage'),
-    second: halfStat(secondExams, secondWeight, 'secondHalfAverage'),
+    first: halfStat(firstExams, firstWeight, 'firstHalfScore', 'firstHalfPossible'),
+    second: halfStat(secondExams, secondWeight, 'secondHalfScore', 'secondHalfPossible'),
     totalWeight: (firstExams.length ? firstWeight : 0) + (secondExams.length ? secondWeight : 0),
   };
   const halfWeightedVals = rows.map(r => r.halfWeightedAverage).filter(v => v !== null);

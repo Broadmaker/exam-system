@@ -1105,7 +1105,7 @@ function GradebookTab({ classId }) {
     const baseHeader = ['Student ID', 'Student Name', 'Section', ...data.exams.map(e => `${e.title} (%)`), 'Total Points', 'Total Possible', 'Total (%)'];
     let header = [...baseHeader, 'Average (%)'];
     if (hasWeighted) header = [...header, 'Weighted (%)', ...activeCategories.map(c => `${c.name} (${c.weight}%)`)];
-    if (hasHalves) header = [...header, `First Half (%)`, `Second Half (%)`, `Half Weighted (${halves.first.weight}:${halves.second.weight}) (%)`];
+    if (hasHalves) header = [...header, 'First Half Points', 'First Half Possible', 'First Half (%)', 'Second Half Points', 'Second Half Possible', 'Second Half (%)', `Half Weighted (${halves.first.weight}:${halves.second.weight}) (%)`];
     const fname = (data.class?.name || `class-${classId}`) + '-gradebook';
     const rows = data.rows.map(r => {
       let row = [
@@ -1118,7 +1118,10 @@ function GradebookTab({ classId }) {
         row = [...row, (r.weightedAverage === null ? '' : r.weightedAverage), ...(r.categoryAverages || []).map(ca => ca.average)];
       }
       if (hasHalves) {
-        row = [...row, (r.firstHalfAverage === null ? '' : r.firstHalfAverage), (r.secondHalfAverage === null ? '' : r.secondHalfAverage), (r.halfWeightedAverage === null ? '' : r.halfWeightedAverage)];
+        row = [...row,
+          r.firstHalfScore, r.firstHalfPossible, (r.firstHalfAverage === null ? '' : r.firstHalfAverage),
+          r.secondHalfScore, r.secondHalfPossible, (r.secondHalfAverage === null ? '' : r.secondHalfAverage),
+          (r.halfWeightedAverage === null ? '' : r.halfWeightedAverage)];
       }
       return row;
     });
@@ -1204,7 +1207,7 @@ function GradebookTab({ classId }) {
                   <span key={key} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${h.examCount ? 'bg-navy-900 text-white border-navy-900' : 'bg-surface text-muted border-border'}`}>
                     <Layers size={11} /> {label} <span className="opacity-70">{h.weight}%</span>
                     <span className={`px-1.5 py-0.5 rounded text-[10px] ${h.examCount ? 'bg-white/15' : 'bg-navy-50'}`}>{h.examCount} exam{h.examCount !== 1 ? 's' : ''}</span>
-                    {h.average !== null && <span className={`font-bold ${h.average >= 60 ? 'text-success' : 'text-warning'}`}>{h.average}% avg</span>}
+                    {h.average !== null && <span className={`font-bold ${h.average >= 60 ? 'text-success' : 'text-warning'}`}>{h.score ?? 0}/{h.possible ?? 0} · {h.average}%</span>}
                   </span>
                 );
               })}
@@ -1276,12 +1279,12 @@ function GradebookTab({ classId }) {
                     {hasHalves && (
                       <>
                         <td className={`px-2 py-2 text-center font-semibold ${weightedTone(r.firstHalfAverage)}`}>
-                          {r.firstHalfAverage === null ? '—' : r.firstHalfAverage + '%'}
-                          <div className="text-[10px] text-faint font-normal">{r.firstHalfTaken}/{r.firstHalfTotal}</div>
+                          <span>{r.firstHalfScore}/{r.firstHalfPossible}</span>
+                          <div className="text-[10px] text-faint font-normal">{r.firstHalfAverage === null ? '—' : r.firstHalfAverage + '%'}</div>
                         </td>
                         <td className={`px-2 py-2 text-center font-semibold ${weightedTone(r.secondHalfAverage)}`}>
-                          {r.secondHalfAverage === null ? '—' : r.secondHalfAverage + '%'}
-                          <div className="text-[10px] text-faint font-normal">{r.secondHalfTaken}/{r.secondHalfTotal}</div>
+                          <span>{r.secondHalfScore}/{r.secondHalfPossible}</span>
+                          <div className="text-[10px] text-faint font-normal">{r.secondHalfAverage === null ? '—' : r.secondHalfAverage + '%'}</div>
                         </td>
                         <td className={`px-2 py-2 text-center font-bold ${weightedTone(r.halfWeightedAverage)}`}>
                           {r.halfWeightedAverage === null ? '—' : r.halfWeightedAverage + '%'}
@@ -1337,10 +1340,12 @@ function GradebookTab({ classId }) {
                   {hasHalves && (
                     <>
                       <td className="px-2 py-2 text-center">
-                        {halves.first.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${halves.first.average >= 60 ? 'text-success' : 'text-warning'}`}>{halves.first.average}%</span>}
+                        <span className="font-semibold text-navy-800">{halves.first.score}/{halves.first.possible}</span>
+                        <div className={`text-[10px] ${halves.first.average === null ? 'text-faint' : (halves.first.average >= 60 ? 'text-success' : 'text-warning')}`}>{halves.first.average === null ? '—' : halves.first.average + '%'}</div>
                       </td>
                       <td className="px-2 py-2 text-center">
-                        {halves.second.average === null ? <span className="text-faint">—</span> : <span className={`font-semibold ${halves.second.average >= 60 ? 'text-success' : 'text-warning'}`}>{halves.second.average}%</span>}
+                        <span className="font-semibold text-navy-800">{halves.second.score}/{halves.second.possible}</span>
+                        <div className={`text-[10px] ${halves.second.average === null ? 'text-faint' : (halves.second.average >= 60 ? 'text-success' : 'text-warning')}`}>{halves.second.average === null ? '—' : halves.second.average + '%'}</div>
                       </td>
                       <td className="px-2 py-2 text-center">
                         {halves.weightedAverage === null ? <span className="text-faint">—</span> : <span className={`font-bold ${halves.weightedAverage >= 60 ? 'text-success' : 'text-danger'}`}>{halves.weightedAverage}%</span>}
