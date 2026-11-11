@@ -1199,6 +1199,9 @@ function GradebookTab({ classId }) {
               {halves.weightedAverage !== null && (
                 <Badge tone="neutral" className="!text-[11px]">Combined avg {halves.weightedAverage}%</Badge>
               )}
+              {(halves.unassignedExamCount || 0) > 0 && (
+                <Badge tone="warning" className="!text-[11px]">{halves.unassignedExamCount} unassigned · excluded from Total</Badge>
+              )}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {[{ key: 'first', label: 'First half' }, { key: 'second', label: 'Second half' }].map(({ key, label }) => {
@@ -1359,7 +1362,7 @@ function GradebookTab({ classId }) {
         )}
         {data.exams.length > 0 && data.rows.length > 0 && (
           <p className="text-[11px] text-faint mt-3">
-            Total = raw points earned ÷ points possible across all exams (missing counts as 0). {hasHalves ? <>First/Second half averages keep each half separate; combined uses {halves.first.weight}:{halves.second.weight}. </> : null}{hasWeighted ? <>Weighted grade shown when categories configured. Simple average = mean of taken exams. Weighted = Σ (category avg × weight ÷ {data.totalWeight}%). </> : <>Scores show best attempt per exam. </>}Green ≥60%, amber 40–59%, red &lt;40%.
+            Total = raw points earned ÷ points possible; when a half split is configured it is exactly First half + Second half, so all three totals reconcile. Unassigned exams are excluded (assign them to a half to include them). {hasHalves ? <>First/Second half averages keep each half separate; combined uses {halves.first.weight}:{halves.second.weight}. </> : null}{hasWeighted ? <>Weighted grade shown when categories configured. Simple average = mean of taken exams. Weighted = Σ (category avg × weight ÷ {data.totalWeight}%). </> : <>Scores show best attempt per exam. </>}Green ≥60%, amber 40–59%, red &lt;40%.
           </p>
         )}
       </Card>
@@ -1493,7 +1496,7 @@ function HalfSplitModal({ open, onClose, classId, data, onSaved }) {
           <Input label="First half weight %" type="number" min={0} max={100} value={String(firstWeight)} onChange={e => setFirstWeight(Number(e.target.value))} />
           <Input label="Second half weight %" type="number" min={0} max={100} value={String(secondWeight)} onChange={e => setSecondWeight(Number(e.target.value))} />
         </div>
-        <p className="text-[11px] text-faint">Assign every exam (topic) to exactly one half. Exams left unassigned only affect the simple average and Total — they are never mixed into either half.</p>
+        <p className="text-[11px] text-faint">Assign every exam (topic) to exactly one half. Unassigned exams are excluded from both halves and from the half-based Total, so Total = First half + Second half only when everything is assigned.</p>
         {!exams.length ? (
           <EmptyState icon={ClipboardList} title="No exams yet" body="Create an exam for this class first." compact />
         ) : (

@@ -2059,7 +2059,9 @@ app.get('/api/classes/:id/gradebook', async (c) => {
   const secondWeight = halfWeight(klass.second_half_weight, 40);
   const firstExams = exams.filter(ex => ex.half === 'first');
   const secondExams = exams.filter(ex => ex.half === 'second');
-  const totalPossible = exams.reduce((sum, ex) => sum + examTotal(ex), 0);
+  const totalPossibleAll = exams.reduce((sum, ex) => sum + examTotal(ex), 0);
+  const halfConfigured = firstExams.length + secondExams.length > 0;
+  const unassignedExamCount = exams.filter(ex => !ex.half).length;
 
   // Map exam type → categories that include it (first match wins for weighting; exams
   // without a category are uncategorized and only count toward simple average).
@@ -2108,13 +2110,17 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     }
     const average = taken ? +((sumPct / taken)).toFixed(1) : null;
 
-    // Total raw points across every exam (missing = 0) + overall percentage.
-    const totalEarned = cells.reduce((sum, c) => sum + (c.score || 0), 0);
-    const totalPct = totalPossible ? +((totalEarned / totalPossible) * 100).toFixed(1) : null;
-
     // First/second half totals, each kept separate so they never mix.
     const firstHalf = halfTotalsFor(e.student_id, firstExams);
     const secondHalf = halfTotalsFor(e.student_id, secondExams);
+
+    // When a half split is configured, Total = First half + Second half so the
+    // three point totals reconcile exactly. Unassigned exams are excluded.
+    const totalEarnedAll = cells.reduce((sum, c) => sum + (c.score || 0), 0);
+    const totalEarned = halfConfigured ? firstHalf.score + secondHalf.score : totalEarnedAll;
+    const totalPossibleForRow = halfConfigured ? firstHalf.possible + secondHalf.possible : totalPossibleAll;
+    const totalPct = totalPossibleForRow ? +((totalEarned / totalPossibleForRow) * 100).toFixed(1) : null;
+
     const activeHalfWeight = (firstHalf.possible ? firstWeight : 0) + (secondHalf.possible ? secondWeight : 0);
     let halfWeightedAverage = null;
     if (activeHalfWeight > 0) {
@@ -2151,7 +2157,7 @@ app.get('/api/classes/:id/gradebook', async (c) => {
       weightedAverage,
       categoryAverages,
       totalScore: totalEarned,
-      totalPossible,
+      totalPossible: totalPossibleForRow,
       totalPct,
       firstHalfAverage: firstHalf.average,
       firstHalfScore: firstHalf.score,
@@ -2208,6 +2214,8 @@ app.get('/api/classes/:id/gradebook', async (c) => {
     first: halfStat(firstExams, firstWeight, 'firstHalfScore', 'firstHalfPossible'),
     second: halfStat(secondExams, secondWeight, 'secondHalfScore', 'secondHalfPossible'),
     totalWeight: (firstExams.length ? firstWeight : 0) + (secondExams.length ? secondWeight : 0),
+    configured: halfConfigured,
+    unassignedExamCount,
   };
   const halfWeightedVals = rows.map(r => r.halfWeightedAverage).filter(v => v !== null);
   halfStats.weightedAverage = halfWeightedVals.length
