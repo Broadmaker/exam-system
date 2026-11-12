@@ -863,7 +863,7 @@ app.post('/api/submit', async (c) => {
   const isOfflineStart = !!offline_start;
   const offlinePackageHash = String(preloaded_package_hash || '').trim();
 
-  const exam = await db.prepare(`SELECT id, deadline, class_id, status, start_at, created_at, show_answers, allow_offline_start FROM exams WHERE id = ?`).bind(exam_id).first();
+  const exam = await db.prepare(`SELECT id, deadline, class_id, status, start_at, created_at, show_answers, allow_offline_start, time_limit FROM exams WHERE id = ?`).bind(exam_id).first();
   if (!exam) return c.json({ error: 'Exam not found' }, 404);
 
   // Find any prior submission — prefer student_id match, fallback to name+section
@@ -897,6 +897,14 @@ app.post('/api/submit', async (c) => {
 
   const startedAtNum = Number(body.started_at);
   const hasValidStartedAt = Number.isFinite(startedAtNum) && startedAtNum > 0;
+
+  const timeLimitSec = Number(exam.time_limit) > 0 ? Number(exam.time_limit) * 60 : 0;
+  const reportedTime = Number(time_taken) || 0;
+  const TIME_GRACE_SEC = 10 * 60;
+  if (timeLimitSec && reportedTime > timeLimitSec + TIME_GRACE_SEC) {
+    await log(db, 'time_limit_exceeded', `${student_name} (${normId || 'no ID'}) in ${exam_id}: reported ${reportedTime}s > limit ${timeLimitSec}s`);
+    return c.json({ error: 'Time limit exceeded — this attempt cannot be recorded. Ask your proctor to allow a retry.' }, 403);
+  }
 
   // Offline-start validation: opt-in only, inside the exam window, with preload/enrollment proof.
   let offlineFlagReason = '';

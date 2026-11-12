@@ -1,18 +1,32 @@
 import { useState, useEffect, useRef } from 'react';
 import { Timer as TimerIcon } from 'lucide-react';
 
-export default function Timer({ initialSeconds, onExpire, onTick }) {
-  const [display, setDisplay] = useState(() => {
-    const h = Math.floor(initialSeconds / 3600);
-    const m = Math.floor((initialSeconds % 3600) / 60);
-    const s = initialSeconds % 60;
-    return h > 0
-      ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-      : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  });
-  const [tone, setTone] = useState(() => (initialSeconds <= 300 ? 'danger' : initialSeconds <= 900 ? 'warn' : ''));
+function formatSeconds(s) {
+  const total = Math.max(0, Math.floor(s));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+    : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+function toneFor(s) {
+  return s <= 300 ? 'danger' : s <= 900 ? 'warn' : '';
+}
+
+export default function Timer({ initialSeconds, deadlineAt, onExpire, onTick }) {
+  const fallbackAnchorRef = useRef(null);
+  if (fallbackAnchorRef.current == null) {
+    fallbackAnchorRef.current = Date.now() + (Number(initialSeconds) || 0) * 1000;
+  }
+  const anchorMs = Number(deadlineAt) > 0 ? Number(deadlineAt) : fallbackAnchorRef.current;
+  const remainingNow = () => Math.max(0, Math.ceil((anchorMs - Date.now()) / 1000));
+
+  const [display, setDisplay] = useState(() => formatSeconds(remainingNow()));
+  const [tone, setTone] = useState(() => toneFor(remainingNow()));
   const intervalRef = useRef(null);
-  const secondsRef = useRef(initialSeconds);
+  const expiredRef = useRef(false);
   const onExpireRef = useRef(onExpire);
   const onTickRef = useRef(onTick);
 
@@ -20,28 +34,32 @@ export default function Timer({ initialSeconds, onExpire, onTick }) {
   useEffect(() => { onTickRef.current = onTick; }, [onTick]);
 
   useEffect(() => {
-    secondsRef.current = initialSeconds;
-    const tick = () => {
-      secondsRef.current--;
-      const s = secondsRef.current;
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const sec = s % 60;
-      setDisplay(
-        h > 0
-          ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-          : `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
-      );
-      setTone(s <= 300 ? 'danger' : s <= 900 ? 'warn' : '');
+    expiredRef.current = false;
+    const apply = (s) => {
+      setDisplay(formatSeconds(s));
+      setTone(toneFor(s));
       if (onTickRef.current) onTickRef.current(s);
-      if (s <= 0) {
+    };
+    const tick = () => {
+      const s = remainingNow();
+      apply(s);
+      if (s <= 0 && !expiredRef.current) {
+        expiredRef.current = true;
         clearInterval(intervalRef.current);
         if (onExpireRef.current) onExpireRef.current();
       }
     };
+    const onVisible = () => { if (!document.hidden) tick(); };
+    tick();
     intervalRef.current = setInterval(tick, 1000);
-    return () => clearInterval(intervalRef.current);
-  }, [initialSeconds]);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      clearInterval(intervalRef.current);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [anchorMs]);
 
   const styles = {
     danger: 'bg-danger-bg border-danger/30 text-danger',

@@ -58,6 +58,7 @@ export default function Exam() {
   const [pendingSubmit, setPendingSubmit] = useState(null);
   const [pendingRetryTick, setPendingRetryTick] = useState(0);
   const [pendingRetryExhausted, setPendingRetryExhausted] = useState(false);
+  const [syncRetryTick, setSyncRetryTick] = useState(0);
   const [serverRetry, setServerRetry] = useState(false);
   // Preloaded offline quiz (docs/OFFLINE_QUIZ.md)
   const [offlineStart, setOfflineStart] = useState(false);
@@ -75,6 +76,7 @@ export default function Exam() {
   const resizeTimerRef = useRef(null);
   const startTimeRef = useRef(null);
   const handleSubmitRef = useRef(null);
+  const submittingRef = useRef(false);
   const fsWasActiveRef = useRef(false);
   const fsSupportedRef = useRef(typeof document !== 'undefined' && !!document.fullscreenEnabled);
   const [fsBlocked, setFsBlocked] = useState(false);
@@ -100,7 +102,11 @@ export default function Exam() {
   const offlineStartRef = useRef(false);
   const offlineSyncedRef = useRef(false);
   const preloadInflightRef = useRef(false);
+  const preloadPromiseRef = useRef(null);
+  const preloadRetryRef = useRef(0);
+  const reconnectGraceUntilRef = useRef(0);
   const pendingAttemptsRef = useRef(0);
+  const syncAttemptsRef = useRef(0);
   const offlineStateFields = () => ({
     offlineStart: offlineStartRef.current,
     offlineAttemptId: offlineAttemptIdRef.current,
@@ -224,22 +230,26 @@ export default function Exam() {
           setOfflineSynced(!!saved.offlineSynced);
           offlineAttemptIdRef.current = saved.offlineAttemptId || '';
         }
+        // Rebuild seed + shuffled questions (client questions were stripped of answers but still needed for display)
+        const buildFrom = (qsList) => {
+          try {
+            if (!qsList?.length) return false;
+            const s = hashStr((saved.name || '').toLowerCase().replace(/\s/g, '') + (saved.section || '').toLowerCase() + examId);
+            setSeed(s);
+            setQuestions(shuffleWithSeed(qsList, s));
+            return true;
+          } catch { return false; }
+        };
         if (saved.submitted) {
           setSubmitted(true);
           setStarted(true);
+          if (!(examData.questions || []).length) {
+            const pkg = offlinePkgRef.current || loadOfflineQuiz(examId);
+            buildFrom(pkg?.questions || []);
+          }
         } else if (saved.startedAt && saved.studentId) {
           // Mid-exam back-swipe / reload — auto-resume without re-scanning
           setStarted(true);
-          // Rebuild seed + shuffled questions (client questions were stripped of answers but still needed for display)
-          const buildFrom = (qsList) => {
-            try {
-              if (!qsList?.length) return false;
-              const s = hashStr((saved.name || '').toLowerCase().replace(/\s/g, '') + (saved.section || '').toLowerCase() + examId);
-              setSeed(s);
-              setQuestions(shuffleWithSeed(qsList, s));
-              return true;
-            } catch { return false; }
-          };
           // Prefer questions already in memory, then the preloaded offline package,
           // then a proof-based refetch (code + student_id) when online.
           const pkg = offlinePkgRef.current || loadOfflineQuiz(examId);
@@ -259,7 +269,12 @@ export default function Exam() {
 
   // Online/offline detection
   useEffect(() => {
-    const onOnline = () => setOffline(false);
+    const onOnline = () => {
+      preloadRetryRef.current = 0;
+      syncAttemptsRef.current = 0;
+      reconnectGraceUntilRef.current = Date.now() + 4000;
+      setOffline(false);
+    };
     const onOffline = () => setOffline(true);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
@@ -463,6 +478,7 @@ export default function Exam() {
     if (!started || submitted) return;
     const trigger = (source) => {
       if (cooldownRef.current) return;
+      if (Date.now() < reconnectGraceUntilRef.current) return;
       cooldownRef.current = true;
       setTimeout(() => { cooldownRef.current = false; }, 1000);
       setTabSwitches(prev => {
@@ -651,72 +667,90 @@ export default function Exam() {
 
   // Download the quiz package for offline use. Verified students can do this
   // before the scheduled open time; questions stay hidden until start.
-  const preloadQuiz = useCallback(async (opts = {}) => {
-    if (!examId || offline || preloadInflightRef.current) return null;
-    if (!examData?.allow_offline_start) return null;
+  const preloadQuiz = useCallback((opts = {}) => {
+    if (!examId || offline) return Promise.resolve(null);
+    if (preloadInflightRef.current) return preloadPromiseRef.current || Promise.resolve(null);
+    const openNow = !examData?.start_at || new Date(examData.start_at).getTime() <= Date.now();
+    const earlyOk = !!examData?.allow_offline_start && !!(examData?.class_id || examData?.has_access_code);
+    if (!openNow && !earlyOk) return Promise.resolve(null);
     const sid = String(opts.studentId ?? studentId).trim().toUpperCase();
-    if (!sid) return null;
+    if (!sid) return Promise.resolve(null);
     const cls = opts.classId ?? examData?.class_id;
     const verified = (opts.lookupState ?? lookupState) === 'found';
-    if (cls && !verified) return null;
+    if (cls && !verified) return Promise.resolve(null);
     const needCode = !!(opts.hasAccessCode ?? examData?.has_access_code);
     const code = String(opts.accessCode ?? accessCode).trim();
-    if (needCode && !code) return null;
+    if (needCode && !code) return Promise.resolve(null);
     const nm = String(opts.name ?? name).trim();
     const sec = String(opts.section ?? section).trim();
-    if (!cls && (!nm || !sec)) return null;
+    if (!cls && (!nm || !sec)) return Promise.resolve(null);
 
     preloadInflightRef.current = true;
     setPreloadState('loading');
     setPreloadError('');
-    try {
-      const res = await api.preloadExam(examId, { code, studentId: sid, studentName: nm, studentSection: sec, deviceId });
-      const pkg = saveOfflineQuiz(examId, {
-        exam: res.exam,
-        questions: res.questions,
-        not_before: res.not_before,
-        package_hash: res.package_hash,
-        student: res.student,
-        device_id: deviceId,
-        preloaded: true,
-      });
-      if (!pkg) {
+    const job = (async () => {
+      try {
+        const res = await api.preloadExam(examId, { code, studentId: sid, studentName: nm, studentSection: sec, deviceId });
+        const pkg = saveOfflineQuiz(examId, {
+          exam: res.exam,
+          questions: res.questions,
+          not_before: res.not_before,
+          package_hash: res.package_hash,
+          student: res.student,
+          device_id: deviceId,
+          preloaded: true,
+        });
+        if (!pkg) {
+          setPreloadState('error');
+          setPreloadError('Could not save the offline copy on this device.');
+          return null;
+        }
+        offlinePkgRef.current = pkg;
+        setPreloadInfo(offlineQuizSummary(pkg));
+        setPreloadState('ready');
+        const count = res.questions?.length || pkg.questions?.length || 0;
+        toast('All questions preloaded', `${count} item${count === 1 ? '' : 's'} ready on this device. You can start the exam.`);
+        // Refresh non-question metadata only — never mount questions before start.
+        setExamData(prev => prev ? ({
+          ...prev,
+          allow_offline_start: res.exam?.allow_offline_start ?? prev.allow_offline_start,
+          start_at: res.exam?.start_at ?? prev.start_at,
+          deadline: res.exam?.deadline ?? prev.deadline,
+          status: res.exam?.status ?? prev.status,
+        }) : prev);
+        return pkg;
+      } catch (e) {
         setPreloadState('error');
-        setPreloadError('Could not save the offline copy on this device.');
+        setPreloadError(e.message || 'Could not preload this quiz.');
         return null;
+      } finally {
+        preloadInflightRef.current = false;
+        preloadPromiseRef.current = null;
       }
-      offlinePkgRef.current = pkg;
-      setPreloadInfo(offlineQuizSummary(pkg));
-      setPreloadState('ready');
-      // Refresh non-question metadata only — never mount questions before start.
-      setExamData(prev => prev ? ({
-        ...prev,
-        allow_offline_start: res.exam?.allow_offline_start ?? prev.allow_offline_start,
-        start_at: res.exam?.start_at ?? prev.start_at,
-        deadline: res.exam?.deadline ?? prev.deadline,
-        status: res.exam?.status ?? prev.status,
-      }) : prev);
-      return pkg;
-    } catch (e) {
-      setPreloadState('error');
-      setPreloadError(e.message || 'Could not preload this quiz.');
-      return null;
-    } finally {
-      preloadInflightRef.current = false;
-    }
+    })();
+    preloadPromiseRef.current = job;
+    return job;
   }, [examId, offline, studentId, name, section, accessCode, lookupState, examData, deviceId]);
 
   // Auto-preload once the student has supplied the required proof.
   useEffect(() => {
     if (!examData || offline || started || submitted) return;
-    if (!examData.allow_offline_start) return;
-    if (preloadState !== 'idle') return;
+    const openNow = !examData.start_at || new Date(examData.start_at).getTime() <= Date.now();
+    const earlyOk = !!examData.allow_offline_start && !!(examData.class_id || examData.has_access_code);
+    if (!openNow && !earlyOk) return;
+    if (preloadState !== 'idle' && preloadState !== 'error') return;
     const sid = studentId.trim().toUpperCase();
     if (!sid) return;
     if (examData.class_id && lookupState !== 'found') return;
     if (!examData.class_id && (!name.trim() || !section.trim())) return;
     if (examData.has_access_code && !accessCode.trim()) return;
-    const t = setTimeout(() => { preloadQuiz().catch(() => {}); }, 700);
+    if (preloadState === 'idle') preloadRetryRef.current = 0;
+    if (preloadState === 'error' && preloadRetryRef.current >= 4) return;
+    const delay = preloadState === 'error'
+      ? Math.min(20000, 3000 * Math.pow(2, preloadRetryRef.current)) + Math.floor(Math.random() * 500)
+      : 700;
+    if (preloadState === 'error') preloadRetryRef.current += 1;
+    const t = setTimeout(() => { preloadQuiz().catch(() => {}); }, delay);
     return () => clearTimeout(t);
   }, [examData, offline, started, submitted, preloadState, studentId, lookupState, name, section, accessCode, preloadQuiz]);
 
@@ -725,35 +759,71 @@ export default function Exam() {
     if (!started || submitted || !offlineStart || offline || offlineSynced) return;
     const attemptId = offlineAttemptIdRef.current;
     if (!attemptId) return;
-    api.syncOfflineStart(examId, {
-      student_id: studentId.trim().toUpperCase(),
-      student_name: name.trim(),
-      student_section: section.trim(),
-      device_id: deviceId,
-      offline_attempt_id: attemptId,
-      started_at: startTimeRef.current || 0,
-      package_hash: offlinePkgRef.current?.package_hash || '',
-    }).then(res => {
-      offlineSyncedRef.current = true;
-      setOfflineSynced(true);
-      if (res?.session_id) {
-        sessionIdRef.current = res.session_id;
-        setSessionId(res.session_id);
-        try { localStorage.setItem('exam_session_' + examId, res.session_id); } catch {}
-      }
-      if (res?.student_name) setName(res.student_name);
-      if (res?.student_section) setSection(res.student_section);
+    let cancelled = false;
+    let timer = null;
+    const sync = async () => {
+      if (cancelled) return;
       try {
-        const raw = localStorage.getItem('exam_state_' + examId);
-        if (raw) {
-          const saved = JSON.parse(raw);
-          localStorage.setItem('exam_state_' + examId, JSON.stringify({ ...saved, offlineSynced: true, sessionId: sessionIdRef.current }));
+        const res = await api.syncOfflineStart(examId, {
+          student_id: studentId.trim().toUpperCase(),
+          student_name: name.trim(),
+          student_section: section.trim(),
+          device_id: deviceId,
+          offline_attempt_id: attemptId,
+          started_at: startTimeRef.current || 0,
+          package_hash: offlinePkgRef.current?.package_hash || '',
+        });
+        if (cancelled) return;
+        syncAttemptsRef.current = 0;
+        offlineSyncedRef.current = true;
+        setOfflineSynced(true);
+        if (res?.session_id) {
+          sessionIdRef.current = res.session_id;
+          setSessionId(res.session_id);
+          try { localStorage.setItem('exam_session_' + examId, res.session_id); } catch {}
         }
-      } catch {}
-      if (res?.flagged) toast('Synced — flagged for proctor', 'You started offline. Your work is saved and will be reviewed.');
-      else toast('Back online', 'Your offline session was synced.');
-    }).catch(() => {});
-  }, [started, submitted, offlineStart, offline, offlineSynced, examId, studentId, name, section, deviceId]);
+        if (res?.student_name) setName(res.student_name);
+        if (res?.student_section) setSection(res.student_section);
+        try {
+          const raw = localStorage.getItem('exam_state_' + examId);
+          if (raw) {
+            const saved = JSON.parse(raw);
+            localStorage.setItem('exam_state_' + examId, JSON.stringify({ ...saved, offlineSynced: true, sessionId: sessionIdRef.current }));
+          }
+        } catch {}
+        if (res?.flagged) toast('Synced — flagged for proctor', 'You started offline. Your work is saved and will be reviewed.');
+        else toast('Back online', 'Your offline session was synced.');
+      } catch (e) {
+        if (cancelled) return;
+        // Authoritative rejection (window/proof/disabled) — retrying will never help.
+        if (e && e.status === 403) {
+          toast('Offline session not accepted', e.message || 'Ask your proctor to verify your attempt.');
+          return;
+        }
+        syncAttemptsRef.current += 1;
+        if (syncAttemptsRef.current >= 6) {
+          toast('Sync paused', 'Your offline session will retry when you reconnect or reopen the app.');
+          return;
+        }
+        const delay = Math.min(16000, 1000 * Math.pow(2, syncAttemptsRef.current - 1)) + Math.floor(Math.random() * 400);
+        timer = setTimeout(() => { if (!cancelled) setSyncRetryTick(t => t + 1); }, delay);
+      }
+    };
+    sync();
+    const onBackOnline = () => {
+      syncAttemptsRef.current = 0;
+      if (timer) clearTimeout(timer);
+      sync();
+    };
+    window.addEventListener('online', onBackOnline);
+    window.addEventListener('focus', onBackOnline);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      window.removeEventListener('online', onBackOnline);
+      window.removeEventListener('focus', onBackOnline);
+    };
+  }, [started, submitted, offlineStart, offline, offlineSynced, examId, studentId, name, section, deviceId, syncRetryTick]);
 
   // Tick the gate clock so a scheduled quiz unlocks without a page refresh.
   useEffect(() => {
@@ -778,6 +848,10 @@ export default function Exam() {
     if (!examData?.class_id && (!name.trim() || !section.trim())) {
       setGateError('Please fill in your name and section.');
       return;
+    }
+
+    if (!offline && preloadState !== 'ready') {
+      await preloadQuiz().catch(() => null);
     }
 
     // ── Offline start (docs/OFFLINE_QUIZ.md) ──
@@ -929,7 +1003,9 @@ export default function Exam() {
     enterFullscreen();
     // Preserve any restored draft (closing the browser keeps answers in localStorage).
     // For a truly fresh start answers/answeredSet are empty anyway.
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({ name: effName, section: effSection, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual', ...offlineStateFields() }));
+    try {
+      localStorage.setItem('exam_state_' + examId, JSON.stringify({ name: effName, section: effSection, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds: examData.time_limit * 60, startedAt: startTimeRef.current, submitted: false, submitReason: 'manual', ...offlineStateFields() }));
+    } catch {}
   };
 
   const handleAnswer = useCallback((qid, displayKey) => {
@@ -952,11 +1028,13 @@ export default function Exam() {
   // Persist draft immediately on answer change so closing the browser/PWA doesn't lose work
   useEffect(() => {
     if (!started || submitted || !examId) return;
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
-      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason,
-      ...offlineStateFields(),
-    }));
+    try {
+      localStorage.setItem('exam_state_' + examId, JSON.stringify({
+        name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers, answered: Array.from(answeredSet),
+        tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: false, submitReason,
+        ...offlineStateFields(),
+      }));
+    } catch {}
     // Keep pending_submission in sync so a retry doesn't revive stale A after B
     try {
       const raw = localStorage.getItem('pending_submission_' + examId);
@@ -1019,7 +1097,7 @@ export default function Exam() {
   }, [started, submitted, name, section, studentId, tabSwitches, accessCode, submitReason, examId]);
 
   const handleSubmit = useCallback(async (reason = 'manual') => {
-    if (submitted) return;
+    if (submitted || submittingRef.current) return;
     // Always read from refs so A->B flicker in the same tick is not lost.
     // Fallback to localStorage exam_state if refs are transiently empty (e.g. tab auto-submit
     // racing with fill_blank onChange commit) - prevents the 1/60 single-answer loss.
@@ -1076,12 +1154,14 @@ export default function Exam() {
     // Optimistic local result — will be corrected by server authoritative score
     setResults({ total, totalQ: qs.length, partScores, timeTaken });
 
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: curAnswers, answered: Array.from(curAnsweredSet),
-      tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true, submitReason: reason,
-      offlineStart: offlineStartRef.current, offlineAttemptId: offlineAttemptIdRef.current, offlineSynced: offlineSyncedRef.current,
-      preloadedPackageHash: offlinePkgRef.current?.package_hash || '',
-    }));
+    try {
+      localStorage.setItem('exam_state_' + examId, JSON.stringify({
+        name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(), answers: curAnswers, answered: Array.from(curAnsweredSet),
+        tabSwitches, totalSeconds, startedAt: startTimeRef.current, submitted: true, submitReason: reason,
+        offlineStart: offlineStartRef.current, offlineAttemptId: offlineAttemptIdRef.current, offlineSynced: offlineSyncedRef.current,
+        preloadedPackageHash: offlinePkgRef.current?.package_hash || '',
+      }));
+    } catch {}
 
     const payload = {
       exam_id: examId, student_name: name, student_section: section, student_id: studentId.trim().toUpperCase(),
@@ -1160,6 +1240,12 @@ export default function Exam() {
         setSubmitted(true);
         return;
       }
+      if (e.status === 403) {
+        toast('Submission rejected', e.message || 'This attempt could not be recorded. Ask your proctor.');
+        setSubmitting(false);
+        setSubmitted(true);
+        return;
+      }
       localStorage.setItem('pending_submission_' + examId, JSON.stringify(payload));
       setPendingSubmit(payload);
       toast('Submission queued', 'You are offline or the server is unreachable — answers saved locally and will sync when online.');
@@ -1204,14 +1290,33 @@ export default function Exam() {
   };
 
   const saveExamState = (overrides) => {
-    localStorage.setItem('exam_state_' + examId, JSON.stringify({
-      name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(),
-      answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds, startedAt: startTimeRef.current,
-      submitted: false, submitReason: 'manual', ...offlineStateFields(), ...overrides,
-    }));
+    try {
+      localStorage.setItem('exam_state_' + examId, JSON.stringify({
+        name, section, studentId: studentId.trim().toUpperCase(), sessionId: sessionIdRef.current, accessCode: accessCode.trim(),
+        answers, answered: Array.from(answeredSet), tabSwitches, totalSeconds, startedAt: startTimeRef.current,
+        submitted: false, submitReason: 'manual', ...offlineStateFields(), ...overrides,
+      }));
+    } catch {}
+  };
+
+  const resolveExamQuestions = () => {
+    if (examData?.questions?.length) return { list: examData.questions, shuffle: true };
+    const pkgQs = offlinePkgRef.current?.questions;
+    if (pkgQs?.length) return { list: pkgQs, shuffle: true };
+    return { list: questionsRef.current || [], shuffle: false };
   };
 
   const continueExam = async () => {
+    const qs = resolveExamQuestions();
+    if (!qs.list.length) {
+      toast('Questions unavailable', 'Your questions could not be loaded. Reconnect and reload the exam before continuing.');
+      return;
+    }
+    const limitSec = (Number(examData?.time_limit) || 0) * 60;
+    if (limitSec) {
+      const remainingSec = Math.max(0, Math.min(limitSec, Number(totalSeconds) || 0));
+      startTimeRef.current = Date.now() - (limitSec - remainingSec) * 1000;
+    }
     try {
       await reopenSession();
     } catch (e) {
@@ -1222,7 +1327,7 @@ export default function Exam() {
     // question/choice order the answers were recorded against.
     const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
     setSeed(s);
-    setQuestions(shuffleWithSeed(examData.questions || [], s));
+    setQuestions(qs.shuffle ? shuffleWithSeed(qs.list, s) : qs.list);
     // Keep pending_submission if it was a real offline queue, but a retry wipes it —
     // continue preserves it so they can finish answering.
     if (!pendingSubmit) {
@@ -1235,11 +1340,17 @@ export default function Exam() {
     setReviewMode(false);
     setKicked(false);
     kickedRef.current = false;
+    setTabSwitches(0);
     enterFullscreen();
-    saveExamState({ answers, answered: Array.from(answeredSet) });
+    saveExamState({ answers, answered: Array.from(answeredSet), tabSwitches: 0 });
   };
 
   const retryExam = async () => {
+    const qs = resolveExamQuestions();
+    if (!qs.list.length) {
+      toast('Questions unavailable', 'Your questions could not be loaded. Reconnect and reload the exam before retrying.');
+      return;
+    }
     // Backup current answers before wiping — server guard prevents empty overwrite,
     // but this lets the student recover if they tapped retry by mistake.
     try {
@@ -1254,7 +1365,7 @@ export default function Exam() {
     }
     const s = hashStr(name.toLowerCase().replace(/\s/g, '') + section.toLowerCase() + examId);
     setSeed(s);
-    setQuestions(shuffleWithSeed(examData.questions || [], s));
+    setQuestions(qs.shuffle ? shuffleWithSeed(qs.list, s) : qs.list);
     setAnswers({});
     setAnsweredSet(new Set());
     setTabSwitches(0);
@@ -1385,7 +1496,9 @@ export default function Exam() {
     const offlineAllowed = !!(examData?.allow_offline_start || offlinePkg?.allow_offline_start);
     const offlineWindowReady = offlinePkg ? isOfflineWindowOpen(offlinePkg, nowTick) : false;
     const canStartOffline = offline && offlineReady && offlineAllowed && offlineWindowReady;
-    const preloadCount = preloadInfo?.count || examData?.questions?.length || 0;
+    const preloadBusy = !offline && preloadState === 'loading';
+    const preloadDone = preloadState === 'ready' || offlineReady;
+    const preloadCount = preloadInfo?.count || offlinePkg?.questions?.length || examData?.questions?.length || 0;
     const opensAt = examData?.start_at ? new Date(examData.start_at) : (offlinePkg?.not_before ? new Date(offlinePkg.not_before) : null);
     return (
       <PublicLayout>
@@ -1442,28 +1555,32 @@ export default function Exam() {
                   ? <>Preload now so you can start with a weak signal.{opensAt ? <> Questions unlock {opensAt.toLocaleString()}.</> : null}</>
                   : canStartOffline
                     ? 'Your preloaded quiz is ready. Answers are saved on this device and sync when you reconnect.'
-                    : 'Enter your details to begin. Keep your ID handy.'}
+                    : preloadBusy
+                      ? 'Downloading all questions so your exam opens instantly.'
+                      : preloadDone
+                        ? 'All questions are ready. Starting the exam will be instant.'
+                        : 'Enter your details to begin. Keep your ID handy.'}
               </p>
 
-              {offlineAllowed && (preloadState === 'ready' || offlineReady) && (
+              {preloadDone && (
                 <div className="flex items-start gap-2 bg-success-bg border border-success/20 rounded-xl px-3.5 py-2.5 mb-3 text-[12px] text-success">
                   <CheckCircle size={14} className="shrink-0 mt-0.5" />
                   <span>
-                    <strong>Questions preloaded</strong> — {preloadCount} item{preloadCount === 1 ? '' : 's'} saved on this device
+                    <strong>All questions preloaded</strong> — {preloadCount} item{preloadCount === 1 ? '' : 's'} ready on this device
                     {preloadInfo?.cachedAt ? <> · {new Date(preloadInfo.cachedAt).toLocaleString()}</> : null}.
-                    {scheduledFuture && opensAt ? <> They unlock {opensAt.toLocaleString()}.</> : null}
+                    {scheduledFuture && opensAt ? <> They unlock {opensAt.toLocaleString()}.</> : ' You can start the exam.'}
                   </span>
                 </div>
               )}
-              {offlineAllowed && preloadState === 'loading' && (
+              {preloadBusy && (
                 <div className="flex items-center gap-2 bg-info-bg border border-info/15 rounded-xl px-3.5 py-2.5 mb-3 text-[12px] text-info">
-                  <Clock size={14} /> Preloading questions for offline use…
+                  <Clock size={14} /> Preloading all questions… Please wait before starting.
                 </div>
               )}
-              {offlineAllowed && preloadState === 'error' && (
+              {!preloadDone && preloadState === 'error' && (
                 <div className="flex items-start gap-2 bg-warning-bg border border-warning/20 rounded-xl px-3.5 py-2.5 mb-3 text-[12px] text-warning">
                   <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                  <span className="flex-1">{preloadError || 'Could not preload this quiz.'}</span>
+                  <span className="flex-1">{preloadError || 'Could not preload all questions.'} You can still start — questions will load when you begin.</span>
                   <button type="button" onClick={() => { setPreloadState('idle'); preloadQuiz().catch(() => {}); }} className="font-semibold underline shrink-0">Retry</button>
                 </div>
               )}
@@ -1542,6 +1659,10 @@ export default function Exam() {
               ) : offline && !canStartOffline ? (
                 <Button className="!w-full !py-3.5 !text-[15px]" disabled>
                   Connect once to start →
+                </Button>
+              ) : preloadBusy ? (
+                <Button className="!w-full !py-3.5 !text-[15px]" disabled>
+                  Preloading questions…
                 </Button>
               ) : (
                 <Button className="!w-full !py-3.5 !text-[15px]" onClick={startExam}>
@@ -1775,7 +1896,14 @@ export default function Exam() {
                 <div className="h-full bg-accent rounded-full transition-all duration-300" style={{ width: totalQ > 0 ? ((answeredCount / totalQ) * 100) + '%' : '0%' }} />
               </div>
             </div>
-            {!submitted && <Timer initialSeconds={totalSeconds} onExpire={() => handleSubmit('timeout')} onTick={handleTimerTick} />}
+            {!submitted && (
+              <Timer
+                initialSeconds={totalSeconds}
+                deadlineAt={startTimeRef.current ? startTimeRef.current + (Number(examData?.time_limit) || 0) * 60 * 1000 : undefined}
+                onExpire={() => handleSubmit('timeout')}
+                onTick={handleTimerTick}
+              />
+            )}
           </div>
         </div>
         {/* Mobile progress */}
