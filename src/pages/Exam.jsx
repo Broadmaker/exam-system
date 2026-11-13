@@ -8,7 +8,7 @@ import Timer from '../components/Timer';
 import QuestionCard from '../components/QuestionCard';
 import PublicLayout from '../components/PublicLayout';
 import { Button, Input, ConfirmDialog } from '../components/ui';
-import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar, Scan, Clock } from 'lucide-react';
+import { AlertTriangle, Ban, ClipboardList, Trophy, CheckCircle, Book, XCircle, ArrowLeft, WifiOff, ShieldCheck, Shuffle, Timer as TimerIcon, Calendar, Scan, Clock, Lock } from 'lucide-react';
 
 export default function Exam() {
   const [params] = useSearchParams();
@@ -51,6 +51,15 @@ export default function Exam() {
     (results?.perQuestion || []).forEach(p => { m[p.question_id] = p; });
     return m;
   }, [results]);
+  // Correct answers are withheld until the exam can no longer be taken. The
+  // server enforces this; these flags keep the UI honest and unlock later.
+  const showAnswersPref = !!examData && Number(examData.show_answers) !== 0;
+  const answersRevealed = showAnswersPref && (
+    examData?.answers_revealed === true ||
+    results?.answers_revealed === true ||
+    ['closed', 'archived'].includes(examData?.status) ||
+    !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now())
+  );
   const [showConfirm, setShowConfirm] = useState(false);
   const [reviewMode, setReviewMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -107,6 +116,7 @@ export default function Exam() {
   const reconnectGraceUntilRef = useRef(0);
   const pendingAttemptsRef = useRef(0);
   const syncAttemptsRef = useRef(0);
+  const reviewFetchedRef = useRef('');
   const offlineStateFields = () => ({
     offlineStart: offlineStartRef.current,
     offlineAttemptId: offlineAttemptIdRef.current,
@@ -317,7 +327,7 @@ export default function Exam() {
           }
           setResults(prev => {
             if (!prev) return prev;
-            const next = { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ };
+            const next = { ...prev, total: res.score, totalQ: res.total ?? prev.totalQ, answers_revealed: !!res.answers_revealed };
             if (res.perQuestion) next.perQuestion = res.perQuestion;
             if (serverPartScores) next.partScores = serverPartScores;
             try { localStorage.setItem('exam_results_' + examId, JSON.stringify(next)); } catch {}
@@ -433,6 +443,46 @@ export default function Exam() {
     setResults(next);
     try { localStorage.setItem('exam_results_' + examId, JSON.stringify(next)); } catch {}
   }, [results, questions, examId]);
+
+  // Once the exam is no longer live, pull the answer keys for review. Early
+  // submissions intentionally cache no keys, so this fills them in on revisit.
+  useEffect(() => {
+    if (!submitted || !answersRevealed || !examId) return;
+    const sid = studentId.trim().toUpperCase();
+    if (!name.trim() || !section.trim()) return;
+    const key = examId + ':' + (sid || name.trim().toLowerCase() + '|' + section.trim().toLowerCase());
+    if (reviewFetchedRef.current === key) return;
+    reviewFetchedRef.current = key;
+    api.getMyReview(examId, { studentId: sid, studentName: name.trim(), studentSection: section.trim() })
+      .then(data => {
+        if (!data?.perQuestion?.length) return;
+        setResults(prev => {
+          const base = prev || { total: data.score, totalQ: data.total, perQuestion: data.perQuestion, timeTaken: 0 };
+          const next = { ...base, perQuestion: data.perQuestion, answers_revealed: true };
+          try { localStorage.setItem('exam_results_' + examId, JSON.stringify(next)); } catch {}
+          return next;
+        });
+      })
+      .catch(() => { reviewFetchedRef.current = ''; });
+  }, [submitted, answersRevealed, examId, studentId, name, section]);
+
+  // Keep checking for the exam to close so the review unlocks without a reload.
+  useEffect(() => {
+    if (!submitted || !examId || !showAnswersPref || answersRevealed) return;
+    let cancelled = false;
+    const refresh = () => {
+      if (cancelled || document.hidden) return;
+      api.getExam(examId).then(d => {
+        if (cancelled) return;
+        setExamData(prev => prev ? { ...prev, status: d.status ?? prev.status, answers_revealed: d.answers_revealed === true } : prev);
+      }).catch(() => {});
+    };
+    const t = setInterval(refresh, 30000);
+    const onVis = () => { if (!document.hidden) refresh(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', refresh);
+    return () => { cancelled = true; clearInterval(t); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', refresh); };
+  }, [submitted, examId, showAnswersPref, answersRevealed]);
 
   // Heartbeat: keeps the live session alive and detects admin kicks.
   useEffect(() => {
@@ -1195,13 +1245,13 @@ export default function Exam() {
         if (res.score !== total || res.perQuestion || serverPartScores) {
           setResults(prev => {
             const base = prev || { total, totalQ: qs.length, partScores, timeTaken };
-            return { ...base, total: res.score, totalQ: res.total ?? base.totalQ, perQuestion: res.perQuestion || base.perQuestion, partScores: serverPartScores || base.partScores, timeTaken };
+            return { ...base, total: res.score, totalQ: res.total ?? base.totalQ, perQuestion: res.perQuestion || base.perQuestion, partScores: serverPartScores || base.partScores, timeTaken, answers_revealed: !!res.answers_revealed };
           });
         }
         total = res.score;
         // Keep perQuestion + partScores for Review My Answers display and reload persistence
         if (res.perQuestion) {
-          try { localStorage.setItem('exam_results_' + examId, JSON.stringify({ total: res.score, totalQ: res.total, perQuestion: res.perQuestion, partScores: serverPartScores, timeTaken })); } catch {}
+          try { localStorage.setItem('exam_results_' + examId, JSON.stringify({ total: res.score, totalQ: res.total, perQuestion: res.perQuestion, partScores: serverPartScores, timeTaken, answers_revealed: !!res.answers_revealed })); } catch {}
         }
       }
       if (sessionIdRef.current) api.endSession(examId, { session_id: sessionIdRef.current }).catch(() => {});
@@ -1739,6 +1789,11 @@ export default function Exam() {
               </tbody>
             </table>
           </div>
+          {showAnswersPref && !answersRevealed && (
+            <div className="flex items-center justify-center gap-1.5 text-[12px] text-muted mb-5">
+              <Lock size={12} /> Correct answers unlock after the exam closes.
+            </div>
+          )}
           {pendingSubmit && (
             <div className="flex flex-col items-center gap-2 mb-3">
               <div className="flex items-center justify-center gap-1.5 text-[12px] text-warning">
@@ -1958,6 +2013,11 @@ export default function Exam() {
       })()}
 
       <main className="max-w-[860px] mx-auto px-4 py-6">
+        {reviewMode && showAnswersPref && !answersRevealed && (
+          <div className="mb-4 flex items-center gap-2 text-[12.5px] text-muted bg-canvas border border-border rounded-xl px-4 py-3">
+            <Lock size={13} className="shrink-0" /> Correct answers unlock after the exam closes. Your responses and score breakdown are still available.
+          </div>
+        )}
         <div className="flex flex-col gap-4">
           {questions.slice(qPage * QUESTIONS_PER_PAGE, (qPage + 1) * QUESTIONS_PER_PAGE).map((q, idx) => {
             const i = qPage * QUESTIONS_PER_PAGE + idx;
@@ -1971,7 +2031,7 @@ export default function Exam() {
                 onAnswer={handleAnswer}
                 submitted={submitted || reviewMode}
                 chosenKey={answers[q.id]}
-                showAnswers={examData?.show_answers !== 0}
+                showAnswers={answersRevealed}
                 grading={grading}
               />
             </div>

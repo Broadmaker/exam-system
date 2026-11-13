@@ -80,6 +80,16 @@ function isDeadlinePassed(deadline, now = Date.now()) {
   return !isNaN(t) && t <= now;
 }
 
+// Correct answers may only be shown once an exam can no longer be taken.
+// Releasing them right after a student submits lets early finishers leak keys
+// to classmates who are still answering, so honour show_answers only after the
+// exam is closed/archived or its deadline has passed.
+function answersRevealAllowed(exam) {
+  if (!exam || Number(exam.show_answers) === 0) return false;
+  if (exam.status === 'closed' || exam.status === 'archived') return true;
+  return isDeadlinePassed(exam.deadline);
+}
+
 async function autoCloseExpiredExams(db) {
   const now = Date.now();
   try {
@@ -500,6 +510,7 @@ app.get('/api/exams/:id', async (c) => {
     ...exam,
     questions: safeQuestions,
     questions_locked: !canSeeQuestions,
+    answers_revealed: answersRevealAllowed(exam),
     class_name: klass ? [klass.name, klass.section].filter(Boolean).join(' — ') : '',
     access_code: isAdmin ? (exam.access_code || '') : undefined,
     has_access_code: !!(exam.access_code || ''),
@@ -683,6 +694,58 @@ app.get('/api/exams/:id/retry-status', async (c) => {
   if (count >= MAX_RETRIES) return c.json({ allowed: false, reason: sub.reason, retry_count: count, remaining: 0, capped: true });
   const allowed = !!sub.retry_allowed;
   return c.json({ allowed, reason: sub.reason, retry_count: count, remaining: Math.max(0, MAX_RETRIES - count), capped: false });
+});
+
+// Student-facing review data. Answer keys are returned only after the exam is
+// no longer live, so a student who finished early cannot share them with
+// classmates who are still taking the exam.
+app.get('/api/exams/:examId/review', async (c) => {
+  if (!rateLimit(c, 30, 60_000)) return c.json({ error: 'Too many requests' }, 429);
+  const db = c.env.DB;
+  const examId = c.req.param('examId');
+  const studentId = (c.req.query('student_id') || '').trim().toUpperCase();
+  const studentName = (c.req.query('student_name') || '').trim();
+  const studentSection = (c.req.query('student_section') || '').trim();
+  if (!studentName || !studentSection) {
+    return c.json({ error: 'student_name and student_section are required.' }, 400);
+  }
+  const exam = await db.prepare(`SELECT id, show_answers, status, deadline FROM exams WHERE id = ?`).bind(examId).first();
+  if (!exam) return c.json({ error: 'Exam not found' }, 404);
+  const sub = studentId
+    ? await db.prepare(
+      `SELECT id, score, total, seed, answers, answer_scheme FROM submissions
+       WHERE exam_id = ? AND student_id = ? AND student_name = ? AND student_section = ?`
+    ).bind(examId, studentId, studentName, studentSection).first()
+    : await db.prepare(
+      `SELECT id, score, total, seed, answers, answer_scheme FROM submissions
+       WHERE exam_id = ? AND student_name = ? AND student_section = ?`
+    ).bind(examId, studentName, studentSection).first();
+  if (!sub) return c.json({ error: 'No submission found for this student.' }, 404);
+
+  const revealed = answersRevealAllowed(exam);
+  if (!revealed) {
+    return c.json({ score: sub.score, total: sub.total, perQuestion: [], answers_revealed: false });
+  }
+
+  const { results: questions } = await db.prepare(
+    `SELECT * FROM questions WHERE exam_id = ? ORDER BY part, sort_order, id`
+  ).bind(examId).all();
+  let perQuestion = [];
+  try {
+    const computed = await computeScoreWithAI(questions || [], sub, {}, c.env);
+    perQuestion = computed.perQuestion;
+  } catch {
+    try { perQuestion = computeScore(questions || [], sub).perQuestion; } catch { perQuestion = []; }
+  }
+  const qMap = new Map((questions || []).map(q => [q.id, q]));
+  perQuestion = perQuestion.map(p => {
+    const q = qMap.get(p.question_id);
+    if (!q) return p;
+    const choices = parseChoices(q.choices);
+    const correctChoice = choices.find(c => c.key === q.answer);
+    return { ...p, answer: q.answer, answerText: correctChoice ? correctChoice.text : '', explain: q.explain || '' };
+  });
+  return c.json({ score: sub.score, total: sub.total, perQuestion, answers_revealed: true });
 });
 
 // Look up a student in the class roster for a class-linked exam, so they only
@@ -1195,9 +1258,10 @@ app.post('/api/submit', async (c) => {
     await log(db, 'offline_submit_flagged', `${student_name} (${normId}) in ${exam_id}: ${offlineFlagReason} (kept submission)`);
   }
   invalidateAnalytics(exam_id);
-  // Enrich perQuestion with correct answer/explanation for student review when show_answers is enabled.
-  // The student's Questions were stripped of answer on GET, so review needs server-provided keys.
-  const showAns = Number(exam.show_answers) !== 0;
+  // Enrich perQuestion with correct answer/explanation for student review only
+  // after the exam is closed/archived or its deadline has passed. Never while
+  // other students can still be answering — early submitters could share keys.
+  const showAns = answersRevealAllowed(exam);
   if (showAns) {
     const qMap = new Map(questions.map(q => [q.id, q]));
     serverPerQuestion = serverPerQuestion.map(p => {
@@ -1213,6 +1277,7 @@ app.post('/api/submit', async (c) => {
     score: serverScore,
     total: serverTotal,
     perQuestion: serverPerQuestion,
+    answers_revealed: showAns,
     offline_start: isOfflineStart,
     flagged: !!flaggedValue,
     flag_reason: flagReasonValue || undefined,

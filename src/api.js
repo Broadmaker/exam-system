@@ -124,6 +124,13 @@ export const api = {
   bulkImportQuestions: (examId, questions, startOrder = 0) =>
     request('/exams/' + examId + '/questions/bulk', { method: 'POST', body: JSON.stringify({ questions, start_order: startOrder }), credentials: 'include' }),
   submitScore: (body) => request('/submit', { method: 'POST', body: JSON.stringify(body), timeout: 30000 }),
+  getMyReview: (examId, { studentId = '', studentName = '', studentSection = '' } = {}) => {
+    const qs = new URLSearchParams();
+    if (studentId) qs.set('student_id', studentId);
+    if (studentName) qs.set('student_name', studentName);
+    if (studentSection) qs.set('student_section', studentSection);
+    return request('/exams/' + examId + '/review?' + qs.toString(), { timeout: 25000 });
+  },
   getLeaderboard: (examId) => request('/leaderboard/' + examId),
   getSubmissions: (examId) => request('/submissions/' + examId, { credentials: 'include' }),
   reviewAnswer: (submissionId, body) => request('/submissions/' + submissionId + '/review', { method: 'POST', body: JSON.stringify(body), credentials: 'include' }),

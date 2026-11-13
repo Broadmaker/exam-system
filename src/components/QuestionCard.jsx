@@ -88,7 +88,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
             )}
           </div>
         )}
-        {submitted && explainTextFb && (
+        {submitted && showAnswers && explainTextFb && (
           <div className={`mt-3 text-[13px] leading-relaxed px-3.5 py-2.5 rounded-xl border ${isPartial ? 'bg-warning-bg border-warning/30 text-warning' : isCorrect ? 'bg-success-bg border-success/20 text-success' : 'bg-danger-bg border-danger/20 text-danger'}`}>
             <MathText text={explainTextFb} />
           </div>
@@ -99,7 +99,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
 
   const qData = qDataMemo;
   const fixedChoices = fixedChoicesMemo;
-  // qData.answer is stripped for students (anti-cheat); after submit server provides correct key via grading.answer when show_answers is on.
+  // qData.answer is stripped for students (anti-cheat); after the exam closes the server provides the correct key via grading.answer when show_answers is on.
   const serverAnswer = grading?.answer;
   const serverExplain = grading?.explain;
   const correctKey = serverAnswer !== undefined ? serverAnswer : qData.answer;
