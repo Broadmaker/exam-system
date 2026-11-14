@@ -466,6 +466,29 @@ export default function Exam() {
       .catch(() => { reviewFetchedRef.current = ''; });
   }, [submitted, answersRevealed, examId, studentId, name, section]);
 
+  // Recover the score on revisit when the cached result was cleared (or the
+  // attempt was made on another surface). Review always returns score/total,
+  // even before the answer keys are revealed.
+  useEffect(() => {
+    // The review fetch above already handles the revealed case (with keys).
+    if (!submitted || results || !examId || answersRevealed) return;
+    if (!name.trim() || !section.trim()) return;
+    let cancelled = false;
+    api.getMyReview(examId, { studentId: studentId.trim().toUpperCase(), studentName: name.trim(), studentSection: section.trim() })
+      .then(data => {
+        if (cancelled || typeof data?.score !== 'number') return;
+        setResults({
+          total: data.score,
+          totalQ: data.total,
+          perQuestion: data.perQuestion || [],
+          timeTaken: 0,
+          answers_revealed: !!data.answers_revealed,
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [submitted, results, examId, studentId, name, section, answersRevealed]);
+
   // Keep checking for the exam to close so the review unlocks without a reload.
   useEffect(() => {
     if (!submitted || !examId || !showAnswersPref || answersRevealed) return;
@@ -1478,19 +1501,18 @@ export default function Exam() {
   }
 
   // ── Deadline / Lifecycle Check ──
+  // Anyone who already started or submitted must be able to reach their score /
+  // review screen after the deadline. The "Exam Ended" lockout is only for
+  // students who never had an attempt on this device.
   let resumedInProgress = false;
   try {
     const saved = JSON.parse(localStorage.getItem('exam_state_' + examId));
-    if (saved && !saved.submitted && saved.startedAt) {
-      const dlMs = examData?.deadline ? new Date(examData.deadline).getTime() : Infinity;
-      if (saved.startedAt < dlMs) resumedInProgress = true;
-      // If they have a local draft/pending after the exam was closed, still let
-      // them reach the gate so the server can grant the retry/started-before-deadline grace
-      if (!resumedInProgress && saved.startedAt) resumedInProgress = true;
-    }
+    // saved.submitted is the key case: a student revisiting after submitting
+    // (e.g. the deadline passed) should see their recorded score, not "Exam Ended".
+    if (saved && (saved.startedAt || saved.submitted)) resumedInProgress = true;
     if (!resumedInProgress && localStorage.getItem('pending_submission_' + examId)) resumedInProgress = true;
   } catch {}
-  const expired = !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) && !resumedInProgress;
+  const expired = !!(examData?.deadline && new Date(examData.deadline).getTime() <= Date.now()) && !resumedInProgress && !results;
   if (expired) {
     return (
       <PublicLayout>
@@ -1738,9 +1760,20 @@ export default function Exam() {
     questions.forEach(q => { partCounts[q.part] = (partCounts[q.part] || 0) + 1; });
     // Fallback when questions not yet loaded (e.g., reload) — derive counts from totalQ evenly
     const fallbackQpp = parts.length ? Math.ceil(results.totalQ / parts.length) : results.totalQ;
+    // A recovered score (server fetch on revisit) has no per-part breakdown yet.
+    const hasPartScores = results.partScores !== undefined && results.partScores !== null;
     return (
       <div className="min-h-screen flex items-center justify-center px-4 pt-safe pb-safe bg-[rgba(10,20,40,.7)]">
         <div className="bg-surface rounded-[16px] max-w-[520px] w-full text-center shadow-modal max-h-[90vh] overflow-y-auto px-6 sm:px-8 py-8">
+          {submitted ? (
+            <div className="inline-flex items-center gap-1.5 text-[12px] font-bold text-success bg-success-bg border border-success/30 rounded-full px-3 py-1 mb-3">
+              <CheckCircle size={13} /> You already submitted this exam
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-muted bg-canvas border border-border rounded-full px-3 py-1 mb-3">
+              <ClipboardList size={13} /> Submitting your answers…
+            </div>
+          )}
           <div className="font-mono text-[11px] tracking-[.12em] text-muted uppercase mb-4">{name} · {section}</div>
           <div className="relative w-36 h-36 mx-auto mb-4">
             <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
@@ -1763,32 +1796,34 @@ export default function Exam() {
             {pct >= passingPct ? <><CheckCircle size={13} /> PASSED</> : <><XCircle size={13} /> FAILED</>}
             <span className="font-normal text-muted">· passing at {passingPct}%</span>
           </div>
-          <div className="text-left border border-border rounded-[10px] overflow-hidden mb-6">
-            <table className="w-full border-collapse text-[13px]">
-              <thead><tr className="bg-navy-900 text-white">
-                <th className="px-3.5 py-2 text-left font-mono text-[10px] tracking-[.08em]">Part</th>
-                <th className="px-3.5 py-2 text-left">Score</th>
-              </tr></thead>
-              <tbody>
-                {parts.map(p => {
-                  const sc = results.partScores?.[p] ?? 0;
-                  const tot = partCounts[p] ?? fallbackQpp;
-                  const pct2 = tot ? (sc / tot) * 100 : 0;
-                  return (
-                    <tr key={p} className="border-t border-border">
-                      <td className="px-3.5 py-2.5 font-semibold">Part {p}</td>
-                      <td className="px-3.5 py-2.5">
-                        {Number.isInteger(sc) ? sc : sc.toFixed(1)}/{tot}
-                        <div className="h-1.5 bg-border rounded-full overflow-hidden mt-1">
-                          <div className="h-full bg-navy-700 rounded-full transition-all duration-500" style={{ width: pct2 + '%' }} />
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          {hasPartScores && (
+            <div className="text-left border border-border rounded-[10px] overflow-hidden mb-6">
+              <table className="w-full border-collapse text-[13px]">
+                <thead><tr className="bg-navy-900 text-white">
+                  <th className="px-3.5 py-2 text-left font-mono text-[10px] tracking-[.08em]">Part</th>
+                  <th className="px-3.5 py-2 text-left">Score</th>
+                </tr></thead>
+                <tbody>
+                  {parts.map(p => {
+                    const sc = results.partScores?.[p] ?? 0;
+                    const tot = partCounts[p] ?? fallbackQpp;
+                    const pct2 = tot ? (sc / tot) * 100 : 0;
+                    return (
+                      <tr key={p} className="border-t border-border">
+                        <td className="px-3.5 py-2.5 font-semibold">Part {p}</td>
+                        <td className="px-3.5 py-2.5">
+                          {Number.isInteger(sc) ? sc : sc.toFixed(1)}/{tot}
+                          <div className="h-1.5 bg-border rounded-full overflow-hidden mt-1">
+                            <div className="h-full bg-navy-700 rounded-full transition-all duration-500" style={{ width: pct2 + '%' }} />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           {showAnswersPref && !answersRevealed && (
             <div className="flex items-center justify-center gap-1.5 text-[12px] text-muted mb-5">
               <Lock size={12} /> Correct answers unlock after the exam closes.
