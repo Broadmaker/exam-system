@@ -83,33 +83,41 @@ function buildCells(questions, sub) {
     } else {
       const choices = parseChoices(q.choices);
       const scheme = sub.answer_scheme === 'fixed' ? 'fixed' : 'shuffled';
-      const correctChoice = choices.find(c => c.key === q.answer) || {};
+      // Resolve the key even if legacy data stored the choice text or different
+      // casing, so a visibly-correct pick is not shown as incorrect.
+      const normKey = (v) => String(v == null ? '' : v).trim().toUpperCase();
+      const correctChoice = choices.find(c => normKey(c.key) === normKey(q.answer))
+        || choices.find(c => normKey(c.text) === normKey(q.answer))
+        || {};
+      const correctKey = correctChoice.key !== undefined ? correctChoice.key : q.answer;
 
       // Resolve which underlying choice the student picked, regardless of scheme.
       // For 'shuffled' (legacy) the stored value is a per-student display letter;
       // for 'fixed' it is the canonical choice key.
       let picked;
       if (scheme === 'fixed') {
-        picked = choices.find(c => c.key === raw) || null;
+        picked = choices.find(c => normKey(c.key) === normKey(raw))
+          || choices.find(c => normKey(c.text) === normKey(raw))
+          || null;
       } else {
         const shuffled = shuffleWithSeed(choices, seeds[q.id]).map((c, ci) => ({
           ...c, displayKey: String.fromCharCode(65 + ci),
         }));
-        picked = shuffled.find(c => c.displayKey === raw);
+        picked = shuffled.find(c => c.displayKey === normKey(raw));
       }
 
       // Re-align for DISPLAY using the canonical DB-order letters (A=first choice,
       // B=second, …) so answers align with the answer key the same way new takers see
       // them. The stored grade (`autoCorrect` from the picked choice's key) is unchanged.
       const pickedKey = picked ? picked.key : (raw || null);
-      autoCorrect = !!picked && picked.key === q.answer;
+      autoCorrect = !!picked && picked.key === correctKey;
       cell = {
         type: 'multiple_choice',
         chosen: pickedKey,
-        answerKey: q.answer,
+        answerKey: correctKey,
         choiceText: picked ? picked.text : '',
         answerText: correctChoice.text || '',
-        correctDisplayKey: q.answer,
+        correctDisplayKey: correctKey,
         correctDisplayText: correctChoice.text || '',
       };
     }
@@ -414,7 +422,9 @@ function AnswersInner() {
                   {qs.map((q, qi) => {
                     const correctText = (() => {
                       try {
-                        const ch = parseChoices(q.choices).find(c => c.key === q.answer);
+                        const choices = parseChoices(q.choices);
+                        const norm = (v) => String(v == null ? '' : v).trim().toUpperCase();
+                        const ch = choices.find(c => norm(c.key) === norm(q.answer)) || choices.find(c => norm(c.text) === norm(q.answer));
                         return ch ? ch.text : q.answer;
                       } catch { return q.answer; }
                     })();

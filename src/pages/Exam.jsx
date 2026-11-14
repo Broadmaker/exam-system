@@ -2065,7 +2065,7 @@ export default function Exam() {
                 seed={seed}
                 onAnswer={handleAnswer}
                 submitted={submitted || reviewMode}
-                chosenKey={answers[q.id]}
+                chosenKey={grading && grading.chosen !== undefined ? grading.chosen : answers[q.id]}
                 showAnswers={answersRevealed}
                 grading={grading}
               />

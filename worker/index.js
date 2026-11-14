@@ -742,7 +742,7 @@ app.get('/api/exams/:examId/review', async (c) => {
     const q = qMap.get(p.question_id);
     if (!q) return p;
     const choices = parseChoices(q.choices);
-    const correctChoice = choices.find(c => c.key === q.answer);
+    const correctChoice = resolveAnswerChoice(choices, q.answer);
     return { ...p, answer: q.answer, answerText: correctChoice ? correctChoice.text : '', explain: q.explain || '' };
   });
   return c.json({ score: sub.score, total: sub.total, perQuestion, answers_revealed: true });
@@ -1268,7 +1268,7 @@ app.post('/api/submit', async (c) => {
       const q = qMap.get(p.question_id);
       if (!q) return p;
       const choices = parseChoices(q.choices);
-      const correctChoice = choices.find(c => c.key === q.answer);
+      const correctChoice = resolveAnswerChoice(choices, q.answer);
       return { ...p, answer: q.answer, answerText: correctChoice ? correctChoice.text : '', explain: q.explain || '' };
     });
   }
@@ -2980,15 +2980,18 @@ app.get('/api/student/:studentId', async (c) => {
   //               shuffle to the underlying choice key, then compare.
   const gradeMC = (chosen, q, studentSeed, qIndex, scheme) => {
     const choices = parseChoices(q.choices);
+    const answerChoice = resolveAnswerChoice(choices, q.answer);
+    if (!answerChoice) return false;
     if (scheme === 'fixed') {
-      return !!chosen && chosen === q.answer;
+      const picked = resolveChosenChoice(choices, chosen);
+      return !!picked && picked.key === answerChoice.key;
     }
     const choiceSeed = studentSeed + qIndex * 7919;
     const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
       ...c, displayKey: String.fromCharCode(65 + ci),
     }));
-    const picked = shuffled.find(c => c.displayKey === chosen);
-    return !!picked && picked.key === q.answer;
+    const picked = shuffled.find(c => c.displayKey === normChoiceKey(chosen));
+    return !!picked && picked.key === answerChoice.key;
   };
 
   // ── Competency breakdown (Upscale.md §32, §65) ──
@@ -3178,9 +3181,11 @@ app.get('/api/analytics/:examId', async (c) => {
     }
 
     const choices = parseChoices(q.choices);
+    const answerChoice = resolveAnswerChoice(choices, q.answer);
+    const answerKey = answerChoice ? answerChoice.key : q.answer;
     const choiceMap = {};
     choices.forEach(c => {
-      choiceMap[c.key] = { text: c.text, count: 0, correct: c.key === q.answer };
+      choiceMap[c.key] = { text: c.text, count: 0, correct: c.key === answerKey };
     });
 
     let correctCount = 0;
@@ -3190,7 +3195,8 @@ app.get('/api/analytics/:examId', async (c) => {
       const stored = submittedAnswers[q.id];
       let chosenKey;
       if (sub.answer_scheme === 'fixed') {
-        chosenKey = stored;
+        const picked = resolveChosenChoice(choices, stored);
+        chosenKey = picked ? picked.key : undefined;
       } else {
         // Legacy shuffled: choice order depends on shuffled question position, not original qIdx
         const shuffledQs = shuffleWithSeed(questions, studentSeed);
@@ -3199,12 +3205,12 @@ app.get('/api/analytics/:examId', async (c) => {
         const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
           ...c, displayKey: String.fromCharCode(65 + ci),
         }));
-        const viaLetter = shuffled.find(s => s.displayKey === stored);
+        const viaLetter = shuffled.find(s => s.displayKey === normChoiceKey(stored));
         chosenKey = viaLetter ? viaLetter.key : undefined;
       }
       if (chosenKey && choiceMap[chosenKey]) {
         choiceMap[chosenKey].count++;
-        if (chosenKey === q.answer) correctCount++;
+        if (chosenKey === answerKey) correctCount++;
       }
     });
 
@@ -3250,6 +3256,23 @@ function shuffleWithSeed(arr, seed) {
 }
 function parseChoices(choices) {
   return typeof choices === 'string' ? JSON.parse(choices) : choices;
+}
+
+// Multiple-choice key resolution. Older imports sometimes stored an answer as
+// the choice text or with different casing; resolve to the real choice so a
+// visibly-correct pick is never graded as wrong.
+function normChoiceKey(v) {
+  return String(v == null ? '' : v).trim().toUpperCase();
+}
+function resolveAnswerChoice(choices, answer) {
+  return choices.find(c => normChoiceKey(c.key) === normChoiceKey(answer))
+    || choices.find(c => normChoiceKey(c.text) === normChoiceKey(answer))
+    || null;
+}
+function resolveChosenChoice(choices, chosen) {
+  return choices.find(c => normChoiceKey(c.key) === normChoiceKey(chosen))
+    || choices.find(c => normChoiceKey(c.text) === normChoiceKey(chosen))
+    || null;
 }
 
 // ── Fill-in-the-blank equivalence engine ──
@@ -3631,8 +3654,13 @@ function computeScore(questions, sub, overrides = {}, aiScores = {}) {
     let autoScore = 0;
     let aiSim = null;
     let aiSuggested = false;
+    // Canonical choice key the student picked (resolved from legacy display
+    // letters). Used by the review UI so the highlighted option matches what
+    // the student actually chose, regardless of which scheme graded them.
+    let chosenValue = null;
     if (qType === 'fill_blank') {
       const studentAnswer = submittedAnswers[q.id] || '';
+      chosenValue = studentAnswer;
       autoCorrect = matchesAnswer(studentAnswer, q.answer);
       if (autoCorrect) {
         autoScore = 1;
@@ -3651,16 +3679,23 @@ function computeScore(questions, sub, overrides = {}, aiScores = {}) {
       }
     } else {
       const choices = parseChoices(q.choices);
+      const raw = submittedAnswers[q.id];
+      // Resolve the answer key even if legacy data stored the choice text or a
+      // different case, so a visibly-correct pick is not graded as wrong.
+      const answerChoice = resolveAnswerChoice(choices, q.answer);
       if (sub.answer_scheme === 'fixed') {
-        autoCorrect = !!submittedAnswers[q.id] && submittedAnswers[q.id] === q.answer;
+        const match = resolveChosenChoice(choices, raw);
+        chosenValue = match ? match.key : (raw ? String(raw).trim() : null);
+        autoCorrect = !!match && !!answerChoice && match.key === answerChoice.key;
       } else {
         const choiceSeed = studentSeed + idx * 7919;
         const shuffled = shuffleWithSeed(choices, choiceSeed).map((c, ci) => ({
           ...c, displayKey: String.fromCharCode(65 + ci),
         }));
-        const correctDisplayKey = shuffled.find(c => c.key === q.answer).displayKey;
-        const chosen = submittedAnswers[q.id];
-        autoCorrect = chosen === correctDisplayKey;
+        const chosenDisplayKey = normChoiceKey(raw);
+        const match = shuffled.find(c => c.displayKey === chosenDisplayKey) || null;
+        chosenValue = match ? match.key : (raw ? String(raw).trim() : null);
+        autoCorrect = !!match && !!answerChoice && match.key === answerChoice.key;
       }
       autoScore = autoCorrect ? 1 : 0;
     }
@@ -3678,6 +3713,7 @@ function computeScore(questions, sub, overrides = {}, aiScores = {}) {
     correctCount += finalScore;
     perQuestion.push({
       question_id: q.id,
+      chosen: chosenValue,
       autoCorrect,
       autoScore,
       aiSimilarity: aiSim,

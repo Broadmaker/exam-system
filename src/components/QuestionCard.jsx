@@ -110,9 +110,13 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
   const answered = chosenKey !== undefined;
   // Prefer server grading when available (authoritative, works without leaked answer keys)
   const hasServerVerdict = submitted && grading && typeof grading.correct === 'boolean';
-  const isCorrect = hasServerVerdict ? !!grading.correct : (submitted && chosenKey === correctKey);
-  const isWrong = submitted && chosenKey !== undefined && !isCorrect;
-  const canShowAnswer = submitted && showAnswers && correctKey !== undefined && correctKey !== '';
+  // Without a server verdict (e.g. a queued/offline submission) and with the
+  // answer key withheld, we cannot know the verdict — never claim "Incorrect".
+  const hasAnswerKey = correctKey !== undefined && correctKey !== '';
+  const fallbackVerdict = submitted && hasAnswerKey ? chosenKey === correctKey : null;
+  const isCorrect = hasServerVerdict ? !!grading.correct : fallbackVerdict;
+  const isWrong = submitted && answered && isCorrect === false;
+  const canShowAnswer = submitted && showAnswers && hasAnswerKey;
 
   return (
     <div
@@ -127,7 +131,7 @@ export default function QuestionCard({ question, index, seed, onAnswer, submitte
           {qData.part && <span className="text-muted">· Part {qData.part}</span>}
         </span>
         {submitted ? (
-          isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : answered ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span> : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
+          isCorrect ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-success"><CheckCircle size={12} /> Correct</span> : isCorrect === false ? <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-danger"><XCircle size={12} /> Incorrect</span> : answered ? <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted"><HelpCircle size={12} /> Submitted</span> : <span className="inline-flex items-center gap-1 text-[11px] font-medium text-faint"><HelpCircle size={12} /> Not answered</span>
         ) : answered ? (
           <span className="text-[11px] font-semibold text-navy-700">Answered</span>
         ) : (
